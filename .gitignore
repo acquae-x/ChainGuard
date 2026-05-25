@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/_runtime_tmp/
+.streamlit/secrets.toml
+.env

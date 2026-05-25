@@ -1,0 +1,34 @@
+[
+  {
+    "mode": "air",
+    "name": "空运",
+    "available": true,
+    "estimated_hours": 18,
+    "cost_level": "高",
+    "risk_note": "速度最快，但加急成本高"
+  },
+  {
+    "mode": "road",
+    "name": "陆运",
+    "available": true,
+    "estimated_hours": 42,
+    "cost_level": "中",
+    "risk_note": "成本中等，但受天气和道路管制影响"
+  },
+  {
+    "mode": "rail",
+    "name": "铁路",
+    "available": true,
+    "estimated_hours": 60,
+    "cost_level": "中低",
+    "risk_note": "稳定性较好，但时间较长"
+  },
+  {
+    "mode": "sea",
+    "name": "海运",
+    "available": false,
+    "estimated_hours": null,
+    "cost_level": "低",
+    "risk_note": "宁波港暂停作业，当前不可用"
+  }
+]

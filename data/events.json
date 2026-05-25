@@ -1,0 +1,14 @@
+[
+  {
+    "event_id": "EVT-TYPHOON-NB-001",
+    "event_type": "typhoon_port_shutdown",
+    "title": "台风导致宁波港暂停作业",
+    "location": "宁波港",
+    "affected_supplier": "SUP-A",
+    "affected_route": "宁波港海运出口链路",
+    "delay_hours": 72,
+    "external_risk_score": 85,
+    "weather_risk": "高",
+    "description": "台风导致宁波港暂停作业，A供应商发货延误72小时，天气风险高。"
+  }
+]

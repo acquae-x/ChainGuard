@@ -1,0 +1,32 @@
+[
+  {
+    "order_id": "SO-A-001",
+    "customer_name": "A类关键客户",
+    "priority": "A",
+    "required_material": "M-AX100",
+    "demand_qty": 5000,
+    "due_hours": 48,
+    "penalty_cost": 180000,
+    "gross_profit": 420000
+  },
+  {
+    "order_id": "SO-B-002",
+    "customer_name": "B类普通客户",
+    "priority": "B",
+    "required_material": "M-AX100",
+    "demand_qty": 2200,
+    "due_hours": 72,
+    "penalty_cost": 60000,
+    "gross_profit": 160000
+  },
+  {
+    "order_id": "SO-C-003",
+    "customer_name": "C类低优先级订单",
+    "priority": "C",
+    "required_material": "M-AX100",
+    "demand_qty": 1200,
+    "due_hours": 120,
+    "penalty_cost": 15000,
+    "gross_profit": 52000
+  }
+]
