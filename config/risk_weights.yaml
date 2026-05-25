@@ -1,0 +1,12 @@
+inventory_risk_weights:
+  shortage_urgency: 0.35
+  order_importance: 0.25
+  transit_delay: 0.20
+  external_event: 0.20
+
+decision_score_weights:
+  timeliness: 0.25
+  cost: 0.20
+  risk_reduction: 0.25
+  feasibility: 0.20
+  service_level: 0.10

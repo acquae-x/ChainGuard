@@ -1,0 +1,12 @@
+{
+  "material_id": "M-AX100",
+  "material_name": "核心控制芯片",
+  "current_stock": 3600,
+  "hourly_consumption": 100,
+  "safety_stock": 6200,
+  "in_transit_qty": 3000,
+  "planned_arrival_hours": 24,
+  "estimated_arrival_hours": 96,
+  "critical_order_demand": 5000,
+  "external_risk_score": 85
+}

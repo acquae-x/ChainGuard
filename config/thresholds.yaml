@@ -1,0 +1,13 @@
+inventory_warning:
+  yellow_support_hours: 48
+  red_support_hours: 24
+  safety_stock_gap_rate: 0.20
+  transit_delay_hours: 24
+  critical_order_coverage_rate: 0.80
+  inventory_risk_trigger: 70
+
+debate:
+  score_gap_trigger: 15
+
+learning:
+  low_score_threshold: 70

@@ -1,0 +1,38 @@
+[
+  {
+    "supplier_id": "SUP-A",
+    "supplier_name": "A供应商",
+    "material_id": "M-AX100",
+    "status": "受台风影响",
+    "available_qty": 3000,
+    "lead_time_hours": 96,
+    "delay_hours": 72,
+    "cost_multiplier": 1.0,
+    "reliability_score": 78,
+    "region": "宁波"
+  },
+  {
+    "supplier_id": "SUP-B",
+    "supplier_name": "B备用供应商",
+    "material_id": "M-AX100",
+    "status": "可供货但成本较高",
+    "available_qty": 4200,
+    "lead_time_hours": 36,
+    "delay_hours": 0,
+    "cost_multiplier": 1.45,
+    "reliability_score": 86,
+    "region": "苏州"
+  },
+  {
+    "supplier_id": "SUP-C",
+    "supplier_name": "C第二备用供应商",
+    "material_id": "M-AX100",
+    "status": "可供货少且交期更长",
+    "available_qty": 1600,
+    "lead_time_hours": 72,
+    "delay_hours": 0,
+    "cost_multiplier": 1.20,
+    "reliability_score": 74,
+    "region": "武汉"
+  }
+]
