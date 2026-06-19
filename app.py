@@ -1,46 +1,94 @@
+import json
+from pathlib import Path
+
 import streamlit as st
 
-from src.agents import generate_all_proposals
-from src.arbitrator import arbitrate
-from src.config_loader import load_risk_weights, load_thresholds
-from src.conflict_detector import detect_conflict
-from src.data_loader import load_demo_context
-from src.debate import generate_rebuttal
-from src.inventory_monitor import calculate_inventory_risk
 from src.learning import (
-    generate_experience_card,
     load_experience_cards,
     save_experience_card,
 )
+from src.orchestrator import DecisionOrchestrator
 from src.parameter_calibration import explain_simulation_limitations
-from src.scoring import attach_total_scores, detect_low_score, rank_proposals
+from src.scenario_loader import ScenarioLoader
+from src.scoring import detect_low_score, rank_proposals
+from src.sensitivity import run_sensitivity
 
 
 DEMO_CASE_NAME = "台风导致宁波港停运"
+SCENARIO_DB_PATH = (
+    Path(__file__).resolve().parent
+    / "demo_assets"
+    / "enterprise"
+    / "database"
+    / "chainguard_enterprise_demo.db"
+)
 
 
-def find_proposal(proposals: list[dict], keyword: str) -> dict:
-    for proposal in proposals:
-        if keyword in proposal["agent_name"]:
-            return proposal
-    raise ValueError(f"未找到 {keyword} 对应的 Agent 方案。")
+def render_sidebar(scenarios: list[dict]) -> tuple[str, str | None]:
+    with st.sidebar:
+        st.header("演示控制台")
+        options = [{"event_id": None, "label": f"固定演示：{DEMO_CASE_NAME}"}]
+        options.extend(
+            {
+                "event_id": scenario["event_id"],
+                "label": (
+                    f"{scenario['event_id']}｜{scenario['event_title']}｜"
+                    f"{scenario['severity']}｜风险 {scenario['risk_score']}"
+                ),
+            }
+            for scenario in scenarios
+        )
+        st.selectbox(
+            "演示案例选择",
+            options,
+            index=0,
+            format_func=lambda item: item["label"],
+        )
 
+        st.markdown("### 参数说明")
+        st.info(
+            "当前使用模拟参数和专家经验权重。真实落地时，可接入企业 ERP/WMS/TMS "
+            "历史数据，对库存风险权重、预警阈值和评分规则进行校准。"
+        )
 
-def render_sidebar() -> None:
-    st.sidebar.header("演示控制台")
-    st.sidebar.selectbox("演示案例选择", [DEMO_CASE_NAME], index=0)
+        if st.button("运行完整应急决策流程", type="primary", use_container_width=True):
+            st.session_state["workflow_has_run"] = True
 
-    st.sidebar.markdown("### 参数说明")
-    st.sidebar.info(
-        "当前使用模拟参数和专家经验权重。真实落地时，可接入企业 ERP/WMS/TMS "
-        "历史数据，对库存风险权重、预警阈值和评分规则进行校准。"
-    )
+        if st.session_state.get("workflow_has_run", True):
+            st.success("完整流程已就绪，可按 Step 1-11 演示。")
 
-    if st.sidebar.button("运行完整应急决策流程", type="primary", use_container_width=True):
-        st.session_state["workflow_has_run"] = True
+        st.divider()
+        st.subheader("场景模式")
+        scenario_mode = st.radio(
+            "选择运行场景",
+            ["演示场景（台风-宁波港）", "企业真实场景"],
+            index=0,
+            key="scenario_mode",
+            label_visibility="collapsed",
+        )
 
-    if st.session_state.get("workflow_has_run", True):
-        st.sidebar.success("完整流程已就绪，可按 Step 1-7 演示。")
+        enterprise_event_id = None
+        if scenario_mode == "企业真实场景":
+            from src.scenario_loader import ScenarioLoader
+
+            try:
+                _loader_for_list = ScenarioLoader()
+                _event_list = _loader_for_list.list_scenarios(limit=50)
+                _event_options = {
+                    f"{e['event_id']} · {e['event_title']} [{e['severity']}]": e["event_id"]
+                    for e in _event_list
+                }
+                _selected_label = st.selectbox(
+                    "选择事件",
+                    list(_event_options.keys()),
+                    key="enterprise_event_select",
+                )
+                enterprise_event_id = _event_options.get(_selected_label)
+            except Exception as _e:
+                st.error(f"企业数据库加载失败：{_e}")
+                enterprise_event_id = None
+
+    return scenario_mode, enterprise_event_id
 
 
 def render_header() -> None:
@@ -82,21 +130,44 @@ def render_step_2(context: dict) -> None:
     event = context["events"][0]
     inventory = context["inventory"]
     suppliers = context["suppliers"]
-    supplier_a = next(item for item in suppliers if item["supplier_id"] == "SUP-A")
+    affected_supplier_id = event.get("affected_supplier")
+    affected_supplier = next(
+        (
+            item
+            for item in suppliers
+            if item.get("supplier_id") == affected_supplier_id
+        ),
+        None,
+    )
 
     cols = st.columns(3)
     with cols[0]:
         st.container(border=True).markdown(
-            f"**台风事件**\n\n{event['description']}\n\n外部风险分：**{event['external_risk_score']}**"
+            f"**{event['title']}**\n\n{event['description']}\n\n"
+            f"外部风险分：**{event['external_risk_score']}**"
         )
     with cols[1]:
         st.container(border=True).markdown(
-            f"**港口停运**\n\n受影响路线：{event['affected_route']}\n\n当前位置：**{event['location']}**"
+            f"**事件影响范围**\n\n受影响路线：{event['affected_route']}\n\n"
+            f"当前位置：**{event['location']}**"
         )
     with cols[2]:
-        st.container(border=True).markdown(
-            f"**A供应商延误**\n\n供应商状态：{supplier_a['status']}\n\n预计延误：**{supplier_a['delay_hours']} 小时**"
-        )
+        if affected_supplier:
+            st.container(border=True).markdown(
+                f"**受影响供应商**\n\n{affected_supplier['supplier_name']}\n\n"
+                f"供应商状态：{affected_supplier['status']}\n\n"
+                f"预计延误：**{affected_supplier['delay_hours']} 小时**"
+            )
+        elif affected_supplier_id:
+            st.container(border=True).markdown(
+                f"**受影响供应商**\n\n{affected_supplier_id}\n\n"
+                "该供应商未列入当前物料的合格供应商清单。\n\n"
+                f"预计延误：**{event.get('estimated_delay_hours', 0)} 小时**"
+            )
+        else:
+            st.container(border=True).markdown(
+                "**受影响供应商**\n\n当前物料没有合格供应商记录。"
+            )
 
     st.caption(
         f"监控物料：{inventory['material_name']}（{inventory['material_id']}），"
@@ -200,7 +271,12 @@ def render_step_5(rebuttal: dict) -> None:
         st.write(rebuttal["accepted_tradeoff"])
 
 
-def render_step_6(arbitration: dict) -> None:
+def render_step_6(
+    arbitration: dict,
+    proposals: list[dict],
+    conflict: dict,
+    rebuttal: dict,
+) -> None:
     st.header("Step 6 仲裁决策")
 
     with st.container(border=True):
@@ -237,6 +313,61 @@ def render_step_6(arbitration: dict) -> None:
         use_container_width=True,
         hide_index=True,
     )
+
+    with st.expander("仲裁推导过程", expanded=False):
+        st.markdown("**Step 1 · 评分排名**")
+        ranked = sorted(
+            proposals,
+            key=lambda p: float(p.get("total_score", 0)),
+            reverse=True,
+        )
+        st.dataframe(
+            [
+                {
+                    "排名": i + 1,
+                    "Agent": p.get("agent_name", ""),
+                    "总分": round(float(p.get("total_score", 0)), 2),
+                }
+                for i, p in enumerate(ranked)
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        best_score = float(ranked[0].get("total_score", 0)) if ranked else 0.0
+
+        st.markdown("**Step 2 · 冲突检测**")
+        has_conflict = bool(conflict.get("has_conflict", False))
+        score_gap = float(conflict.get("score_gap", 0))
+        conflict_penalty = 2 if has_conflict else 0
+        col_a, col_b = st.columns(2)
+        col_a.metric("最高最低分差距", f"{score_gap:.1f} 分")
+        col_b.metric("冲突惩罚", f"-{conflict_penalty}", delta_color="off")
+        if has_conflict:
+            st.warning(f"检测到方案冲突（差距 {score_gap:.1f} 分），扣 {conflict_penalty} 分。")
+        else:
+            st.success("未检测到方案冲突，无扣分。")
+
+        st.markdown("**Step 3 · 辩论反驳**")
+        has_rebuttal = bool(rebuttal.get("suggested_revision"))
+        rebuttal_bonus = 4 if has_rebuttal else 0
+        col_c, col_d = st.columns(2)
+        col_c.metric("反驳建议", "已提出" if has_rebuttal else "未触发")
+        col_d.metric("反驳加分", f"+{rebuttal_bonus}", delta_color="off")
+
+        st.markdown("**Step 4 · 分数推导**")
+        final_score = float(arbitration.get("final_score", 0))
+        st.code(
+            f"final_score = {best_score:.2f}（最高分）"
+            f" + {rebuttal_bonus}（反驳）"
+            f" - {conflict_penalty}（冲突）"
+            f" = {final_score:.1f}",
+            language=None,
+        )
+        computed = min(100.0, best_score + rebuttal_bonus - conflict_penalty)
+        if abs(computed - final_score) > 0.15:
+            st.warning(
+                f"注意：推导值 {computed:.1f} 与实际 final_score {final_score:.1f} 有偏差，请检查数据。"
+            )
 
 
 def render_step_7(card: dict) -> None:
@@ -280,44 +411,493 @@ def render_step_7(card: dict) -> None:
         st.info("尚未保存经验卡片。")
 
 
+def render_step_8_constraint_debate(
+    constraint_analysis: dict,
+    debate_result: dict,
+) -> None:
+    st.header("Step 8 约束驾驶舱与多轮辩论")
+
+    utility_before = debate_result.get(
+        "system_utility_before",
+        constraint_analysis.get("individual_system_utility", 0),
+    )
+    utility_after = debate_result.get("system_utility_after", 0)
+    cols = st.columns(4)
+    cols[0].metric("可行组合数", constraint_analysis.get("feasible_count", 0))
+    cols[1].metric(
+        "最优系统效用",
+        f"{float(constraint_analysis.get('optimal_system_utility', 0)):.2f}",
+    )
+    cols[2].metric("辩论轮次", debate_result.get("total_rounds", 0))
+    cols[3].metric(
+        "系统效用变化",
+        f"{float(utility_before):.2f} -> {float(utility_after):.2f}",
+    )
+
+    if constraint_analysis.get("feasible", False):
+        st.success("约束求解器找到可行组合。")
+    else:
+        st.error("未找到完全可行组合，需要人工复核约束冲突。")
+
+    ind_util = float(constraint_analysis.get("individual_system_utility", 0))
+    opt_util = float(constraint_analysis.get("optimal_system_utility", 0))
+    delta = opt_util - ind_util
+    delta_pct = (delta / ind_util * 100) if ind_util > 0 else 0.0
+
+    st.markdown("**博弈效用对比：自私选择 vs 社会最优**")
+    cmp_cols = st.columns(3)
+    cmp_cols[0].metric(
+        "各 Agent 独立最优（自私选择）",
+        f"{ind_util:.2f}",
+        help="每个 Agent 各自选择最大化 own_utility 的策略，忽略协同效应",
+    )
+    cmp_cols[1].metric(
+        "约束社会最优（ConstraintSolver）",
+        f"{opt_util:.2f}",
+        delta=f"+{delta:.2f}" if delta > 0 else f"{delta:.2f}",
+        help="27 个组合中 system_utility 之和最大的可行方案",
+    )
+    cmp_cols[2].metric(
+        "协调收益",
+        f"{delta_pct:.1f}%",
+        help="社会最优比自私选择高出的系统效用百分比",
+    )
+    if delta > 0:
+        st.caption(
+            f"ConstraintSolver 协调三个 Agent 的策略，使系统总效用提升了 "
+            f"{delta:.2f} 点（+{delta_pct:.1f}%），这是各 Agent 自私选择无法达到的结果。"
+        )
+    elif delta == 0:
+        st.caption("当前场景下，自私选择与约束社会最优策略组合一致。")
+
+    optimal_combo = constraint_analysis.get("optimal_combo") or {}
+    if optimal_combo:
+        st.markdown("**最优策略组合**")
+        st.dataframe(
+            [
+                {"agent": agent, "strategy": strategy}
+                for agent, strategy in optimal_combo.items()
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    recommended_changes = constraint_analysis.get("recommended_changes") or []
+    if recommended_changes:
+        with st.expander("推荐调整", expanded=True):
+            for item in recommended_changes:
+                st.write(f"- {item}")
+
+    violations = constraint_analysis.get("constraint_violations") or []
+    if violations:
+        with st.expander("约束冲突", expanded=True):
+            for item in violations:
+                st.write(f"- {item}")
+
+    rounds = debate_result.get("rounds") or []
+    if rounds:
+        rows = []
+        for item in rounds:
+            evidence = item.get("evidence") or {}
+            rows.append(
+                {
+                    "round": item.get("round_number"),
+                    "target_agent": item.get("target_agent"),
+                    "action": item.get("action"),
+                    "current_strategy": evidence.get("current_strategy"),
+                    "recommended_strategy": evidence.get("recommended_strategy"),
+                    "system_delta": evidence.get("system_utility_delta"),
+                    "own_delta": item.get("own_utility_delta"),
+                }
+            )
+        st.markdown("**辩论轮次明细**")
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("当前策略组合无需追加辩论轮次。")
+    all_combos = (
+        constraint_analysis.get("all_combos", [])
+        if isinstance(constraint_analysis, dict)
+        else getattr(constraint_analysis, "all_combos", [])
+    )
+    if all_combos:
+        with st.expander("📊 Pareto 前沿：27 个策略组合分布", expanded=False):
+            import altair as alt
+            import pandas as pd
+
+            df = pd.DataFrame(all_combos)
+
+            def _point_type(row):
+                if row["is_optimal"]:
+                    return "最优选中"
+                return "可行" if row["feasible"] else "不可行"
+
+            df["类型"] = df.apply(_point_type, axis=1)
+            color_scale = alt.Scale(
+                domain=["最优选中", "可行", "不可行"],
+                range=["#FF4B4B", "#00CC44", "#AAAAAA"],
+            )
+            size_scale = alt.Scale(
+                domain=["最优选中", "可行", "不可行"],
+                range=[200, 60, 40],
+            )
+            base = alt.Chart(df).encode(
+                x=alt.X("cost_multiplier:Q", title="成本倍数（采购+物流）"),
+                y=alt.Y("system_utility:Q", title="系统效用"),
+                color=alt.Color("类型:N", scale=color_scale),
+                size=alt.Size("类型:N", scale=size_scale, legend=None),
+                tooltip=[
+                    "label:N",
+                    "cost_multiplier:Q",
+                    "system_utility:Q",
+                    "类型:N",
+                ],
+            )
+            scatter = base.mark_point(filled=True, opacity=0.85)
+            feasible_df = df[df["feasible"]].sort_values("cost_multiplier")
+            pareto_rows = []
+            max_utility = float("-inf")
+            for _, row in feasible_df.iterrows():
+                if row["system_utility"] > max_utility:
+                    pareto_rows.append(row)
+                    max_utility = row["system_utility"]
+            if len(pareto_rows) > 1:
+                pareto_df = pd.DataFrame(pareto_rows)
+                pareto_line = (
+                    alt.Chart(pareto_df)
+                    .mark_line(color="#00CC44", strokeDash=[4, 2], strokeWidth=1.5)
+                    .encode(x="cost_multiplier:Q", y="system_utility:Q")
+                )
+                chart = (scatter + pareto_line).properties(
+                    width=480,
+                    height=320,
+                    title="27 个策略组合：成本 vs 系统效用（绿虚线 = Pareto 前沿）",
+                )
+            else:
+                chart = scatter.properties(
+                    width=480,
+                    height=320,
+                    title="27 个策略组合：成本 vs 系统效用",
+                )
+
+            st.altair_chart(chart, use_container_width=True)
+            optimal_row = df[df["is_optimal"]]
+            if not optimal_row.empty:
+                row = optimal_row.iloc[0]
+                st.caption(
+                    f"选中组合：{row['label']} · "
+                    f"成本倍数 {row['cost_multiplier']:.2f} · "
+                    f"系统效用 {row['system_utility']:.2f}"
+                )
+
+
+def render_step_9_experience_references(experience_references: dict) -> None:
+    st.header("Step 9 历史经验引用")
+
+    cols = st.columns(3)
+    cols[0].metric("引用案例数", experience_references.get("reference_count", 0))
+    cols[1].metric(
+        "置信度修正",
+        f"{float(experience_references.get('confidence_adjustment', 0)):.1f}",
+    )
+    cols[2].metric("检索模式", "TF-IDF")
+
+    risk_hints = experience_references.get("risk_hints") or []
+    if risk_hints:
+        st.markdown("**经验风险提示**")
+        for item in risk_hints:
+            st.write(f"- {item}")
+
+    references = experience_references.get("references") or []
+    if references:
+        st.dataframe(
+            [
+                {
+                    "case_id": item.get("case_id"),
+                    "scenario": item.get("scenario"),
+                    "recommended_pattern": item.get("recommended_pattern"),
+                    "similarity_score": item.get("similarity_score"),
+                }
+                for item in references
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("未检索到相似历史案例，当前决策按规则与实时态势独立生成。")
+
+    # 参数校准对比：I09 数据驱动权重 vs 专家默认值
+    with st.expander("参数校准对比（数据驱动 vs 专家默认）", expanded=False):
+        import csv as _csv
+        from pathlib import Path as _Path
+
+        from src.config_loader import load_risk_weights
+        from src.parameter_calibration import calibrate_inventory_risk_weights
+
+        _csv_path = (
+            _Path(__file__).resolve().parent
+            / "demo_assets/enterprise/csv/historical_decisions.csv"
+        )
+        try:
+            with open(_csv_path, encoding="utf-8-sig") as _f:
+                _records = list(_csv.DictReader(_f))
+            _expert = load_risk_weights()["inventory_risk_weights"]
+            _calibrated = calibrate_inventory_risk_weights(_records)
+            _comparison = [
+                {
+                    "权重维度": k,
+                    "专家默认值": round(_expert.get(k, 0), 4),
+                    "数据驱动校准值": round(_calibrated.get(k, 0), 4),
+                    "变化量": round(_calibrated.get(k, 0) - _expert.get(k, 0), 4),
+                }
+                for k in _expert
+            ]
+            st.dataframe(_comparison, use_container_width=True, hide_index=True)
+            st.caption(
+                f"基于 {len(_records)} 条历史决策记录通过皮尔逊相关系数校准。"
+                "校准建议值需人工审批后更新至 config/risk_weights.yaml，不自动覆盖。"
+            )
+            if _calibrated == _expert:
+                st.info("当前校准结果与专家默认值一致（通常表示历史数据样本不足）。")
+            else:
+                _max_delta_key = max(
+                    _expert,
+                    key=lambda k: abs(_calibrated.get(k, 0) - _expert.get(k, 0)),
+                )
+                _delta = round(
+                    _calibrated.get(_max_delta_key, 0) - _expert.get(_max_delta_key, 0),
+                    3,
+                )
+                st.success(
+                    f"数据驱动校准已更新权重，最大偏差：{_max_delta_key} "
+                    f"{'↑' if _delta > 0 else '↓'}{abs(_delta):.3f}"
+                )
+        except Exception as _e:
+            st.warning(f"参数校准对比加载失败：{_e}")
+
+
+def render_step_10_explanation(explanation: dict) -> None:
+    st.header("Step 10 可解释决策说明")
+
+    cols = st.columns(2)
+    cols[0].metric("LLM 增强", "是" if explanation.get("llm_used") else "否")
+    cols[1].metric("解释模型", explanation.get("model_name", "template"))
+
+    st.markdown("**仲裁说明**")
+    st.write(explanation.get("arbitration_summary", "暂无仲裁说明。"))
+    st.markdown("**辩论说明**")
+    st.write(explanation.get("debate_narrative", "暂无辩论说明。"))
+    st.markdown("**约束说明**")
+    st.write(explanation.get("constraint_narrative", "暂无约束说明。"))
+
+
+def render_step_11_audit(audit_entry: dict) -> None:
+    st.header("Step 11 决策审计记录")
+
+    cols = st.columns(4)
+    cols[0].metric("状态", audit_entry.get("decision_status", "unknown"))
+    cols[1].metric(
+        "库存风险",
+        f"{float(audit_entry.get('inventory_risk_index', 0)):.1f}",
+    )
+    cols[2].metric("可行组合", audit_entry.get("constraint_feasible_count", 0))
+    cols[3].metric(
+        "辩论收敛",
+        "是" if audit_entry.get("debate_converged", False) else "否",
+    )
+
+    if audit_entry.get("decision_status") == "error":
+        st.error(audit_entry.get("error_message", "审计记录标记为错误。"))
+    elif audit_entry.get("human_approval_required"):
+        st.warning("该决策需要人工审批后执行。")
+    else:
+        st.success("审计结果正常，可进入执行确认。")
+
+    with st.expander("查看完整审计 JSON"):
+        st.json(audit_entry)
+
+
+def render_sensitivity(results: list[dict]) -> None:
+    st.header("敏感性分析：当前库存对风险指数的影响")
+    if not results:
+        st.info("暂无敏感性分析结果。")
+        return
+
+    st.dataframe(results, use_container_width=True, hide_index=True)
+    chart_rows = [
+        {
+            "current_stock": row["param_value"],
+            "inventory_risk_index": row["inventory_risk_index"],
+        }
+        for row in results
+    ]
+    st.line_chart(
+        chart_rows,
+        x="current_stock",
+        y="inventory_risk_index",
+    )
+
+
+def build_decision_report(result) -> dict:
+    """Extract key fields from DecisionResult into a JSON-serializable dict."""
+    arb = result.arbitration or {}
+    ca = result.constraint_analysis or {}
+    dr = result.debate_result or {}
+    ae = result.audit_entry or {}
+    inv_ctx = (result.context or {}).get("inventory", {})
+    inv_risk = result.inventory_risk or {}
+
+    return {
+        "case": {
+            "material_name": inv_ctx.get("material_name"),
+            "event_type": ae.get("event_type"),
+            "inventory_risk_index": inv_risk.get("inventory_risk_index"),
+        },
+        "arbitration": {
+            "final_decision_title": arb.get("final_decision_title"),
+            "final_score": arb.get("final_score"),
+            "execution_plan": arb.get("execution_plan"),
+        },
+        "constraint_analysis": {
+            "feasible_count": ca.get("feasible_count"),
+            "optimal_system_utility": ca.get("optimal_system_utility"),
+        },
+        "debate_result": {
+            "total_rounds": dr.get("total_rounds"),
+            "converged": dr.get("converged"),
+            "system_utility_before": dr.get("system_utility_before"),
+            "system_utility_after": dr.get("system_utility_after"),
+        },
+        "audit_entry": {
+            "decision_id": ae.get("decision_id"),
+            "timestamp": ae.get("timestamp"),
+            "human_approval_required": ae.get("human_approval_required"),
+        },
+    }
+
+
 def main() -> None:
     st.set_page_config(page_title="ChainGuard 演示模式", page_icon="CG", layout="wide")
-    render_sidebar()
+    scenario_loader = None
+    scenarios = []
+    if SCENARIO_DB_PATH.exists():
+        scenario_loader = ScenarioLoader(SCENARIO_DB_PATH)
+        scenarios = scenario_loader.list_scenarios()
+
+    scenario_mode, enterprise_event_id = render_sidebar(scenarios)
     render_header()
 
     try:
-        risk_weights = load_risk_weights()
-        thresholds = load_thresholds()
-        context = load_demo_context()
-        inventory_risk = calculate_inventory_risk(context["inventory"], risk_weights, thresholds)
-        proposals = attach_total_scores(
-            generate_all_proposals(context),
-            risk_weights["decision_score_weights"],
-        )
-        low_score_threshold = thresholds["learning"]["low_score_threshold"]
-        conflict = detect_conflict(proposals, thresholds)
-        rebuttal = generate_rebuttal(
-            find_proposal(proposals, "物流"),
-            find_proposal(proposals, "财务"),
-            context,
-        )
-        arbitration = arbitrate(proposals, conflict, rebuttal, context)
-        experience_card = generate_experience_card(context, proposals, arbitration)
+        if scenario_mode == "企业真实场景":
+            if enterprise_event_id is None:
+                st.warning("请先在左侧选择一个企业事件。")
+                st.stop()
+
+            orchestrator = DecisionOrchestrator()
+            result = orchestrator.run_scenario(enterprise_event_id, ScenarioLoader())
+        else:
+            # 原有演示场景逻辑保持不变
+            orchestrator = DecisionOrchestrator()
+            result = orchestrator.run_demo()
     except (FileNotFoundError, ValueError) as error:
         st.error(str(error))
         st.stop()
 
-    render_step_1(context["inventory"], inventory_risk)
-    render_step_2(context)
-    render_step_3(proposals, low_score_threshold)
-    render_step_4(proposals, conflict, low_score_threshold)
-    render_step_5(rebuttal)
-    render_step_6(arbitration)
-    render_step_7(experience_card)
+    low_score_threshold = result.thresholds["learning"]["low_score_threshold"]
+    render_step_1(result.context["inventory"], result.inventory_risk)
+    render_step_2(result.context)
+    render_step_3(result.proposals, low_score_threshold)
+    render_step_4(result.proposals, result.conflict, low_score_threshold)
+    render_step_5(result.rebuttal)
+    render_step_6(result.arbitration, result.proposals, result.conflict, result.rebuttal)
+    render_step_7(result.experience_card)
+    render_step_8_constraint_debate(result.constraint_analysis, result.debate_result)
+    render_step_9_experience_references(result.experience_references)
+    render_step_10_explanation(result.explanation)
+    render_step_11_audit(result.audit_entry)
+    render_sensitivity(
+        run_sensitivity(
+            "current_stock",
+            [720, 1440, 2160, 3600, 5400, 7200],
+            baseline_context=result.context,
+        )
+    )
 
     st.divider()
     st.warning(explain_simulation_limitations())
+    st.divider()
+    report_json = json.dumps(build_decision_report(result), ensure_ascii=False, indent=2)
+    decision_id = (result.audit_entry or {}).get("decision_id", "unknown")
+    st.download_button(
+        label="📥 下载决策报告 JSON",
+        data=report_json,
+        file_name=f"chainguard_decision_{decision_id}.json",
+        mime="application/json",
+    )
 
 
 if __name__ == "__main__":
     main()
+
+
+st.divider()
+with st.expander("🔬 模型对比评测：哪个模型预测结果最准？"):
+    if st.button("运行 5 模型对比评测"):
+        from src.history_pipeline import HistoryPipeline
+        from src.model_comparison import compare_models
+        from src.training_dataset import split_by_time
+
+        records = HistoryPipeline()._load_valid_records_before_cutoff("2026-12-31")
+        split = split_by_time(
+            records,
+            time_field="created_at",
+            train_end="2026-03-15",
+            validation_end="2026-04-01",
+        )
+        if len(split.train) < 10:
+            st.warning("历史数据不足，至少需要 10 条已标注记录")
+        else:
+            report = compare_models(split)
+
+            import pandas as pd
+
+            rows = [
+                {
+                    "模型": result.model_name,
+                    "准确率": round(result.accuracy, 4),
+                    "F1-macro": round(result.f1_macro, 4),
+                    "训练耗时(ms)": round(result.training_time_ms, 1),
+                }
+                for result in report.model_results
+            ]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+            chart_data = {
+                result.model_name: {
+                    "准确率": result.accuracy,
+                    "F1-macro": result.f1_macro,
+                }
+                for result in report.model_results
+            }
+            st.bar_chart(chart_data)
+
+            st.success(
+                f"🏆 最优模型：{report.best_model_name} "
+                f"(F1-macro = {report.best_f1_macro:.3f}，已注册为稳定版本候选)"
+            )
+
+            best_result = next(
+                result
+                for result in report.model_results
+                if result.model_name == report.best_model_name
+            )
+            if best_result.feature_importance:
+                st.subheader("特征重要性（最优模型）")
+                st.bar_chart(best_result.feature_importance)
+
+            decision_tree_result = next(
+                (result for result in report.model_results if result.decision_tree_text),
+                None,
+            )
+            if decision_tree_result:
+                with st.expander("决策树规则（可读文本，max_depth=4）"):
+                    st.code(decision_tree_result.decision_tree_text, language="text")

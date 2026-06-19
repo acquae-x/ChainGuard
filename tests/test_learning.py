@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 from src.agents import generate_all_proposals
@@ -20,10 +21,9 @@ RUNTIME_TMP = Path(__file__).parent / "_runtime_tmp"
 
 def _runtime_path(name: str) -> Path:
     RUNTIME_TMP.mkdir(parents=True, exist_ok=True)
-    path = RUNTIME_TMP / name
-    if path.exists():
-        path.unlink()
-    return path
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    return RUNTIME_TMP / f"{stem}_{uuid.uuid4().hex}{suffix}"
 
 
 def _proposal_by_agent(proposals, keyword):
@@ -52,11 +52,14 @@ def _fixed_case_card():
 def test_generate_experience_card_fixed_case_content():
     card = _fixed_case_card()
 
-    assert card["scenario"] == "台风导致港口停运，库存仅支撑36小时"
-    assert "库存可支撑时间 < 48小时" in card["trigger_conditions"]
+    assert card["scenario"] == "台风导致宁波港暂停作业 导致 SUP-A 受影响，库存支撑约 36 小时"
+    assert "库存可支撑时间 ≤ 36 小时" in card["trigger_conditions"]
+    assert "安全库存缺口 2600 件" in card["trigger_conditions"]
     assert card["failed_reason"] == "如果采用全量空运，会过度关注时效，忽略订单毛利和客户分级。"
     assert card["recommended_pattern"] == "备用供应商 + 关键订单空运 + 非关键订单延期"
     assert card["parameter_note"] == "当前经验卡片基于模拟数据生成，真实落地时应结合企业历史应急结果校准。"
+    assert card["confidence_score"] == 0.5
+    assert card["historical_references"] == []
 
 
 def test_save_and_load_experience_card():
@@ -88,7 +91,7 @@ def test_search_similar_experiences_by_keyword():
     card = _fixed_case_card()
     save_experience_card(card, path)
 
-    matches = search_similar_experiences("港口停运", path)
+    matches = search_similar_experiences("宁波港暂停作业", path)
 
     assert len(matches) == 1
     assert matches[0]["case_id"] == card["case_id"]
@@ -96,6 +99,5 @@ def test_search_similar_experiences_by_keyword():
 
 def test_load_experience_cards_missing_file_returns_empty_list():
     path = _runtime_path("missing.json")
-    path.unlink(missing_ok=True)
 
     assert load_experience_cards(path) == []

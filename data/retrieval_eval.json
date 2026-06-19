@@ -1,0 +1,22 @@
+[
+  {
+    "query": "台风 港口 暂停 芯片短缺 库存不足",
+    "relevant_case_ids": ["case-typhoon-001"],
+    "description": "台风导致港口暂停和芯片库存不足"
+  },
+  {
+    "query": "供应商 质量异常 召回 替代料 验证",
+    "relevant_case_ids": ["case-quality-001"],
+    "description": "供应商质量问题与替代料验证"
+  },
+  {
+    "query": "运输 延误 铁路 中断 多式联运 改线",
+    "relevant_case_ids": ["case-transport-001"],
+    "description": "运输延误后切换多式联运"
+  },
+  {
+    "query": "需求 激增 关键客户 订单 分级保障",
+    "relevant_case_ids": ["case-demand-001"],
+    "description": "需求激增时优先保障关键客户"
+  }
+]

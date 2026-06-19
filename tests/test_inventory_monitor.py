@@ -33,3 +33,17 @@ def test_calculate_inventory_risk_raises_for_zero_consumption():
 
     with pytest.raises(ValueError, match="hourly_consumption"):
         calculate_inventory_risk(inventory, load_risk_weights(), load_thresholds())
+
+
+def test_calculate_inventory_risk_allows_no_critical_orders():
+    inventory = load_inventory()
+    inventory["critical_order_demand"] = 0
+
+    result = calculate_inventory_risk(
+        inventory,
+        load_risk_weights(),
+        load_thresholds(),
+    )
+
+    assert result["critical_order_coverage_rate"] == 1
+    assert result["order_importance_score"] == 0

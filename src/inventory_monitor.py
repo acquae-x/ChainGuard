@@ -59,14 +59,18 @@ def calculate_inventory_risk(
         raise ValueError("hourly_consumption 必须大于 0。")
     if safety_stock <= 0:
         raise ValueError("safety_stock 必须大于 0。")
-    if critical_order_demand <= 0:
-        raise ValueError("critical_order_demand 必须大于 0。")
+    if critical_order_demand < 0:
+        raise ValueError("critical_order_demand 不能小于 0。")
 
     support_hours = current_stock / hourly_consumption
     safety_stock_gap = max(safety_stock - current_stock, 0)
     safety_stock_gap_rate = safety_stock_gap / safety_stock
     transit_delay_hours = estimated_arrival_hours - planned_arrival_hours
-    critical_order_coverage_rate = min(current_stock / critical_order_demand, 1)
+    critical_order_coverage_rate = (
+        min(current_stock / critical_order_demand, 1)
+        if critical_order_demand > 0
+        else 1.0
+    )
 
     shortage_urgency_score = _linear_score(support_hours, low=24, high=72)
     order_importance_score = (1 - critical_order_coverage_rate) * 100
