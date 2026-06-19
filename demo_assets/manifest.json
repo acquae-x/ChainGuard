@@ -1,0 +1,258 @@
+{
+  "dataset_name": "ChainGuard enterprise synthetic demo pack",
+  "company": "华东智造科技有限公司",
+  "generated_at": "2026-06-15T08:00:00+08:00",
+  "seed": 20260615,
+  "synthetic_data": true,
+  "record_counts": {
+    "materials": 240,
+    "warehouses": 6,
+    "suppliers": 60,
+    "supplier_materials": 1066,
+    "customers": 120,
+    "inventory": 1440,
+    "inventory_snapshots": 44640,
+    "inventory_movements": 35000,
+    "sales_orders": 3500,
+    "sales_order_lines": 10527,
+    "purchase_orders": 1800,
+    "purchase_order_lines": 4501,
+    "shipments": 3000,
+    "quality_inspections": 2000,
+    "production_plans": 2000,
+    "supplier_performance": 720,
+    "disruption_events": 240,
+    "historical_decisions": 600
+  },
+  "total_records": 111460,
+  "files": [
+    {
+      "path": "enterprise/csv/customers.csv",
+      "size_bytes": 13551
+    },
+    {
+      "path": "enterprise/csv/disruption_events.csv",
+      "size_bytes": 69687
+    },
+    {
+      "path": "enterprise/csv/historical_decisions.csv",
+      "size_bytes": 169439
+    },
+    {
+      "path": "enterprise/csv/inventory.csv",
+      "size_bytes": 162830
+    },
+    {
+      "path": "enterprise/csv/inventory_movements.csv",
+      "size_bytes": 4009459
+    },
+    {
+      "path": "enterprise/csv/inventory_snapshots.csv",
+      "size_bytes": 3425347
+    },
+    {
+      "path": "enterprise/csv/materials.csv",
+      "size_bytes": 23371
+    },
+    {
+      "path": "enterprise/csv/production_plans.csv",
+      "size_bytes": 265791
+    },
+    {
+      "path": "enterprise/csv/purchase_order_lines.csv",
+      "size_bytes": 485052
+    },
+    {
+      "path": "enterprise/csv/purchase_orders.csv",
+      "size_bytes": 264859
+    },
+    {
+      "path": "enterprise/csv/quality_inspections.csv",
+      "size_bytes": 226204
+    },
+    {
+      "path": "enterprise/csv/sales_order_lines.csv",
+      "size_bytes": 1450347
+    },
+    {
+      "path": "enterprise/csv/sales_orders.csv",
+      "size_bytes": 557063
+    },
+    {
+      "path": "enterprise/csv/shipments.csv",
+      "size_bytes": 545844
+    },
+    {
+      "path": "enterprise/csv/supplier_materials.csv",
+      "size_bytes": 88791
+    },
+    {
+      "path": "enterprise/csv/supplier_performance.csv",
+      "size_bytes": 45182
+    },
+    {
+      "path": "enterprise/csv/suppliers.csv",
+      "size_bytes": 8133
+    },
+    {
+      "path": "enterprise/csv/warehouses.csv",
+      "size_bytes": 606
+    },
+    {
+      "path": "enterprise/database/chainguard_enterprise_demo.db",
+      "size_bytes": 12537856
+    },
+    {
+      "path": "enterprise/json/dashboard_summary.json",
+      "size_bytes": 261
+    },
+    {
+      "path": "erp_api/openapi.yaml",
+      "size_bytes": 7530
+    },
+    {
+      "path": "erp_api/sample_requests.http",
+      "size_bytes": 509
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002989.pdf",
+      "size_bytes": 47166
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002990.pdf",
+      "size_bytes": 47121
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002991.pdf",
+      "size_bytes": 47350
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002992.pdf",
+      "size_bytes": 47127
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002993.pdf",
+      "size_bytes": 47332
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002994.pdf",
+      "size_bytes": 47170
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002995.pdf",
+      "size_bytes": 47185
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002996.pdf",
+      "size_bytes": 47091
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002997.pdf",
+      "size_bytes": 47010
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002998.pdf",
+      "size_bytes": 47096
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0002999.pdf",
+      "size_bytes": 47134
+    },
+    {
+      "path": "pdf/业务单据/送货单/SHP-0003000.pdf",
+      "size_bytes": 47178
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202507-001800.pdf",
+      "size_bytes": 48947
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202508-001799.pdf",
+      "size_bytes": 49180
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202510-001791.pdf",
+      "size_bytes": 49547
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202510-001794.pdf",
+      "size_bytes": 49835
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202510-001796.pdf",
+      "size_bytes": 48909
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202511-001793.pdf",
+      "size_bytes": 48616
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202512-001789.pdf",
+      "size_bytes": 49625
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202512-001792.pdf",
+      "size_bytes": 49787
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202602-001797.pdf",
+      "size_bytes": 48988
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202603-001790.pdf",
+      "size_bytes": 50041
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202605-001795.pdf",
+      "size_bytes": 48822
+    },
+    {
+      "path": "pdf/业务单据/采购订单/PO-202606-001798.pdf",
+      "size_bytes": 50020
+    },
+    {
+      "path": "pdf/企业供应链风险管理周报.pdf",
+      "size_bytes": 126995
+    },
+    {
+      "path": "pdf/库存与安全库存缺口明细.pdf",
+      "size_bytes": 255920
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000001.pdf",
+      "size_bytes": 75152
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000006.pdf",
+      "size_bytes": 74084
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000035.pdf",
+      "size_bytes": 73535
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000048.pdf",
+      "size_bytes": 75776
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000057.pdf",
+      "size_bytes": 75195
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000062.pdf",
+      "size_bytes": 74482
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000105.pdf",
+      "size_bytes": 73894
+    },
+    {
+      "path": "pdf/风险事件简报/EVT-000113.pdf",
+      "size_bytes": 74342
+    },
+    {
+      "path": "small_business/ChainGuard小企业供应链演示账套.xlsx",
+      "size_bytes": 166265
+    }
+  ]
+}

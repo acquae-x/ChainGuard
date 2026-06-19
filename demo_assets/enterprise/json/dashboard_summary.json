@@ -1,0 +1,10 @@
+{
+  "company": "华东智造科技有限公司",
+  "as_of": "2026-06-15T08:00:00+08:00",
+  "materials": 240,
+  "inventory_records": 1440,
+  "inventory_shortage_records": 660,
+  "at_risk_orders": 592,
+  "delayed_shipments": 1370,
+  "active_events": 53
+}

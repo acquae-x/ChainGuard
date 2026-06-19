@@ -1,0 +1,256 @@
+openapi: 3.0.3
+info:
+  title: ChainGuard Synthetic ERP API
+  version: 1.0.0
+  description: 合成企业数据接口，仅用于演示和联调。
+servers:
+  - url: http://127.0.0.1:8765
+paths:
+  /health:
+    get:
+      summary: 健康检查
+      responses:
+        '200': {description: 服务正常}
+  /api/v1/catalog:
+    get:
+      summary: 获取资源目录与记录数
+      responses:
+        '200': {description: 成功}
+  /api/v1/dashboard/summary:
+    get:
+      summary: 获取供应链驾驶舱摘要
+      responses:
+        '200': {description: 成功}
+  /api/v1/materials:
+    get:
+      summary: 分页查询 materials
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/warehouses:
+    get:
+      summary: 分页查询 warehouses
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/suppliers:
+    get:
+      summary: 分页查询 suppliers
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/supplier-materials:
+    get:
+      summary: 分页查询 supplier-materials
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/customers:
+    get:
+      summary: 分页查询 customers
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/inventory:
+    get:
+      summary: 分页查询 inventory
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/inventory-snapshots:
+    get:
+      summary: 分页查询 inventory-snapshots
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/inventory-movements:
+    get:
+      summary: 分页查询 inventory-movements
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/sales-orders:
+    get:
+      summary: 分页查询 sales-orders
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/sales-order-lines:
+    get:
+      summary: 分页查询 sales-order-lines
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/purchase-orders:
+    get:
+      summary: 分页查询 purchase-orders
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/purchase-order-lines:
+    get:
+      summary: 分页查询 purchase-order-lines
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/shipments:
+    get:
+      summary: 分页查询 shipments
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/quality-inspections:
+    get:
+      summary: 分页查询 quality-inspections
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/production-plans:
+    get:
+      summary: 分页查询 production-plans
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/supplier-performance:
+    get:
+      summary: 分页查询 supplier-performance
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/disruption-events:
+    get:
+      summary: 分页查询 disruption-events
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}
+
+  /api/v1/historical-decisions:
+    get:
+      summary: 分页查询 historical-decisions
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+      responses:
+        '200': {description: 成功}

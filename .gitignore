@@ -4,3 +4,4 @@ __pycache__/
 tests/_runtime_tmp/
 .streamlit/secrets.toml
 .env
+.tmp_test_experience_pipeline/

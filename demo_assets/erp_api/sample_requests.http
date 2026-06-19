@@ -1,0 +1,17 @@
+### Health
+GET http://127.0.0.1:8765/health
+
+### Resource catalog
+GET http://127.0.0.1:8765/api/v1/catalog
+
+### Dashboard summary
+GET http://127.0.0.1:8765/api/v1/dashboard/summary
+
+### Inventory page
+GET http://127.0.0.1:8765/api/v1/inventory?page=1&page_size=20
+
+### Active disruption events
+GET http://127.0.0.1:8765/api/v1/disruption-events?page=1&page_size=50&event_status=active
+
+### At-risk orders
+GET http://127.0.0.1:8765/api/v1/sales-orders?page=1&page_size=50&order_status=at_risk

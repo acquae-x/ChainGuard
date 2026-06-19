@@ -2,44 +2,48 @@
 
 ## 项目简介
 
-ChainGuard 是一个用于比赛初赛答辩的 Streamlit 单机 MVP，面向供应链中断场景，展示从库存风险监控、多源态势感知、多 Agent 协同决策、辩论仲裁，到经验卡片自学习的完整闭环。
+ChainGuard 是供应链中断场景下的复赛版本应急决策系统，使用 Streamlit 展示完整的多 Agent 博弈、约束仲裁、自学习经验检索和审计闭环。系统面向制造企业的供应链、采购、物流、财务和客户交付团队，用于在断供、延期或需求冲击真正扩大前，给出可解释、可审计、可人工确认的应急方案。
 
-当前固定演示案例为：台风导致宁波港暂停作业，A供应商发货延误72小时，核心控制芯片库存只能支撑36小时，关键客户订单将在48小时后交付。
+当前版本支持并演示以下 5 类中断事件：
 
-## 核心创新
+- `port_shutdown`：港口停运或台风导致运输节点暂停
+- `supplier_shutdown`：供应商停产、断电或产能不可用
+- `route_blockage`：运输路线阻断、通关延迟或节点中断
+- `demand_surge`：客户需求突增导致库存和产能承压
+- `quality_recall`：质量召回、批次隔离和替代供应切换
 
-1. 库存监控前置触发  
-   系统不是等订单延期后再处理，而是在库存可支撑小时数、安全库存缺口率、在途延误和外部风险分超过阈值时提前触发应急决策。
+## 核心能力
 
-2. 多 Agent 协同决策  
-   采购 Agent、物流 Agent、财务 Agent 从不同目标出发提出方案，分别关注备用供应商、运输时效、成本与利润。
+1. **库存监控前置触发**  
+   基于库存可支撑小时数、安全库存缺口率、关键订单覆盖率、在途延误和外部风险分，提前计算库存风险指数并触发应急流程。
 
-3. 辩论仲裁机制  
-   当方案之间出现“全量空运 vs 成本控制”等冲突时，系统触发辩论过程，再由仲裁器输出最终折中策略。
+2. **多 Agent 策略生成**  
+   采购、物流、财务 Agent 从供应可得性、运输时效、成本利润和客户优先级出发，生成可评分的候选方案。
 
-4. 经验卡片自学习  
-   每次应急决策可沉淀为经验卡片，记录触发条件、失败原因、改进策略和推荐模式，后续可用于相似场景检索。
+3. **博弈收益与约束仲裁**  
+   PayoffModel 构造 3 个参与者 × 3 个策略选项的效用空间，ConstraintSolver 枚举 27 个组合，在约束内选择系统效用更高的方案。
 
-5. 参数配置化与未来校准  
-   风险权重、预警阈值和评分权重均在 YAML 中配置。当前为专家经验参数，未来可用企业 ERP/WMS/TMS 历史数据校准。
+4. **证据驱动辩论与解释**  
+   DebateEngine 和 `generate_rebuttal` 记录冲突、证据和折中建议；DecisionExplainer 在无 LLM 时使用模板解释，在可选 Qwen/Ollama 可用时增强表达。
+
+5. **经验检索与自学习闭环**  
+   ExperienceFeedback 使用 TF-IDF/Embedding 检索历史经验卡片，将 `risk_hints` 和 `confidence_adjustment` 注入方案字段，便于说明历史经验如何进入决策链。
+
+6. **审计与人工确认**  
+   AuditLog 以 JSONL 形式记录关键决策结果，并输出 `human_approval_required`，避免系统直接替代管理责任。
 
 ## 技术架构
 
 ```text
-Streamlit 页面
-  |
-  |-- data_loader.py              读取模拟库存、订单、供应商、物流、事件数据
-  |-- config_loader.py            读取风险权重和阈值配置
-  |-- inventory_monitor.py        计算库存风险指数和预警
-  |-- agents.py                   生成采购/物流/财务 Agent 决策提案
-  |-- scoring.py                  计算方案总分并排序
-  |-- conflict_detector.py        检测评分差异、关键词和目标冲突
-  |-- debate.py                   生成 Agent 反驳与折中建议
-  |-- arbitrator.py               输出最终仲裁方案
-  |-- learning.py                 生成、保存、读取经验卡片
-  |-- vector_store.py             默认关键词检索，预留 Chroma
-  |-- llm_client.py               默认 Mock LLM，预留 Qwen
-  |-- parameter_calibration.py    预留企业历史数据拟合接口
+ScenarioLoader (SQLite) → DecisionOrchestrator
+  ├── PayoffModel (3 Agents × 3 Options)
+  ├── ConstraintSolver (27 combos)
+  ├── DebateEngine (evidence-driven)
+  ├── arbitrate
+  ├── ExperienceFeedback (TF-IDF / Embedding)
+  ├── DecisionExplainer (Qwen / template)
+  └── AuditLog (JSONL, human_approval)
+HistoryPipeline → TrainingDataset → ModelRegistry
 ```
 
 ## 项目目录结构
@@ -50,6 +54,8 @@ ChainGuard/
   requirements.txt
   requirements-dev.txt
   README.md
+  benchmarks/
+    test_history_scale.py
   config/
     risk_weights.yaml
     thresholds.yaml
@@ -59,21 +65,41 @@ ChainGuard/
     suppliers.json
     transport_options.json
     events.json
+    experience_cards.json
+    retrieval_eval.json
     sample_enterprise_data_schema.md
+  demo_assets/
+    enterprise/
+      database/chainguard_enterprise_demo.db
+      csv/
+      json/
+    erp_api/
+      openapi.yaml
   docs/
     demo_script.md
+    defense_qa.md
+    enterprise_demo_data.md
+    coordination/
+  scripts/
+    build_history_features.py
+    generate_enterprise_demo_data.py
+    mock_erp_server.py
   src/
     agents.py
     arbitrator.py
-    config_loader.py
-    conflict_detector.py
-    data_loader.py
+    audit.py
+    benchmark.py
+    constraint_solver.py
     debate.py
-    inventory_monitor.py
-    learning.py
-    llm_client.py
-    parameter_calibration.py
-    scoring.py
+    explainer.py
+    feedback.py
+    game_model.py
+    history_pipeline.py
+    model_registry.py
+    orchestrator.py
+    scenario_loader.py
+    sensitivity.py
+    training_dataset.py
     vector_store.py
   tests/
     test_*.py
@@ -113,57 +139,65 @@ python -m streamlit run app.py
 python -m streamlit run app.py --server.port 8502
 ```
 
-## 演示案例说明
+## 页面流程
 
-固定场景：
+| 步骤 | 内容 |
+| --- | --- |
+| Step 1 | 库存风险指数（4 维分解 + 预警等级） |
+| Step 2 | 中断事件卡片（event_type, severity） |
+| Step 3 | 三 Agent 策略提案 + 各维度评分 |
+| Step 4 | 方案评分排序 + 冲突检测 |
+| Step 5 | 辩论文本（generate_rebuttal 输出） |
+| Step 6 | 仲裁结论（final_decision_title, execution_plan） |
+| Step 7 | 当次生成的经验卡片 |
+| Step 8 | 约束求解结果 + DebateEngine 收敛 |
+| Step 9 | 历史经验检索结果（risk_hints, confidence_adjustment） |
+| Step 10 | Qwen/模板解释（llm_used=True/False） |
+| Step 11 | 审计 JSON（decision_id, human_approval_required） |
+| 敏感性 | current_stock 滑动条 → risk_index 变化 |
 
-- 台风导致宁波港暂停作业。
-- A供应商发货延误72小时。
-- 核心控制芯片 `M-AX100` 当前库存为3600，小时消耗为100，因此库存只能支撑36小时。
-- 安全库存为6200，存在明显缺口。
-- A类关键客户订单48小时后交付，需求量为5000。
-- 系统最终仲裁方案为：关键订单空运 + 备用供应商补货 + 非关键订单延期沟通。
+## 当前能力清单
 
-页面按 Step 1 到 Step 7 展示完整流程：
+### 已真实实现（离线可运行）
 
-1. 库存监控与风险预警
-2. 态势事件卡片
-3. 多 Agent 决策提案
-4. 方案评分与冲突检测
-5. 辩论过程
-6. 仲裁决策
-7. 自学习经验卡片
+- PayoffModel 效用计算（3 参与者 × 3 策略 = 27 组合）
+- ConstraintSolver 约束枚举与社会福利最大化
+- 证据驱动辩论（DebateEngine + generate_rebuttal）
+- TF-IDF 经验检索（ExperienceFeedback）
+- AuditLog 审计链（JSONL，含 human_approval_required）
+- ModelRegistry + PriorClassifier 频率先验基线
+- 企业场景切换（ScenarioLoader，SQLite，11 万条合成数据）
+- current_stock 敏感性分析，只调用库存风险计算，不重跑完整 orchestrator
 
-## 当前版本限制
+### 可选增强（有离线降级）
 
-- 使用模拟数据，不代表真实企业库存、订单、供应商或物流状态。
-- 使用专家经验参数，不是真实历史数据拟合结果。
-- 未接入真实 ERP/WMS/TMS。
-- 未接入真实 LLM API。
-- 当前 Qwen、Chroma、企业数据校准均为预留接口或可选增强项。
-- 当前是 Streamlit 单机 MVP，不包含生产级权限、审计、部署和多用户能力。
+- sentence-transformers 语义检索（降级到 TF-IDF）
+- Qwen（Ollama）LLM 解释（降级到模板）
+- Chroma 向量数据库（降级到内存 TF-IDF）
 
-## 未来扩展
+## 演示数据说明
 
-1. 接入企业数据  
-   导入 ERP/WMS/TMS 历史库存、订单、供应商、在途物流和应急结果数据。
+默认固定演示场景仍包含台风导致宁波港暂停作业、供应商发货延误、核心控制芯片库存不足和关键客户订单交付压力。复赛版本同时提供企业级合成数据资产：
 
-2. 参数拟合  
-   基于历史缺料、延误、停工、投诉和成本结果，校准库存风险权重、预警阈值和方案评分模型。
+- SQLite 场景数据库：`demo_assets/enterprise/database/chainguard_enterprise_demo.db`
+- 企业 CSV 明细：库存、订单、供应商、物流、质量、历史决策等
+- OpenAPI 示例：`demo_assets/erp_api/openapi.yaml`
+- 历史经验与检索评测数据：`data/experience_cards.json`、`data/retrieval_eval.json`
 
-3. Qwen API  
-   通过 `llm_client.py` 接入 Qwen，用于生成更自然的 Agent 推理、辩论反驳和仲裁解释。
+这些数据均用于离线演示和答辩，不依赖外部 ERP 服务即可启动主流程。
 
-4. Chroma  
-   通过 `vector_store.py` 将经验卡片接入 Chroma，实现语义检索和案例复用。
+## 当前限制
 
-5. FastAPI/Vue  
-   当前初赛 MVP 不使用 FastAPI/Vue。未来正式产品化时，可将核心算法封装为 FastAPI 服务，并使用 Vue 构建企业级前端。
+- 当前系统仍是 Streamlit 演示应用，不是生产级多用户系统。
+- Qwen/Ollama、sentence-transformers、Chroma 都是可选增强；不可用时会降级到模板或 TF-IDF。
+- Agent 策略、效用、约束和经验检索均可离线运行，但真实企业上线仍需数据脱敏、权限、审批流和部署方案。
+- 经验卡片语料量会影响 `experience_hints` 是否丰富；批量历史决策转经验卡片由后续改进任务继续增强。
 
 ## 测试
 
 ```powershell
-python -m pytest tests
+python -m pytest tests -q          # 191 passed
+python -m pytest benchmarks -v -s  # scale benchmark
 ```
 
-当前测试覆盖配置读取、库存监控、方案评分、冲突检测、辩论、仲裁、经验卡片、LLM 抽象和向量检索接口。
+当前测试覆盖配置读取、库存监控、场景加载、Agent 策略、收益模型、约束求解、辩论、仲裁、经验检索、审计、解释器、敏感性分析、历史管道和训练数据基线。

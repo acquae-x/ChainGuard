@@ -1,4 +1,5 @@
 import json
+import uuid
 from pathlib import Path
 
 from src.vector_store import ChromaStore, SimpleKeywordStore, get_vector_store
@@ -9,10 +10,9 @@ RUNTIME_TMP = Path(__file__).parent / "_runtime_tmp"
 
 def _runtime_path(name: str) -> Path:
     RUNTIME_TMP.mkdir(parents=True, exist_ok=True)
-    path = RUNTIME_TMP / name
-    if path.exists():
-        path.unlink()
-    return path
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    return RUNTIME_TMP / f"{stem}_{uuid.uuid4().hex}{suffix}"
 
 
 def _write_cards(path):
@@ -61,7 +61,6 @@ def test_simple_keyword_store_empty_query_returns_all():
 
 def test_get_vector_store_defaults_to_simple():
     path = _runtime_path("vector_missing_simple.json")
-    path.unlink(missing_ok=True)
     store = get_vector_store(path=path)
 
     assert isinstance(store, SimpleKeywordStore)
@@ -80,7 +79,6 @@ def test_chroma_store_falls_back_to_simple():
 
 def test_get_vector_store_chroma_does_not_crash():
     path = _runtime_path("vector_missing_chroma.json")
-    path.unlink(missing_ok=True)
     store = get_vector_store(mode="chroma", path=path)
 
     assert isinstance(store, ChromaStore)

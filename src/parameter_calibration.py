@@ -6,9 +6,36 @@ where ERP/WMS/TMS exports can be used to fit weights, thresholds, and decision
 scoring rules.
 """
 
+import math
 from typing import Any
 
 from src.config_loader import load_risk_weights, load_thresholds
+
+
+def _outcome_score(status: str) -> float | None:
+    """Map outcome_status to [0,1]. Returns None to skip unknown values."""
+    return {"success": 1.0, "partial_success": 0.5, "failed": 0.0}.get(status)
+
+
+def _pearson(x: list[float], y: list[float]) -> float:
+    """Pearson correlation coefficient. Returns 0.0 when undefined."""
+    n = len(x)
+    if n < 2:
+        return 0.0
+    mx, my = sum(x) / n, sum(y) / n
+    num = sum((xi - mx) * (yi - my) for xi, yi in zip(x, y))
+    dx = math.sqrt(sum((xi - mx) ** 2 for xi in x))
+    dy = math.sqrt(sum((yi - my) ** 2 for yi in y))
+    return 0.0 if dx * dy == 0.0 else num / (dx * dy)
+
+
+def _percentile(values: list[float], p: float) -> float:
+    """Floor-index percentile. p in [0,1]."""
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    index = min(int(p * len(sorted_values)), len(sorted_values) - 1)
+    return sorted_values[index]
 
 
 def describe_calibration_inputs() -> list[str]:
@@ -30,57 +57,127 @@ def propose_calibration_workflow() -> list[str]:
 
 
 def calibrate_inventory_risk_weights(historical_data: Any) -> dict[str, float]:
-    """Return inventory risk weights for the current MVP.
+    """Calibrate inventory risk weights from historical decision outcomes."""
+    records = list(historical_data) if historical_data else []
+    expert = dict(load_risk_weights()["inventory_risk_weights"])
+    keys = ["shortage_urgency", "order_importance", "transit_delay", "external_event"]
 
-    Future implementation:
-    Fit inventory risk index weights from historical inventory snapshots,
-    customer order delays, production downtime, shortage incidents, and
-    financial impact records.
+    xs = {key: [] for key in keys}
+    ys = []
+    for record in records:
+        score = _outcome_score(record.get("outcome_status", ""))
+        if score is None:
+            continue
 
-    Current implementation:
-    Return the default expert weights from config/risk_weights.yaml. The
-    historical_data argument is accepted to keep the future interface stable.
-    """
-    _ = historical_data
-    return load_risk_weights()["inventory_risk_weights"]
+        coverage = float(record.get("covered_demand_rate", 0.5))
+        delay = float(record.get("actual_delay_hours", 0))
+        lost_orders = float(record.get("lost_orders", 0))
+        downtime = float(record.get("production_downtime_hours", 0))
+
+        xs["shortage_urgency"].append(max(0.0, min(1.0 - coverage, 1.0)))
+        xs["order_importance"].append(lost_orders / (lost_orders + 1.0))
+        xs["transit_delay"].append(max(0.0, min(delay / 72.0, 1.0)))
+        xs["external_event"].append(max(0.0, min(downtime / 168.0, 1.0)))
+        ys.append(1.0 - score)
+
+    if len(ys) < 5:
+        return expert
+
+    correlations = {key: abs(_pearson(values, ys)) for key, values in xs.items()}
+    total = sum(correlations.values())
+    if total == 0.0:
+        return expert
+
+    weights = {key: round(correlations[key] / total, 6) for key in keys}
+    weights[keys[-1]] = round(1.0 - sum(weights[key] for key in keys[:-1]), 6)
+    return weights
 
 
 def calibrate_thresholds(historical_data: Any) -> dict[str, Any]:
-    """Return alert thresholds for the current MVP.
+    """Calibrate alert thresholds from failed or partially failed outcomes."""
+    result = load_thresholds()
+    records = list(historical_data) if historical_data else []
 
-    Future implementation:
-    Calibrate yellow warning, red warning, and inventory risk trigger thresholds
-    from historical shortage incidents and emergency-response outcomes.
+    failure_delays = [
+        float(record["actual_delay_hours"])
+        for record in records
+        if record.get("outcome_status") in ("failed", "partial_success")
+        and "actual_delay_hours" in record
+    ]
+    if len(failure_delays) < 5:
+        return result
 
-    Current implementation:
-    Return the default expert thresholds from config/thresholds.yaml. The
-    historical_data argument is accepted to keep the future interface stable.
-    """
-    _ = historical_data
-    return load_thresholds()
+    yellow = _percentile(failure_delays, 0.25)
+    red = _percentile(failure_delays, 0.10)
+    if red >= yellow:
+        red = yellow * 0.5
+
+    result["inventory_warning"]["yellow_support_hours"] = round(yellow, 1)
+    result["inventory_warning"]["red_support_hours"] = round(red, 1)
+    return result
 
 
 def evaluate_decision_outcomes(historical_decisions: Any) -> dict[str, Any]:
-    """Return a mock evaluation summary for historical decisions.
+    """Evaluate historical decision outcomes from real outcome labels."""
+    records = list(historical_decisions) if historical_decisions else []
+    if not records:
+        return {
+            "status": "simulated",
+            "sample_size": 0,
+            "average_score": 82,
+            "success_rate": 0.76,
+            "key_findings": [
+                "高优先级订单的库存锁定策略通常能降低延期风险。",
+                "空运补货可提升时效，但需要结合成本和毛利约束评估。",
+                "供应商可靠性评分应纳入应急采购方案排序。",
+            ],
+        }
 
-    Future implementation:
-    Evaluate response strategies using actual emergency cost, delivery delay,
-    production downtime, lost orders, customer complaints, and final outcome
-    labels.
+    scored = []
+    for record in records:
+        score = _outcome_score(record.get("outcome_status", ""))
+        if score is not None:
+            scored.append((record, score))
 
-    Current implementation:
-    Return a deterministic simulated result for demo and testing purposes.
-    """
-    _ = historical_decisions
+    if not scored:
+        return {
+            "status": "calibrated",
+            "sample_size": 0,
+            "success_rate": 0.0,
+            "average_human_rating": 0.0,
+            "avg_covered_demand_rate": 0.0,
+            "avg_actual_delay_hours": 0.0,
+            "risk_weight_suggestions": calibrate_inventory_risk_weights(records),
+            "threshold_suggestions": calibrate_thresholds(records),
+            "key_findings": [
+                "样本量 0 条，未发现可识别的 outcome_status。",
+                "无法计算真实成功率、覆盖率和延误均值。",
+                "权重和阈值建议已回退到专家默认配置。",
+            ],
+        }
+
+    sample_size = len(scored)
+    success_count = sum(1 for _, score in scored if score == 1.0)
+    avg_rating = sum(float(record.get("human_rating", 3)) for record, _ in scored) / sample_size
+    avg_coverage = sum(float(record.get("covered_demand_rate", 0)) for record, _ in scored) / sample_size
+    avg_delay = sum(float(record.get("actual_delay_hours", 0)) for record, _ in scored) / sample_size
+    risk_weights = calibrate_inventory_risk_weights(records)
+    thresholds = calibrate_thresholds(records)
+
     return {
-        "status": "simulated",
-        "sample_size": 0,
-        "average_score": 82,
-        "success_rate": 0.76,
+        "status": "calibrated",
+        "sample_size": sample_size,
+        "success_rate": round(success_count / sample_size, 4),
+        "average_human_rating": round(avg_rating, 2),
+        "avg_covered_demand_rate": round(avg_coverage, 4),
+        "avg_actual_delay_hours": round(avg_delay, 2),
+        "risk_weight_suggestions": risk_weights,
+        "threshold_suggestions": thresholds,
         "key_findings": [
-            "高优先级订单的库存锁定策略通常能降低延期风险。",
-            "空运补货可提升时效，但需要结合成本和毛利约束评估。",
-            "供应商可靠性评分应纳入应急采购方案排序。",
+            f"样本量 {sample_size} 条，成功率 {success_count / sample_size:.1%}。",
+            f"平均供给覆盖率 {avg_coverage:.1%}，平均实际延误 {avg_delay:.0f}h。",
+            f"权重建议：shortage_urgency={risk_weights['shortage_urgency']:.2f}，"
+            f"transit_delay={risk_weights['transit_delay']:.2f}。",
         ],
     }
 

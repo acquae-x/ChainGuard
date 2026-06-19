@@ -1,0 +1,7 @@
+﻿warehouse_id,warehouse_name,region,warehouse_type,capacity_units,manager,status,updated_at
+WH-01,上海中央仓,上海,central,500000,张敏,active,2026-06-15T08:00:00+08:00
+WH-02,苏州工厂仓,苏州,factory,360000,李强,active,2026-06-15T08:00:00+08:00
+WH-03,宁波保税仓,宁波,bonded,260000,王璐,active,2026-06-15T08:00:00+08:00
+WH-04,合肥工厂仓,合肥,factory,320000,赵晨,active,2026-06-15T08:00:00+08:00
+WH-05,武汉区域仓,武汉,regional,220000,陈杰,active,2026-06-15T08:00:00+08:00
+WH-06,东莞区域仓,东莞,regional,240000,刘婷,active,2026-06-15T08:00:00+08:00
