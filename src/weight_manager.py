@@ -5,7 +5,7 @@ from typing import Any, Iterable, Literal
 
 from src.config_loader import load_risk_weights
 from src.game_model import _PAYOFF_WEIGHTS_DEFAULTS
-from src.parameter_calibration import calibrate_inventory_risk_weights
+from src.parameter_calibration import calibrate_inventory_risk_weights, calibrate_trigger_threshold
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,24 @@ class WeightManager:
             method="expert_yaml",
             note="博弈收益权重由专家配置，当前版本不支持数据驱动校准",
         )
+
+
+    def resolve_trigger_threshold(
+        self,
+        historical_data: Iterable[dict] | None,
+        inventory_weights: dict[str, float],
+    ) -> dict[str, Any]:
+        """Resolve inventory_risk_trigger threshold.
+
+        historical_data: iterable of record dicts, or None (treated as empty).
+        inventory_weights: the calibrated or expert weights used to compute
+                           proxy risk_index (must contain the 4 inventory risk keys).
+        Returns calibrate_trigger_threshold() result dict.
+        NOTE: Does not call _validate_normalized() - result is a single float, not
+              a weight vector.
+        """
+        records = list(historical_data) if historical_data is not None else []
+        return calibrate_trigger_threshold(records, inventory_weights)
 
 
 def _validate_plain_values(values: dict[str, float]) -> None:
