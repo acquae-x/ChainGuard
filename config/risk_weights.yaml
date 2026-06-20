@@ -10,3 +10,16 @@ decision_score_weights:
   risk_reduction: 0.25
   feasibility: 0.20
   service_level: 0.10
+
+payoff_weights:
+  procurement_own_coverage: 0.60
+  procurement_own_speed: 0.40
+  procurement_sys_coverage: 0.50
+  procurement_sys_cost_efficiency: 0.50
+  logistics_own_speed: 0.70
+  logistics_own_availability: 0.30
+  logistics_sys_speed: 0.40
+  logistics_sys_cost_efficiency: 0.60
+  finance_own_scale: 3.0
+  finance_sys_service: 0.50
+  finance_sys_own: 0.50

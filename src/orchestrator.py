@@ -3,7 +3,7 @@ from typing import Any
 from src.agents import generate_all_proposals
 from src.arbitrator import arbitrate
 from src.audit import AuditLog, build_audit_entry
-from src.config_loader import load_risk_weights, load_thresholds
+from src.config_loader import load_thresholds
 from src.conflict_detector import detect_conflict
 from src.constraint_solver import ConstraintSolver
 from src.data_loader import load_demo_context
@@ -12,10 +12,12 @@ from src.domain_models import DecisionResult
 from src.explainer import DecisionExplainer
 from src.feedback import ExperienceFeedback
 from src.game_model import PayoffModel
+from src.history_pipeline import HistoryPipeline
 from src.inventory_monitor import calculate_inventory_risk
 from src.learning import generate_experience_card, save_experience_card
 from src.scenario_loader import ScenarioLoader
 from src.scoring import attach_total_scores
+from src.weight_manager import WeightManager
 
 
 class DecisionOrchestrator:
@@ -31,9 +33,9 @@ class DecisionOrchestrator:
     def run_demo(self) -> DecisionResult:
         context: dict[str, Any] = {}
         try:
-            risk_weights = load_risk_weights()
             thresholds = load_thresholds()
             context = load_demo_context()
+            risk_weights = self._resolve_risk_weights()
             return self._run_context(context, risk_weights, thresholds)
         except Exception as error:
             self._log_error_audit(context, error)
@@ -46,13 +48,38 @@ class DecisionOrchestrator:
     ) -> DecisionResult:
         context: dict[str, Any] = {}
         try:
-            risk_weights = load_risk_weights()
             thresholds = load_thresholds()
             context = loader.load_context(event_id)
+            risk_weights = self._resolve_risk_weights()
             return self._run_context(context, risk_weights, thresholds)
         except Exception as error:
             self._log_error_audit(context, error)
             raise
+
+    @staticmethod
+    def _resolve_risk_weights(
+        history_records: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        manager = WeightManager()
+        if history_records is None:
+            try:
+                history_records = HistoryPipeline().load_outcomes()
+            except Exception:
+                history_records = []
+        inventory_weights = manager.resolve_inventory_risk_weights(history_records)
+        score_weights = manager.resolve_decision_score_weights(history_records)
+        payoff_weights = manager.resolve_payoff_weights()
+        return {
+            "inventory_risk_weights": inventory_weights.values,
+            "decision_score_weights": score_weights.values,
+            "payoff_weights": payoff_weights.values,
+            "_inventory_weight_source": inventory_weights.source,
+            "_inventory_weight_sample_size": inventory_weights.sample_size,
+            "_inventory_weight_note": inventory_weights.note,
+            "_score_weight_source": score_weights.source,
+            "_score_weight_note": score_weights.note,
+            "_payoff_weight_source": payoff_weights.source,
+        }
 
     @staticmethod
     def _log_error_audit(context: dict[str, Any], error: Exception) -> None:
@@ -103,7 +130,7 @@ class DecisionOrchestrator:
             save_experience_card(experience_card)
         except Exception:
             pass
-        payoff_model = PayoffModel()
+        payoff_model = PayoffModel(payoff_weights=risk_weights.get("payoff_weights"))
         payoffs = {
             "procurement": payoff_model.evaluate_procurement(context),
             "logistics": payoff_model.evaluate_logistics(context),

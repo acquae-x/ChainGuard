@@ -171,6 +171,15 @@ class HistoryPipeline:
         )
         return snapshot
 
+    def load_outcomes(self) -> list[dict[str, Any]]:
+        """Load all quality-validated historical decision records for calibration.
+
+        Wraps _load_valid_records_before_cutoff with a far-future cutoff so all
+        available records are returned. Quality filtering is applied by the
+        underlying method.
+        """
+        return self._load_valid_records_before_cutoff("9999-12-31T23:59:59")
+
     def load_watermark(self) -> str | None:
         if not self.state_path.exists():
             return None
