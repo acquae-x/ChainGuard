@@ -69,6 +69,9 @@ class DecisionOrchestrator:
         inventory_weights = manager.resolve_inventory_risk_weights(history_records)
         score_weights = manager.resolve_decision_score_weights(history_records)
         payoff_weights = manager.resolve_payoff_weights()
+        trigger_meta = manager.resolve_trigger_threshold(
+            history_records, inventory_weights.values
+        )
         return {
             "inventory_risk_weights": inventory_weights.values,
             "decision_score_weights": score_weights.values,
@@ -79,6 +82,10 @@ class DecisionOrchestrator:
             "_score_weight_source": score_weights.source,
             "_score_weight_note": score_weights.note,
             "_payoff_weight_source": payoff_weights.source,
+            "_trigger_threshold_value": trigger_meta["value"],
+            "_trigger_threshold_source": trigger_meta["_source"],
+            "_trigger_threshold_note": trigger_meta["_note"],
+            "_trigger_threshold_sample_size": trigger_meta["_sample_size"],
         }
 
     @staticmethod
@@ -99,6 +106,15 @@ class DecisionOrchestrator:
         risk_weights: dict[str, Any],
         thresholds: dict[str, Any],
     ) -> DecisionResult:
+        calibrated_trigger = risk_weights.get("_trigger_threshold_value")
+        if calibrated_trigger is not None:
+            thresholds = {
+                **thresholds,
+                "inventory_warning": {
+                    **thresholds["inventory_warning"],
+                    "inventory_risk_trigger": calibrated_trigger,
+                },
+            }
         retrieval_result = ExperienceFeedback().retrieve(context)
         inventory_risk = calculate_inventory_risk(
             context["inventory"],

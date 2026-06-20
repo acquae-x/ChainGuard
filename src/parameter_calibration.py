@@ -205,3 +205,103 @@ def calibrate_parameters_from_enterprise_data(historical_data: Any | None = None
         "inventory_risk_weights": calibrate_inventory_risk_weights(historical_data),
         "thresholds": calibrate_thresholds(historical_data),
     }
+
+
+def calibrate_trigger_threshold(
+    historical_data: Any,
+    weights: dict[str, float],
+) -> dict[str, Any]:
+    """Calibrate inventory_risk_trigger from failure/partial_success records.
+
+    Uses the same feature proxy mapping as calibrate_inventory_risk_weights,
+    but scales features to [0,100] to produce a proxy risk_index comparable
+    to the live inventory_risk_index computed by calculate_inventory_risk().
+
+    Proxy mapping (one record -> one proxy_risk_index value):
+        coverage  = float(record.get("covered_demand_rate", 0.5))
+        delay     = float(record.get("actual_delay_hours", 0))
+        lost      = float(record.get("lost_orders", 0))
+        downtime  = float(record.get("production_downtime_hours", 0))
+
+        shortage  = max(0.0, min((1.0 - coverage) * 100, 100))
+        order_imp = lost / (lost + 1.0) * 100
+        transit   = max(0.0, min(delay / 72.0 * 100, 100))
+        ext       = max(0.0, min(downtime / 168.0 * 100, 100))
+
+        proxy_risk_index = (
+            weights["shortage_urgency"] * shortage
+            + weights["order_importance"] * order_imp
+            + weights["transit_delay"] * transit
+            + weights["external_event"] * ext
+        )
+
+    Only records with outcome_status in ("failed", "partial_success") are included.
+    Returns _percentile(proxy_indices, 0.25) rounded to 1 decimal place.
+    Rationale: P25 yields ~75% recall on real failure data vs 0% for expert default 70.
+               This matches the P25 used in calibrate_thresholds() for yellow_support_hours.
+
+    Fallback (< 5 failure/partial_success records):
+        Returns expert YAML default with _source="expert".
+
+    Returns:
+        {
+            "value": float,        # calibrated threshold or expert YAML default
+            "_source": str,        # "calibrated" | "expert"
+            "_sample_size": int,   # count of failure/partial_success records used
+            "_method": str,        # "p25_failure_proxy_risk_index" | "expert_yaml"
+            "_note": str,          # human-readable Chinese explanation
+        }
+
+    NOTE: Do NOT call _validate_normalized() on this result - "value" is a single
+    threshold float, not a weight vector, and must not be constrained to sum to 1.
+    """
+    records = list(historical_data) if historical_data else []
+    expert_trigger = float(
+        load_thresholds()["inventory_warning"]["inventory_risk_trigger"]
+    )
+
+    proxy_indices: list[float] = []
+    for record in records:
+        if record.get("outcome_status") not in ("failed", "partial_success"):
+            continue
+        coverage = float(record.get("covered_demand_rate", 0.5))
+        delay    = float(record.get("actual_delay_hours", 0))
+        lost     = float(record.get("lost_orders", 0))
+        downtime = float(record.get("production_downtime_hours", 0))
+
+        shortage  = max(0.0, min((1.0 - coverage) * 100, 100))
+        order_imp = lost / (lost + 1.0) * 100
+        transit   = max(0.0, min(delay / 72.0 * 100, 100))
+        ext       = max(0.0, min(downtime / 168.0 * 100, 100))
+
+        proxy_indices.append(
+            weights["shortage_urgency"] * shortage
+            + weights["order_importance"] * order_imp
+            + weights["transit_delay"] * transit
+            + weights["external_event"] * ext
+        )
+
+    n = len(proxy_indices)
+    if n < 5:
+        return {
+            "value": expert_trigger,
+            "_source": "expert",
+            "_sample_size": n,
+            "_method": "expert_yaml",
+            "_note": (
+                f"失败/部分失败样本不足（{n} < 5），"
+                f"使用专家默认阈值 {expert_trigger}"
+            ),
+        }
+
+    threshold = round(_percentile(proxy_indices, 0.25), 1)
+    return {
+        "value": threshold,
+        "_source": "calibrated",
+        "_sample_size": n,
+        "_method": "p25_failure_proxy_risk_index",
+        "_note": (
+            f"基于 {n} 条失败/部分失败记录的 P25 计算"
+            f"（替代专家默认值 {expert_trigger}），召回率约 75%"
+        ),
+    }
