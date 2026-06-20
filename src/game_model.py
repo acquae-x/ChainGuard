@@ -2,6 +2,23 @@ from dataclasses import dataclass
 from typing import Any
 
 
+_PAYOFF_WEIGHTS_DEFAULTS: dict[str, float] = {
+    "procurement_own_coverage": 0.60,
+    "procurement_own_speed": 0.40,
+    "procurement_sys_coverage": 0.50,
+    "procurement_sys_cost_efficiency": 0.50,
+    "logistics_own_speed": 0.70,
+    "logistics_own_availability": 0.30,
+    "logistics_sys_speed": 0.40,
+    "logistics_sys_cost_efficiency": 0.60,
+    "finance_own_scale": 3.0,
+    "finance_sys_service": 0.50,
+    "finance_sys_own": 0.50,
+}
+
+_REQUIRED_PAYOFF_KEYS: frozenset[str] = frozenset(_PAYOFF_WEIGHTS_DEFAULTS)
+
+
 _COST_LEVEL_MULTIPLIERS = {
     "低": 1.0,
     "中低": 1.3,
@@ -121,6 +138,24 @@ def _build_payoff(agent_name: str, options: list[StrategyOption]) -> AgentPayoff
 class PayoffModel:
     """Compute strategy options and payoffs for all three agents."""
 
+    def __init__(
+        self,
+        payoff_weights: dict[str, float] | None = None,
+    ) -> None:
+        if payoff_weights is None:
+            from src.config_loader import load_risk_weights
+
+            payoff_weights = load_risk_weights().get(
+                "payoff_weights",
+                _PAYOFF_WEIGHTS_DEFAULTS,
+            )
+        missing = _REQUIRED_PAYOFF_KEYS - set(payoff_weights)
+        if missing:
+            raise ValueError(f"payoff_weights 缺少键：{sorted(missing)}")
+        self._pw: dict[str, float] = {
+            key: float(payoff_weights[key]) for key in _REQUIRED_PAYOFF_KEYS
+        }
+
     def evaluate_procurement(self, context: dict[str, Any]) -> AgentPayoff:
         suppliers = context.get("suppliers", [])
         ready_suppliers = [
@@ -175,14 +210,15 @@ class PayoffModel:
             coverage_rate = min(supply_qty / demand_basis, 1.0)
             speed_score = _clamp(100.0 - lead_time / 48.0 * 50.0)
             own_utility = (
-                coverage_rate * 60.0
-                + speed_score * 0.40
+                coverage_rate * 100.0 * self._pw["procurement_own_coverage"]
+                + speed_score * self._pw["procurement_own_speed"]
                 if selected_suppliers
                 else 0.0
             )
             system_utility = (
-                coverage_rate * 50.0
-                + (100.0 / cost_multiplier) * 0.50
+                coverage_rate * 100.0 * self._pw["procurement_sys_coverage"]
+                + (100.0 / cost_multiplier)
+                * self._pw["procurement_sys_cost_efficiency"]
                 if selected_suppliers
                 else 0.0
             )
@@ -268,12 +304,13 @@ class PayoffModel:
                     100.0 - hours / max(deadline, 1.0) * 50.0
                 )
                 own_utility = (
-                    speed_score * 0.70
-                    + availability_ratio * 0.30
+                    speed_score * self._pw["logistics_own_speed"]
+                    + availability_ratio * self._pw["logistics_own_availability"]
                 )
                 system_utility = (
-                    speed_score * 0.40
-                    + _clamp(100.0 / max(cost_multiplier, 0.01)) * 0.60
+                    speed_score * self._pw["logistics_sys_speed"]
+                    + _clamp(100.0 / max(cost_multiplier, 0.01))
+                    * self._pw["logistics_sys_cost_efficiency"]
                 )
                 representative_mode = min(
                     selected_modes,
@@ -367,9 +404,12 @@ class PayoffModel:
             normalized = (
                 net_benefit / max(total_gross_profit, 1.0) * 100.0
             )
-            own_utility = _clamp(normalized * 3.0)
+            own_utility = _clamp(normalized * self._pw["finance_own_scale"])
             service_level = a_order_ratio * coverage_ratio * 100.0
-            system_utility = service_level * 0.50 + own_utility * 0.50
+            system_utility = (
+                service_level * self._pw["finance_sys_service"]
+                + own_utility * self._pw["finance_sys_own"]
+            )
             options.append(
                 StrategyOption(
                     label=label,

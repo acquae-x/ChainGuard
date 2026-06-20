@@ -76,10 +76,12 @@ UI 验证：点开 Step 6 底部的「仲裁推导过程」，可看到每步的
 
 | 权重维度 | 专家默认值 | 数据驱动校准值 | 变化 |
 |---|---|---|---|
-| shortage_urgency | 0.35 | 0.235 | ↓ |
-| order_importance | 0.25 | 0.446 | ↑ |
-| transit_delay | 0.20 | 0.141 | ↓ |
-| external_event | 0.20 | 0.178 | ↓ |
+| shortage_urgency | 0.35 | 0.287 | ↓ |
+| order_importance | 0.25 | 0.316 | ↑ |
+| transit_delay | 0.20 | 0.126 | ↓ |
+| external_event | 0.20 | 0.271 | ↑ |
+
+> 完整、分角度的答辩问答库见 `ChainGuard_答辩问答库.docx`（35 题，含核心数字速记表）。
 
 UI 验证：Step 9 底部"参数校准对比"展开栏展示完整对比表，
 数值来自实时调用 `calibrate_inventory_risk_weights(600条记录)`。
