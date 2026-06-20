@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from src.db import get_connection
 from src.training_dataset import split_by_time
 
 
@@ -47,9 +48,12 @@ class HistoryPipeline:
         self,
         db_path: str | Path | None = None,
         state_path: str | Path | None = None,
+        *,
+        tenant_id: str = "default",
     ) -> None:
         self.db_path = _resolve_path(db_path or DEFAULT_DB_PATH)
         self.state_path = _resolve_path(state_path or DEFAULT_STATE_PATH)
+        self.tenant_id = tenant_id
 
     def ingest_incremental(
         self,
@@ -76,8 +80,7 @@ class HistoryPipeline:
         cursor_created_at = effective_watermark or ""
         cursor_case_id: str | None = None
 
-        with sqlite3.connect(self.db_path) as connection:
-            connection.row_factory = sqlite3.Row
+        with get_connection(f"sqlite:///{self.db_path}", tenant_id=self.tenant_id) as connection:
             while True:
                 rows = self._fetch_batch(
                     connection,
@@ -222,8 +225,7 @@ class HistoryPipeline:
     def _load_valid_records_before_cutoff(self, cutoff_time: str) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         seen_case_ids: set[str] = set()
-        with sqlite3.connect(self.db_path) as connection:
-            connection.row_factory = sqlite3.Row
+        with get_connection(f"sqlite:///{self.db_path}", tenant_id=self.tenant_id) as connection:
             rows = connection.execute(
                 "SELECT * FROM historical_decisions "
                 "WHERE created_at <= ? ORDER BY created_at, case_id",

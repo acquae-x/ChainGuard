@@ -56,7 +56,7 @@ def propose_calibration_workflow() -> list[str]:
     ]
 
 
-def calibrate_inventory_risk_weights(historical_data: Any) -> dict[str, float]:
+def calibrate_inventory_risk_weights(historical_data: Any) -> dict[str, Any]:
     """Calibrate inventory risk weights from historical decision outcomes."""
     records = list(historical_data) if historical_data else []
     expert = dict(load_risk_weights()["inventory_risk_weights"])
@@ -81,15 +81,26 @@ def calibrate_inventory_risk_weights(historical_data: Any) -> dict[str, float]:
         ys.append(1.0 - score)
 
     if len(ys) < 5:
-        return expert
+        result = dict(expert)
+        result["_sample_size"] = len(ys)
+        result["_method"] = "pearson_correlation"
+        result["_calibration_note"] = f"样本量不足（{len(ys)} < 5），返回专家默认权重"
+        return result
 
     correlations = {key: abs(_pearson(values, ys)) for key, values in xs.items()}
     total = sum(correlations.values())
     if total == 0.0:
-        return expert
+        result = dict(expert)
+        result["_sample_size"] = len(ys)
+        result["_method"] = "pearson_correlation"
+        result["_calibration_note"] = "相关性全为零，返回专家默认权重"
+        return result
 
     weights = {key: round(correlations[key] / total, 6) for key in keys}
     weights[keys[-1]] = round(1.0 - sum(weights[key] for key in keys[:-1]), 6)
+    weights["_sample_size"] = len(ys)
+    weights["_method"] = "pearson_correlation"
+    weights["_calibration_note"] = f"基于 {len(ys)} 条历史决策的皮尔逊相关归一化建议"
     return weights
 
 

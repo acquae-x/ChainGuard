@@ -70,7 +70,7 @@ def compare_models(
     random_state: int = 42,
 ) -> ModelComparisonReport:
     """
-    Train five fixed model candidates and register the validation F1 winner.
+    Train six fixed model candidates and register the validation F1 winner.
 
     The validation split is used when present; otherwise training data is reused as
     a fallback evaluation set so small local demos still produce a comparable report.
@@ -97,6 +97,7 @@ def compare_models(
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import accuracy_score, f1_score
         from sklearn.naive_bayes import GaussianNB
+        from sklearn.svm import SVC
         from sklearn.tree import DecisionTreeClassifier, export_text
     except Exception:
         model_results.extend(_sklearn_unavailable_results())
@@ -139,6 +140,15 @@ def compare_models(
                 "GaussianNB",
                 GaussianNB(),
                 "Fast probabilistic baseline with simple feature assumptions.",
+            ),
+            (
+                "SVM",
+                SVC(
+                    probability=True,
+                    class_weight="balanced",
+                    random_state=random_state,
+                ),
+                "Kernel max-margin classifier; probability via Platt scaling.",
             ),
         ]
 
@@ -308,6 +318,7 @@ def _sklearn_unavailable_results() -> list[ModelResult]:
             "DecisionTreeClassifier",
             "RandomForestClassifier",
             "GaussianNB",
+            "SVM",
         ]
     ]
 

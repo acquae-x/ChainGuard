@@ -4,14 +4,21 @@ from src.parameter_calibration import (
     evaluate_decision_outcomes,
     explain_simulation_limitations,
 )
+from src.config_loader import load_risk_weights
 
 
+WEIGHT_KEYS = [
+    "shortage_urgency",
+    "order_importance",
+    "transit_delay",
+    "external_event",
+]
 def test_calibrate_inventory_risk_weights_returns_default_weights():
     weights = calibrate_inventory_risk_weights(historical_data=[])
 
     assert weights
     assert weights["shortage_urgency"] == 0.35
-    assert round(sum(weights.values()), 6) == 1.0
+    assert round(sum(weights[key] for key in WEIGHT_KEYS), 6) == 1.0
 
 
 def test_calibrate_thresholds_returns_default_thresholds():
@@ -64,19 +71,14 @@ def _mixed_records():
 def test_calibrate_weights_returns_all_keys():
     weights = calibrate_inventory_risk_weights(_mixed_records())
 
-    assert set(weights) == {
-        "shortage_urgency",
-        "order_importance",
-        "transit_delay",
-        "external_event",
-    }
-    assert all(isinstance(value, float) for value in weights.values())
+    assert all(key in weights for key in WEIGHT_KEYS)
+    assert all(isinstance(weights[key], float) for key in WEIGHT_KEYS)
 
 
 def test_calibrate_weights_sum_to_one():
     weights = calibrate_inventory_risk_weights(_mixed_records())
 
-    assert abs(sum(weights.values()) - 1.0) < 0.01
+    assert abs(sum(weights[key] for key in WEIGHT_KEYS) - 1.0) < 0.01
 
 
 def test_calibrate_weights_empty_data():
@@ -117,5 +119,30 @@ def test_calibrate_weights_input_changes_output():
     same = calibrate_inventory_risk_weights(all_success)
     calibrated = calibrate_inventory_risk_weights(mixed)
 
-    keys = ["shortage_urgency", "order_importance", "transit_delay", "external_event"]
-    assert any(abs(calibrated[key] - same[key]) > 0.01 for key in keys)
+    assert any(abs(calibrated[key] - same[key]) > 0.01 for key in WEIGHT_KEYS)
+
+
+def test_calibration_includes_metadata():
+    weights = calibrate_inventory_risk_weights(_mixed_records())
+
+    assert isinstance(weights["_sample_size"], int)
+    assert weights["_sample_size"] > 0
+    assert weights["_method"] == "pearson_correlation"
+    assert isinstance(weights["_calibration_note"], str)
+    assert weights["_calibration_note"]
+
+
+def test_calibration_metadata_on_insufficient_samples():
+    weights = calibrate_inventory_risk_weights(_mixed_records()[:3])
+    expert = load_risk_weights()["inventory_risk_weights"]
+
+    assert weights["_sample_size"] == 3
+    assert "样本量不足" in weights["_calibration_note"]
+    for key, value in expert.items():
+        assert weights[key] == value
+
+
+def test_metadata_keys_do_not_break_weight_sum():
+    weights = calibrate_inventory_risk_weights(_mixed_records())
+
+    assert round(sum(weights[key] for key in WEIGHT_KEYS), 6) == 1.0
