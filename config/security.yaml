@@ -1,0 +1,8 @@
+sensitive_fields:
+  supplier_name: mask
+  customer_name: mask
+  vendor_name: mask
+  unit_price: mask
+  amount: range
+  cost: range
+  contact: mask

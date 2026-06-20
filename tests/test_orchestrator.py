@@ -52,6 +52,15 @@ def test_run_demo_preserves_fixed_case_arbitration():
     assert 0 < result.arbitration["final_score"] <= 100
 
 
+def test_arbitration_expected_effect_has_ui_contract_keys():
+    # Regression: app.render_step_6 reads these exact keys. A drift (I23 renamed
+    # support_hours_after_action -> supply_continuity) crashed the demo with KeyError.
+    result = DecisionOrchestrator().run_demo()
+    effect = result.arbitration["expected_effect"]
+    for key in ("supply_continuity", "delivery_risk", "cost_risk", "customer_impact"):
+        assert key in effect
+
+
 def test_decision_result_to_dict_is_json_serializable_and_independent():
     result = DecisionOrchestrator().run_demo()
     payload = result.to_dict()

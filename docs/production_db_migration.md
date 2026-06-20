@@ -1,5 +1,78 @@
 # ChainGuard Production Database Migration: SQLite To PostgreSQL
 
+## Runnable I37 Migration Path
+
+ChainGuard still defaults to SQLite when `DATABASE_URL` is not set. PostgreSQL
+is optional and uses the new `src.db.get_connection()` URL convention:
+
+```text
+sqlite:///path/to/database.db
+postgresql://user:password@host:5432/database
+```
+
+Start the optional local PostgreSQL service:
+
+```powershell
+docker compose --profile postgres up -d postgres
+```
+
+Install the optional PostgreSQL driver. SQLite-only development and tests do not
+need this package.
+
+```powershell
+python -m pip install "psycopg[binary]>=3"
+```
+
+Set the target URL:
+
+```powershell
+$env:DATABASE_URL = "postgresql://chainguard:chainguard_secret@localhost:5432/chainguard_prod"
+```
+
+Run the migration from the enterprise SQLite database:
+
+```powershell
+python scripts/migrate_to_postgres.py `
+  --sqlite demo_assets/enterprise/database/chainguard_enterprise_demo.db `
+  --postgres-url $env:DATABASE_URL `
+  --truncate
+```
+
+The migration script creates every SQLite table with
+`CREATE TABLE IF NOT EXISTS`, inserts rows in batches, and prints one migrated
+row count per table.
+
+Verify PostgreSQL tables:
+
+```powershell
+docker compose --profile postgres exec postgres `
+  psql -U chainguard -d chainguard_prod `
+  -c "SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables ORDER BY relname;"
+```
+
+Run a timestamped backup into `backups/postgres`:
+
+```powershell
+docker compose --profile postgres --profile postgres-backup run --rm postgres-backup
+```
+
+Manual backup and restore:
+
+```powershell
+docker compose --profile postgres exec postgres `
+  pg_dump -U chainguard -d chainguard_prod `
+  > backups/postgres/chainguard_prod.sql
+
+docker compose --profile postgres exec -T postgres `
+  psql -U chainguard -d chainguard_prod `
+  < backups/postgres/chainguard_prod.sql
+```
+
+For app processes that should use PostgreSQL-aware code paths, pass
+`DATABASE_URL` in the process environment. Existing `ScenarioLoader` and
+`HistoryPipeline` calls intentionally keep explicit SQLite URLs so their current
+SQLite SQL dialect and test behavior remain unchanged.
+
 ## §1 Current SQLite Data Architecture
 
 ChainGuard currently uses a single SQLite demo database for enterprise scenario data:

@@ -2,6 +2,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from src.db import get_connection
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO_DB = (
@@ -51,18 +53,22 @@ TRANSPORT_OPTIONS = [
 class ScenarioLoader:
     """Load enterprise disruption scenarios from the synthetic SQLite dataset."""
 
-    def __init__(self, db_path: str | Path = DEFAULT_SCENARIO_DB) -> None:
+    def __init__(
+        self,
+        db_path: str | Path = DEFAULT_SCENARIO_DB,
+        *,
+        tenant_id: str = "default",
+    ) -> None:
         path = Path(db_path)
         if not path.is_absolute():
             path = PROJECT_ROOT / path
         if not path.exists():
             raise FileNotFoundError(f"场景数据库不存在：{path}")
         self.db_path = path
+        self.tenant_id = tenant_id
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return get_connection(f"sqlite:///{self.db_path}", tenant_id=self.tenant_id)
 
     def list_scenarios(self, limit: int = 50) -> list[dict[str, Any]]:
         if limit <= 0:
@@ -293,4 +299,3 @@ class ScenarioLoader:
                 option["risk_note"] = f"{route_note} 受事件影响，当前不可用"
             options.append(option)
         return options
-

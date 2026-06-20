@@ -1,0 +1,89 @@
+{
+ "config": {
+  "view": {
+   "continuousWidth": 300,
+   "continuousHeight": 300
+  }
+ },
+ "data": {
+  "name": "data-ec8a6d33403c06a298e7030f14cf522c"
+ },
+ "mark": {
+  "type": "bar"
+ },
+ "encoding": {
+  "color": {
+   "field": "来源",
+   "type": "nominal"
+  },
+  "x": {
+   "field": "权重维度",
+   "sort": [
+    "shortage_urgency",
+    "order_importance",
+    "transit_delay",
+    "external_event"
+   ],
+   "type": "nominal"
+  },
+  "xOffset": {
+   "field": "来源",
+   "type": "nominal"
+  },
+  "y": {
+   "field": "权重",
+   "scale": {
+    "domain": [
+     0,
+     0.5
+    ]
+   },
+   "type": "quantitative"
+  }
+ },
+ "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+ "datasets": {
+  "data-ec8a6d33403c06a298e7030f14cf522c": [
+   {
+    "权重维度": "shortage_urgency",
+    "来源": "专家默认值",
+    "权重": 0.35
+   },
+   {
+    "权重维度": "order_importance",
+    "来源": "专家默认值",
+    "权重": 0.25
+   },
+   {
+    "权重维度": "transit_delay",
+    "来源": "专家默认值",
+    "权重": 0.2
+   },
+   {
+    "权重维度": "external_event",
+    "来源": "专家默认值",
+    "权重": 0.2
+   },
+   {
+    "权重维度": "shortage_urgency",
+    "来源": "数据驱动校准值",
+    "权重": 0.286794
+   },
+   {
+    "权重维度": "order_importance",
+    "来源": "数据驱动校准值",
+    "权重": 0.316268
+   },
+   {
+    "权重维度": "transit_delay",
+    "来源": "数据驱动校准值",
+    "权重": 0.125921
+   },
+   {
+    "权重维度": "external_event",
+    "来源": "数据驱动校准值",
+    "权重": 0.271017
+   }
+  ]
+ }
+}

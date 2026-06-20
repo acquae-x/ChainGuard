@@ -251,3 +251,33 @@ python scripts/mock_erp_server.py
 ```
 
 It listens on `http://127.0.0.1:8765` by default and serves the same enterprise demo database used by the scenario loader.
+
+## Section 6 TLS Termination
+
+Production deployments should expose ChainGuard over HTTPS. Two supported
+patterns are:
+
+1. Terminate TLS at a reverse proxy or load balancer, then forward private
+   network traffic to `uvicorn src.api:app --host 0.0.0.0 --port 8000`.
+2. Run Uvicorn with certificate files directly for smaller controlled
+   deployments:
+
+```bash
+uvicorn src.api:app \
+  --host 0.0.0.0 \
+  --port 8443 \
+  --ssl-keyfile /path/to/tls.key \
+  --ssl-certfile /path/to/tls.crt
+```
+
+`docker-compose.yml` includes an `https-example` profile that expects
+development or externally provisioned certificates under `./certs/dev.key` and
+`./certs/dev.crt`:
+
+```bash
+docker compose --profile https-example up api-https
+```
+
+Use a managed certificate authority, platform secret store, or enterprise KMS
+outside this repository for production certificate and key lifecycle
+management. Do not commit private keys to source control.

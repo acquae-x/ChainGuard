@@ -36,7 +36,7 @@
     },
     {
       "path": "enterprise/csv/historical_decisions.csv",
-      "size_bytes": 169439
+      "size_bytes": 171094
     },
     {
       "path": "enterprise/csv/inventory.csv",
@@ -56,7 +56,7 @@
     },
     {
       "path": "enterprise/csv/production_plans.csv",
-      "size_bytes": 265791
+      "size_bytes": 265811
     },
     {
       "path": "enterprise/csv/purchase_order_lines.csv",
@@ -68,7 +68,7 @@
     },
     {
       "path": "enterprise/csv/quality_inspections.csv",
-      "size_bytes": 226204
+      "size_bytes": 226260
     },
     {
       "path": "enterprise/csv/sales_order_lines.csv",
@@ -88,7 +88,7 @@
     },
     {
       "path": "enterprise/csv/supplier_performance.csv",
-      "size_bytes": 45182
+      "size_bytes": 45206
     },
     {
       "path": "enterprise/csv/suppliers.csv",
@@ -100,7 +100,7 @@
     },
     {
       "path": "enterprise/database/chainguard_enterprise_demo.db",
-      "size_bytes": 12537856
+      "size_bytes": 12546048
     },
     {
       "path": "enterprise/json/dashboard_summary.json",
@@ -212,7 +212,7 @@
     },
     {
       "path": "pdf/企业供应链风险管理周报.pdf",
-      "size_bytes": 126995
+      "size_bytes": 126971
     },
     {
       "path": "pdf/库存与安全库存缺口明细.pdf",
@@ -252,7 +252,7 @@
     },
     {
       "path": "small_business/ChainGuard小企业供应链演示账套.xlsx",
-      "size_bytes": 166265
+      "size_bytes": 166261
     }
   ]
 }

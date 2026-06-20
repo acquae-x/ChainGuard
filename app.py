@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import streamlit as st
 
@@ -14,36 +13,9 @@ from src.scoring import detect_low_score, rank_proposals
 from src.sensitivity import run_sensitivity
 
 
-DEMO_CASE_NAME = "台风导致宁波港停运"
-SCENARIO_DB_PATH = (
-    Path(__file__).resolve().parent
-    / "demo_assets"
-    / "enterprise"
-    / "database"
-    / "chainguard_enterprise_demo.db"
-)
-
-
-def render_sidebar(scenarios: list[dict]) -> tuple[str, str | None]:
+def render_sidebar() -> tuple[str, str | None]:
     with st.sidebar:
         st.header("演示控制台")
-        options = [{"event_id": None, "label": f"固定演示：{DEMO_CASE_NAME}"}]
-        options.extend(
-            {
-                "event_id": scenario["event_id"],
-                "label": (
-                    f"{scenario['event_id']}｜{scenario['event_title']}｜"
-                    f"{scenario['severity']}｜风险 {scenario['risk_score']}"
-                ),
-            }
-            for scenario in scenarios
-        )
-        st.selectbox(
-            "演示案例选择",
-            options,
-            index=0,
-            format_func=lambda item: item["label"],
-        )
 
         st.markdown("### 参数说明")
         st.info(
@@ -303,12 +275,13 @@ def render_step_6(
         st.write(f"- {item}")
 
     st.markdown("**预期效果**")
+    _effect = arbitration.get("expected_effect", {})
     st.dataframe(
         [
-            {"维度": "行动后库存支撑", "预期": arbitration["expected_effect"]["support_hours_after_action"]},
-            {"维度": "交付风险", "预期": arbitration["expected_effect"]["delivery_risk"]},
-            {"维度": "成本风险", "预期": arbitration["expected_effect"]["cost_risk"]},
-            {"维度": "客户影响", "预期": arbitration["expected_effect"]["customer_impact"]},
+            {"维度": "供应连续性", "预期": _effect.get("supply_continuity", "—")},
+            {"维度": "交付风险", "预期": _effect.get("delivery_risk", "—")},
+            {"维度": "成本风险", "预期": _effect.get("cost_risk", "—")},
+            {"维度": "客户影响", "预期": _effect.get("customer_impact", "—")},
         ],
         use_container_width=True,
         hide_index=True,
@@ -652,11 +625,35 @@ def render_step_9_experience_references(experience_references: dict) -> None:
                 for k in _expert
             ]
             st.dataframe(_comparison, use_container_width=True, hide_index=True)
-            st.caption(
-                f"基于 {len(_records)} 条历史决策记录通过皮尔逊相关系数校准。"
-                "校准建议值需人工审批后更新至 config/risk_weights.yaml，不自动覆盖。"
+            import pandas as pd
+
+            _calibration_chart_rows = [
+                {
+                    "权重维度": k,
+                    "来源": "专家默认值",
+                    "权重": round(_expert.get(k, 0), 4),
+                }
+                for k in _expert
+            ] + [
+                {
+                    "权重维度": k,
+                    "来源": "数据驱动校准值",
+                    "权重": round(_calibrated.get(k, 0), 4),
+                }
+                for k in _expert
+            ]
+            st.markdown("**库存风险权重校准对比（专家默认 vs 数据驱动）**")
+            st.bar_chart(
+                pd.DataFrame(_calibration_chart_rows),
+                x="权重维度",
+                y="权重",
+                color="来源",
+                stack=False,
+                horizontal=True,
+                height=320,
             )
-            if _calibrated == _expert:
+            st.caption(_calibrated.get("_calibration_note"))
+            if {k: _calibrated.get(k) for k in _expert} == _expert:
                 st.info("当前校准结果与专家默认值一致（通常表示历史数据样本不足）。")
             else:
                 _max_delta_key = max(
@@ -777,13 +774,7 @@ def build_decision_report(result) -> dict:
 
 def main() -> None:
     st.set_page_config(page_title="ChainGuard 演示模式", page_icon="CG", layout="wide")
-    scenario_loader = None
-    scenarios = []
-    if SCENARIO_DB_PATH.exists():
-        scenario_loader = ScenarioLoader(SCENARIO_DB_PATH)
-        scenarios = scenario_loader.list_scenarios()
-
-    scenario_mode, enterprise_event_id = render_sidebar(scenarios)
+    scenario_mode, enterprise_event_id = render_sidebar()
     render_header()
 
     try:
@@ -841,7 +832,7 @@ if __name__ == "__main__":
 
 st.divider()
 with st.expander("🔬 模型对比评测：哪个模型预测结果最准？"):
-    if st.button("运行 5 模型对比评测"):
+    if st.button("运行 6 模型对比评测"):
         from src.history_pipeline import HistoryPipeline
         from src.model_comparison import compare_models
         from src.training_dataset import split_by_time
@@ -871,14 +862,53 @@ with st.expander("🔬 模型对比评测：哪个模型预测结果最准？"):
             ]
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-            chart_data = {
-                result.model_name: {
-                    "准确率": result.accuracy,
-                    "F1-macro": result.f1_macro,
+            import altair as alt
+
+            chart_rows = [
+                {
+                    "模型": result.model_name,
+                    "指标": metric_name,
+                    "分数": metric_value,
+                    "显示": "最优模型" if result.model_name == report.best_model_name else metric_name,
                 }
                 for result in report.model_results
-            }
-            st.bar_chart(chart_data)
+                for metric_name, metric_value in [
+                    ("准确率", result.accuracy),
+                    ("F1-macro", result.f1_macro),
+                ]
+            ]
+            score_chart = (
+                alt.Chart(pd.DataFrame(chart_rows))
+                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                .encode(
+                    x=alt.X(
+                        "模型:N",
+                        title="模型",
+                        sort=[result.model_name for result in report.model_results],
+                        axis=alt.Axis(labelAngle=-25),
+                    ),
+                    xOffset=alt.XOffset("指标:N"),
+                    y=alt.Y("分数:Q", title="分数", scale=alt.Scale(domain=[0, 1])),
+                    color=alt.Color(
+                        "显示:N",
+                        scale=alt.Scale(
+                            domain=["最优模型", "准确率", "F1-macro"],
+                            range=["#f59e0b", "#2563eb", "#64748b"],
+                        ),
+                        legend=alt.Legend(title=None, orient="top"),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("模型:N"),
+                        alt.Tooltip("指标:N"),
+                        alt.Tooltip("分数:Q", format=".3f"),
+                    ],
+                )
+                .properties(
+                    height=320,
+                    title=f"6 模型对比：最优模型 {report.best_model_name}",
+                )
+            )
+            st.altair_chart(score_chart, use_container_width=True)
 
             st.success(
                 f"🏆 最优模型：{report.best_model_name} "
