@@ -22,6 +22,10 @@ class AuditEntry:
     human_approval_required: bool
     decision_status: str
     error_message: str
+    event_key: str = ""
+    net_benefit: float = 0.0
+    penalty_savings: float = 0.0
+    profit_protected: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,11 +55,23 @@ def build_audit_entry(
     inventory_risk = result.get("inventory_risk") or {}
     constraint_analysis = result.get("constraint_analysis") or {}
     debate_result = result.get("debate_result") or {}
+    event_type = str(event.get("event_type") or event.get("type") or "unknown")
+    title = str(event.get("title") or "")
+    event_key = str(event.get("event_id") or f"{event_type}:{title}")
+    try:
+        from src.economic_impact import calculate_economic_impact
+
+        impact = calculate_economic_impact(context)
+        net_benefit = float(impact.net_benefit)
+        penalty_savings = float(impact.penalty_savings)
+        profit_protected = float(impact.profit_protected)
+    except Exception:
+        net_benefit = penalty_savings = profit_protected = 0.0
 
     return AuditEntry(
         decision_id=uuid.uuid4().hex,
         timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        event_type=str(event.get("event_type") or event.get("type") or "unknown"),
+        event_type=event_type,
         event_severity=str(event.get("severity") or event.get("weather_risk") or "unknown"),
         inventory_risk_index=float(inventory_risk.get("inventory_risk_index") or 0.0),
         constraint_feasible_count=int(constraint_analysis.get("feasible_count") or 0),
@@ -63,6 +79,10 @@ def build_audit_entry(
         human_approval_required=approval_required(result),
         decision_status=status,
         error_message=error_message,
+        event_key=event_key,
+        net_benefit=net_benefit,
+        penalty_savings=penalty_savings,
+        profit_protected=profit_protected,
     )
 
 

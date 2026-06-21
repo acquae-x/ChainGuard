@@ -772,66 +772,8 @@ def build_decision_report(result) -> dict:
     }
 
 
-def main() -> None:
-    st.set_page_config(page_title="ChainGuard 演示模式", page_icon="CG", layout="wide")
-    scenario_mode, enterprise_event_id = render_sidebar()
-    render_header()
-
-    try:
-        if scenario_mode == "企业真实场景":
-            if enterprise_event_id is None:
-                st.warning("请先在左侧选择一个企业事件。")
-                st.stop()
-
-            orchestrator = DecisionOrchestrator()
-            result = orchestrator.run_scenario(enterprise_event_id, ScenarioLoader())
-        else:
-            # 原有演示场景逻辑保持不变
-            orchestrator = DecisionOrchestrator()
-            result = orchestrator.run_demo()
-    except (FileNotFoundError, ValueError) as error:
-        st.error(str(error))
-        st.stop()
-
-    low_score_threshold = result.thresholds["learning"]["low_score_threshold"]
-    render_step_1(result.context["inventory"], result.inventory_risk)
-    render_step_2(result.context)
-    render_step_3(result.proposals, low_score_threshold)
-    render_step_4(result.proposals, result.conflict, low_score_threshold)
-    render_step_5(result.rebuttal)
-    render_step_6(result.arbitration, result.proposals, result.conflict, result.rebuttal)
-    render_step_7(result.experience_card)
-    render_step_8_constraint_debate(result.constraint_analysis, result.debate_result)
-    render_step_9_experience_references(result.experience_references)
-    render_step_10_explanation(result.explanation)
-    render_step_11_audit(result.audit_entry)
-    render_sensitivity(
-        run_sensitivity(
-            "current_stock",
-            [720, 1440, 2160, 3600, 5400, 7200],
-            baseline_context=result.context,
-        )
-    )
-
-    st.divider()
-    st.warning(explain_simulation_limitations())
-    st.divider()
-    report_json = json.dumps(build_decision_report(result), ensure_ascii=False, indent=2)
-    decision_id = (result.audit_entry or {}).get("decision_id", "unknown")
-    st.download_button(
-        label="📥 下载决策报告 JSON",
-        data=report_json,
-        file_name=f"chainguard_decision_{decision_id}.json",
-        mime="application/json",
-    )
-
-
-if __name__ == "__main__":
-    main()
-
-
-st.divider()
-with st.expander("🔬 模型对比评测：哪个模型预测结果最准？"):
+def render_model_comparison() -> None:
+    st.subheader("6 模型对比评测：哪个模型预测结果最准？")
     if st.button("运行 6 模型对比评测"):
         from src.history_pipeline import HistoryPipeline
         from src.model_comparison import compare_models
@@ -931,3 +873,169 @@ with st.expander("🔬 模型对比评测：哪个模型预测结果最准？"):
             if decision_tree_result:
                 with st.expander("决策树规则（可读文本，max_depth=4）"):
                     st.code(decision_tree_result.decision_tree_text, language="text")
+
+
+def render_value_dashboard(result) -> None:
+    from src.audit import AuditLog
+    from src.economic_impact import calculate_economic_impact
+    from src.value_dashboard import aggregate_timeline_value
+
+    import pandas as pd
+
+    impact = calculate_economic_impact(result.context)
+
+    st.subheader("本次事件收益")
+    col1, col2, col3 = st.columns(3)
+    col1.metric(
+        "💰 本次净节省",
+        f"¥{impact.net_benefit:,.0f}",
+        f"年化 ¥{impact.annual_benefit_estimate:,.0f}",
+    )
+    col2.metric(
+        "📋 违约损失节省",
+        f"¥{impact.penalty_savings:,.0f}",
+        f"人工 ¥{impact.manual_penalty:,.0f} → 系统 ¥{impact.system_penalty:,.0f}",
+    )
+    col3.metric(
+        "🛡 利润保护",
+        f"¥{impact.profit_protected:,.0f}",
+    )
+
+    st.subheader("时间线累计")
+    entries = [e.to_dict() for e in AuditLog().load()]
+    timeline = aggregate_timeline_value(entries)
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        "📈 累计净节省（去重）",
+        f"¥{timeline.cumulative_net_benefit:,.0f}",
+        f"覆盖 {timeline.event_count} 个事件",
+    )
+    c2.metric(
+        "🕒 最近一次事件节省",
+        f"¥{timeline.latest_event_net_benefit:,.0f}",
+        timeline.latest_event_key or "—",
+    )
+    c3.metric(
+        "📊 平均每次事件节省",
+        f"¥{timeline.average_net_benefit:,.0f}",
+    )
+    if len(timeline.per_event_series) >= 2:
+        st.line_chart(
+            pd.DataFrame(timeline.per_event_series),
+            x="timestamp",
+            y="net_benefit",
+        )
+    else:
+        st.caption("累计数据需多个事件后才显示趋势。")
+    st.caption(
+        "累计金额按事件去重统计（同一事件多次演示只计一次），自系统启用起累计，为业务情景估算。"
+    )
+
+    st.subheader("决策提速与订单覆盖")
+    speed_col, _ = st.columns([1, 2])
+    speed_col.metric(
+        "⏱ 决策提速",
+        f"< {impact.system_decision_minutes} 分钟",
+        f"人工约 {impact.manual_decision_hours:.0f} 小时",
+        delta_color="inverse",
+    )
+
+    manual_orders_str = "、".join(impact.manual_covered_orders) or "无"
+    system_orders_str = "、".join(impact.system_covered_orders) or "无"
+    df = pd.DataFrame(
+        {
+            "指标": ["已覆盖订单", "订单违约损失（¥）", "潜在利润损失（¥）", "决策耗时"],
+            "纯人工响应": [
+                f"{manual_orders_str}（{len(impact.manual_covered_orders)}/3）",
+                f"{impact.manual_penalty:,.0f}",
+                f"{impact.manual_lost_profit:,.0f}",
+                f"约 {impact.manual_decision_hours:.0f} 小时",
+            ],
+            "ChainGuard 系统": [
+                f"{system_orders_str}（{len(impact.system_covered_orders)}/3）",
+                f"{impact.system_penalty:,.0f}",
+                f"{impact.system_lost_profit:,.0f}",
+                f"< {impact.system_decision_minutes} 分钟",
+            ],
+        }
+    )
+    st.table(df)
+    st.caption(f"ℹ️ {impact.note}")
+
+
+def render_decision_process(result, low_score_threshold) -> None:
+    st.subheader("① 发现问题")
+    render_step_1(result.context["inventory"], result.inventory_risk)
+    render_step_2(result.context)
+
+    st.subheader("② 生成方案")
+    render_step_3(result.proposals, low_score_threshold)
+    render_step_4(result.proposals, result.conflict, low_score_threshold)
+
+    st.subheader("③ 辩论定夺")
+    render_step_5(result.rebuttal)
+    render_step_6(result.arbitration, result.proposals, result.conflict, result.rebuttal)
+    render_step_8_constraint_debate(result.constraint_analysis, result.debate_result)
+
+    st.subheader("④ 确认与留痕")
+    render_step_7(result.experience_card)
+    render_step_9_experience_references(result.experience_references)
+    render_step_10_explanation(result.explanation)
+    render_step_11_audit(result.audit_entry)
+
+    with st.expander("🔬 高级分析（敏感性 / 模型对比）", expanded=False):
+        render_sensitivity(
+            run_sensitivity(
+                "current_stock",
+                [720, 1440, 2160, 3600, 5400, 7200],
+                baseline_context=result.context,
+            )
+        )
+        st.divider()
+        render_model_comparison()
+
+
+def main() -> None:
+    st.set_page_config(page_title="ChainGuard 演示模式", page_icon="CG", layout="wide")
+    scenario_mode, enterprise_event_id = render_sidebar()
+    render_header()
+
+    try:
+        if scenario_mode == "企业真实场景":
+            if enterprise_event_id is None:
+                st.warning("请先在左侧选择一个企业事件。")
+                st.stop()
+
+            orchestrator = DecisionOrchestrator()
+            result = orchestrator.run_scenario(enterprise_event_id, ScenarioLoader())
+        else:
+            # 原有演示场景逻辑保持不变
+            orchestrator = DecisionOrchestrator()
+            result = orchestrator.run_demo()
+    except (FileNotFoundError, ValueError) as error:
+        st.error(str(error))
+        st.stop()
+
+    low_score_threshold = result.thresholds["learning"]["low_score_threshold"]
+    tab_value, tab_process = st.tabs(["💰 决策价值（管理层视角）", "🔎 决策过程（人工决策视角）"])
+
+    with tab_value:
+        render_value_dashboard(result)
+    with tab_process:
+        render_decision_process(result, low_score_threshold)
+
+    st.divider()
+    st.warning(explain_simulation_limitations())
+    st.divider()
+    report_json = json.dumps(build_decision_report(result), ensure_ascii=False, indent=2)
+    decision_id = (result.audit_entry or {}).get("decision_id", "unknown")
+    st.download_button(
+        label="📥 下载决策报告 JSON",
+        data=report_json,
+        file_name=f"chainguard_decision_{decision_id}.json",
+        mime="application/json",
+    )
+
+
+if __name__ == "__main__":
+    main()
