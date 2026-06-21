@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 tests/_runtime_tmp/
+.tmp/
 .streamlit/secrets.toml
 .env
 .tmp_test_experience_pipeline/

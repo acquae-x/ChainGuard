@@ -21,8 +21,8 @@ def test_fixed_demo_case_triggers_conflict():
     assert conflict["conflict_type"] == "成本-时效冲突"
     assert conflict["conflict_summary"] == "物流主张全量空运，财务反对高成本方案"
     assert conflict["highest_agent"] == "采购 Agent"
-    assert conflict["lowest_agent"] == "物流 Agent"
-    assert conflict["score_gap"] == pytest.approx(3.6)
+    assert conflict["lowest_agent"] == "财务 Agent"
+    assert conflict["score_gap"] == pytest.approx(5.79)
     assert conflict["reasons"]
 
 

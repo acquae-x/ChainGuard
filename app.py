@@ -243,7 +243,7 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
 def render_header() -> None:
     st.title("ChainGuard 供应链应急响应系统")
     st.subheader("库存监控 × 多源感知 × 辩论仲裁 × 经验自学习")
-    st.info("当前为初赛 MVP 演示版，使用模拟数据和专家经验参数。")
+    st.info("当前为系统演示版本，使用模拟数据和专家经验参数。")
 
 
 def render_step_1(inventory: dict, inventory_risk: dict) -> None:
