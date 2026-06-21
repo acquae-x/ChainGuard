@@ -6,3 +6,4 @@ fastapi>=0.110
 uvicorn>=0.27
 httpx>=0.27
 pdfplumber>=0.10
+psutil  # optional - memory detection, degrades gracefully if absent
