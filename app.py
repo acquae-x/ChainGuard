@@ -1,7 +1,9 @@
 import json
+from pathlib import Path
 
 import streamlit as st
 
+from src.data_source import DataSource, demo_source, enterprise_source
 from src.learning import (
     load_experience_cards,
     save_experience_card,
@@ -13,7 +15,25 @@ from src.scoring import detect_low_score, rank_proposals
 from src.sensitivity import run_sensitivity
 
 
-def render_sidebar() -> tuple[str, str | None]:
+def _available_enterprise_tenants() -> list[str]:
+    base = Path(demo_source().scenario_db_path)
+    tenants: list[str] = []
+    for path in sorted(base.parent.glob(f"{base.stem}.*{base.suffix}")):
+        tenant_id = path.name[len(base.stem) + 1 : -len(base.suffix)]
+        if not tenant_id:
+            continue
+        try:
+            loader = ScenarioLoader(path)
+            scenarios = loader.list_scenarios(limit=1)
+            if scenarios:
+                loader.load_context(scenarios[0]["event_id"])
+                tenants.append(tenant_id)
+        except Exception:
+            continue
+    return tenants
+
+
+def render_sidebar() -> tuple[str, str | None, DataSource]:
     with st.sidebar:
         st.header("演示控制台")
 
@@ -40,27 +60,66 @@ def render_sidebar() -> tuple[str, str | None]:
         )
 
         enterprise_event_id = None
+        data_source = demo_source()
         if scenario_mode == "企业真实场景":
-            from src.scenario_loader import ScenarioLoader
-
             try:
-                _loader_for_list = ScenarioLoader()
-                _event_list = _loader_for_list.list_scenarios(limit=50)
-                _event_options = {
-                    f"{e['event_id']} · {e['event_title']} [{e['severity']}]": e["event_id"]
-                    for e in _event_list
-                }
-                _selected_label = st.selectbox(
-                    "选择事件",
-                    list(_event_options.keys()),
-                    key="enterprise_event_select",
-                )
-                enterprise_event_id = _event_options.get(_selected_label)
+                _tenants = _available_enterprise_tenants()
+                if not _tenants:
+                    st.warning("暂无可用企业租户，请先导入并通过校验。")
+                else:
+                    _selected_tenant = st.selectbox(
+                        "选择租户",
+                        _tenants,
+                        key="enterprise_tenant_select",
+                    )
+                    data_source = enterprise_source(_selected_tenant)
+                    _loader_for_list = ScenarioLoader(data_source.scenario_db_path)
+                    _event_list = _loader_for_list.list_scenarios(limit=50)
+                    _event_options = {
+                        f"{e['event_id']} · {e['event_title']} [{e['severity']}]": e["event_id"]
+                        for e in _event_list
+                    }
+                    _selected_label = st.selectbox(
+                        "选择事件",
+                        list(_event_options.keys()),
+                        key="enterprise_event_select",
+                    )
+                    enterprise_event_id = _event_options.get(_selected_label)
             except Exception as _e:
                 st.error(f"企业数据库加载失败：{_e}")
                 enterprise_event_id = None
 
-    return scenario_mode, enterprise_event_id
+        with st.expander("📥 企业数据导入"):
+            tid = st.text_input("租户 ID（字母数字/_/-）")
+            files = st.file_uploader(
+                "上传企业 CSV（materials/inventory/suppliers/...）",
+                type=["csv"],
+                accept_multiple_files=True,
+            )
+            if st.button("导入并校验") and tid and files:
+                import pathlib
+                import tempfile
+
+                from src.enterprise_ingest import import_tenant_from_dir
+
+                try:
+                    with tempfile.TemporaryDirectory() as tmp:
+                        for f in files:
+                            pathlib.Path(tmp, f.name).write_bytes(f.getbuffer())
+                        res = import_tenant_from_dir(tid, tmp)
+                    st.dataframe(
+                        res.table_results,
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                    if res.smoke_ok:
+                        st.success(f"✅ 导入成功（{res.ok_tables} 表）：{res.smoke_message}")
+                    else:
+                        st.error(f"❌ {res.smoke_message}（该租户未激活，请检查 CSV）")
+                except Exception as _e:
+                    st.error(f"导入失败：{_e}")
+
+    return scenario_mode, enterprise_event_id, data_source
 
 
 def render_header() -> None:
@@ -563,7 +622,11 @@ def render_step_8_constraint_debate(
                 )
 
 
-def render_step_9_experience_references(experience_references: dict) -> None:
+def render_step_9_experience_references(
+    experience_references: dict,
+    *,
+    data_source: DataSource | None = None,
+) -> None:
     st.header("Step 9 历史经验引用")
 
     cols = st.columns(3)
@@ -601,18 +664,41 @@ def render_step_9_experience_references(experience_references: dict) -> None:
     # 参数校准对比：I09 数据驱动权重 vs 专家默认值
     with st.expander("参数校准对比（数据驱动 vs 专家默认）", expanded=False):
         import csv as _csv
+        import sqlite3
         from pathlib import Path as _Path
 
         from src.config_loader import load_risk_weights
         from src.parameter_calibration import calibrate_inventory_risk_weights
 
-        _csv_path = (
-            _Path(__file__).resolve().parent
-            / "demo_assets/enterprise/csv/historical_decisions.csv"
-        )
-        try:
-            with open(_csv_path, encoding="utf-8-sig") as _f:
-                _records = list(_csv.DictReader(_f))
+        _records = []
+        _load_error = None
+        if data_source is None or data_source.kind == "demo":
+            _csv_path = (
+                _Path(__file__).resolve().parent
+                / "demo_assets/enterprise/csv/historical_decisions.csv"
+            )
+            try:
+                with open(_csv_path, encoding="utf-8-sig") as _f:
+                    _records = list(_csv.DictReader(_f))
+            except Exception as _e:
+                _load_error = str(_e)
+        else:
+            try:
+                _conn = sqlite3.connect(data_source.scenario_db_path)
+                try:
+                    _cur = _conn.execute("SELECT * FROM historical_decisions")
+                    _cols = [d[0] for d in _cur.description]
+                    _records = [dict(zip(_cols, row)) for row in _cur.fetchall()]
+                finally:
+                    _conn.close()
+            except Exception as _e:
+                _load_error = str(_e)
+
+        if _load_error:
+            st.warning(f"参数校准对比加载失败：{_load_error}")
+        elif not _records:
+            st.info("该租户暂无历史决策，参数校准沿用专家默认值。")
+        else:
             _expert = load_risk_weights()["inventory_risk_weights"]
             _calibrated = calibrate_inventory_risk_weights(_records)
             _comparison = [
@@ -668,8 +754,6 @@ def render_step_9_experience_references(experience_references: dict) -> None:
                     f"数据驱动校准已更新权重，最大偏差：{_max_delta_key} "
                     f"{'↑' if _delta > 0 else '↓'}{abs(_delta):.3f}"
                 )
-        except Exception as _e:
-            st.warning(f"参数校准对比加载失败：{_e}")
 
 
 def render_step_10_explanation(explanation: dict) -> None:
@@ -963,7 +1047,7 @@ def render_value_dashboard(result) -> None:
     st.caption(f"ℹ️ {impact.note}")
 
 
-def render_decision_process(result, low_score_threshold) -> None:
+def render_decision_process(result, low_score_threshold, *, data_source=None) -> None:
     st.subheader("① 发现问题")
     render_step_1(result.context["inventory"], result.inventory_risk)
     render_step_2(result.context)
@@ -979,7 +1063,10 @@ def render_decision_process(result, low_score_threshold) -> None:
 
     st.subheader("④ 确认与留痕")
     render_step_7(result.experience_card)
-    render_step_9_experience_references(result.experience_references)
+    render_step_9_experience_references(
+        result.experience_references,
+        data_source=data_source,
+    )
     render_step_10_explanation(result.explanation)
     render_step_11_audit(result.audit_entry)
 
@@ -997,8 +1084,9 @@ def render_decision_process(result, low_score_threshold) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="ChainGuard 演示模式", page_icon="CG", layout="wide")
-    scenario_mode, enterprise_event_id = render_sidebar()
+    scenario_mode, enterprise_event_id, data_source = render_sidebar()
     render_header()
+    st.info(f"📡 当前数据源：{data_source.label} · 租户 {data_source.tenant_id}")
 
     try:
         if scenario_mode == "企业真实场景":
@@ -1007,11 +1095,15 @@ def main() -> None:
                 st.stop()
 
             orchestrator = DecisionOrchestrator()
-            result = orchestrator.run_scenario(enterprise_event_id, ScenarioLoader())
+            result = orchestrator.run_scenario(
+                enterprise_event_id,
+                ScenarioLoader(data_source.scenario_db_path),
+                data_source=data_source,
+            )
         else:
             # 原有演示场景逻辑保持不变
             orchestrator = DecisionOrchestrator()
-            result = orchestrator.run_demo()
+            result = orchestrator.run_demo(data_source=data_source)
     except (FileNotFoundError, ValueError) as error:
         st.error(str(error))
         st.stop()
@@ -1022,7 +1114,11 @@ def main() -> None:
     with tab_value:
         render_value_dashboard(result)
     with tab_process:
-        render_decision_process(result, low_score_threshold)
+        render_decision_process(
+            result,
+            low_score_threshold,
+            data_source=data_source,
+        )
 
     st.divider()
     st.warning(explain_simulation_limitations())
