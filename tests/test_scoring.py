@@ -33,7 +33,7 @@ def test_attach_total_scores_and_rank_proposals():
     assert all("total_score" in proposal for proposal in scored)
     assert ranked[0]["total_score"] >= ranked[1]["total_score"] >= ranked[2]["total_score"]
     assert ranked[0]["agent_name"] == "采购 Agent"
-    assert ranked[-1]["agent_name"] == "物流 Agent"
+    assert ranked[-1]["agent_name"] == "财务 Agent"
 
 
 def test_detect_low_score_uses_learning_threshold():

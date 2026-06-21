@@ -5,7 +5,7 @@
     "priority": "A",
     "required_material": "M-AX100",
     "demand_qty": 5000,
-    "due_hours": 48,
+    "due_hours": 72,
     "penalty_cost": 180000,
     "gross_profit": 420000
   },
