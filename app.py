@@ -1161,29 +1161,44 @@ def render_value_dashboard(result) -> None:
 
 
 def render_decision_process(result, low_score_threshold, *, data_source=None) -> None:
-    st.subheader("① 发现问题")
-    render_step_1(result.context["inventory"], result.inventory_risk)
-    render_step_2(result.context)
-
-    st.subheader("② 生成方案")
-    render_step_3(result.proposals, low_score_threshold)
-    render_step_4(result.proposals, result.conflict, low_score_threshold)
-
-    st.subheader("③ 辩论定夺")
-    render_step_5(result.rebuttal)
-    render_step_6(result.arbitration, result.proposals, result.conflict, result.rebuttal)
-    render_step_8_constraint_debate(result.constraint_analysis, result.debate_result)
-
-    st.subheader("④ 确认与留痕")
-    render_step_7(result.experience_card)
-    render_step_9_experience_references(
-        result.experience_references,
-        data_source=data_source,
+    # 4 个决策阶段 + 高级分析做成分页，默认只展示当前阶段，避免单页过长。
+    phase_tabs = st.tabs(
+        [
+            "① 发现问题",
+            "② 生成方案",
+            "③ 辩论定夺",
+            "④ 确认与留痕",
+            "🔬 高级分析",
+        ]
     )
-    render_step_10_explanation(result.explanation)
-    render_step_11_audit(result.audit_entry)
 
-    with st.expander("🔬 高级分析（敏感性 / 模型对比）", expanded=False):
+    with phase_tabs[0]:
+        render_step_1(result.context["inventory"], result.inventory_risk)
+        render_step_2(result.context)
+
+    with phase_tabs[1]:
+        render_step_3(result.proposals, low_score_threshold)
+        render_step_4(result.proposals, result.conflict, low_score_threshold)
+
+    with phase_tabs[2]:
+        render_step_5(result.rebuttal)
+        render_step_6(
+            result.arbitration, result.proposals, result.conflict, result.rebuttal
+        )
+        render_step_8_constraint_debate(
+            result.constraint_analysis, result.debate_result
+        )
+
+    with phase_tabs[3]:
+        render_step_7(result.experience_card)
+        render_step_9_experience_references(
+            result.experience_references,
+            data_source=data_source,
+        )
+        render_step_10_explanation(result.explanation)
+        render_step_11_audit(result.audit_entry)
+
+    with phase_tabs[4]:
         render_sensitivity(
             run_sensitivity(
                 "current_stock",
