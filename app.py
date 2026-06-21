@@ -140,19 +140,14 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
             preflight_report = st.session_state.get(preflight_key)
             import_disabled = False
             if preflight_report is not None:
-                cols = st.columns(4)
-                cols[0].metric("预检结论", preflight_report.verdict)
-                cols[1].metric("待导入", f"{preflight_report.incoming_bytes / 1024**2:.2f} MB")
-                cols[2].metric("预计行数", f"{preflight_report.estimated_rows:,}")
-                cols[3].metric(
-                    "还差磁盘",
-                    f"{preflight_report.disk_shortfall_bytes / 1024**3:.2f} GB",
-                )
-                st.dataframe(
-                    [{"message": message} for message in preflight_report.messages],
-                    hide_index=True,
-                    use_container_width=True,
-                )
+                _verdict_cn = {
+                    "OK": "✅ 通过",
+                    "REVIEW": "⚠ 需评估",
+                    "INSUFFICIENT_DISK": "❌ 磁盘不足",
+                }.get(preflight_report.verdict, preflight_report.verdict)
+                st.markdown(f"**容量预检结论：{_verdict_cn}**")
+                for _msg in preflight_report.messages:
+                    st.write(f"- {_msg}")
                 if preflight_report.verdict == "INSUFFICIENT_DISK":
                     st.error("磁盘空间不足，导入已禁用。")
                     import_disabled = True
