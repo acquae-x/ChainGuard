@@ -6,6 +6,7 @@ from src.audit import AuditLog, build_audit_entry
 from src.config_loader import load_thresholds
 from src.conflict_detector import detect_conflict
 from src.constraint_solver import ConstraintSolver
+from src.data_source import DataSource, demo_source
 from src.data_loader import load_demo_context
 from src.debate import DebateEngine, generate_rebuttal
 from src.domain_models import DecisionResult
@@ -30,30 +31,49 @@ class DecisionOrchestrator:
                 return proposal
         raise ValueError(f"未找到 {role} Agent 方案。")
 
-    def run_demo(self) -> DecisionResult:
+    @staticmethod
+    def _build_experience_feedback(ds: DataSource) -> Any:
+        try:
+            return ExperienceFeedback(cards_path=ds.experience_cards_path)
+        except TypeError:
+            return ExperienceFeedback()
+
+    @staticmethod
+    def _append_audit(entry: Any, ds: DataSource) -> None:
+        try:
+            audit_log = AuditLog(ds.audit_log_path)
+        except TypeError:
+            audit_log = AuditLog()
+        audit_log.append(entry)
+
+    def run_demo(self, *, data_source: DataSource | None = None) -> DecisionResult:
+        ds = data_source or demo_source()
         context: dict[str, Any] = {}
         try:
             thresholds = load_thresholds()
             context = load_demo_context()
             risk_weights = self._resolve_risk_weights()
-            return self._run_context(context, risk_weights, thresholds)
+            return self._run_context(context, risk_weights, thresholds, data_source=ds)
         except Exception as error:
-            self._log_error_audit(context, error)
+            self._log_error_audit(context, error, data_source=ds)
             raise
 
     def run_scenario(
         self,
         event_id: str,
         loader: ScenarioLoader,
+        *,
+        data_source: DataSource | None = None,
     ) -> DecisionResult:
+        ds = data_source or demo_source()
         context: dict[str, Any] = {}
         try:
             thresholds = load_thresholds()
             context = loader.load_context(event_id)
             risk_weights = self._resolve_risk_weights()
-            return self._run_context(context, risk_weights, thresholds)
+            return self._run_context(context, risk_weights, thresholds, data_source=ds)
         except Exception as error:
-            self._log_error_audit(context, error)
+            self._log_error_audit(context, error, data_source=ds)
             raise
 
     @staticmethod
@@ -89,14 +109,20 @@ class DecisionOrchestrator:
         }
 
     @staticmethod
-    def _log_error_audit(context: dict[str, Any], error: Exception) -> None:
+    def _log_error_audit(
+        context: dict[str, Any],
+        error: Exception,
+        *,
+        data_source: DataSource | None = None,
+    ) -> None:
         try:
+            ds = data_source or demo_source()
             entry = build_audit_entry(
                 {"context": context},
                 status="error",
                 error_message=f"{type(error).__name__}: {error}",
             )
-            AuditLog().append(entry)
+            DecisionOrchestrator._append_audit(entry, ds)
         except Exception:
             pass
 
@@ -105,7 +131,10 @@ class DecisionOrchestrator:
         context: dict[str, Any],
         risk_weights: dict[str, Any],
         thresholds: dict[str, Any],
+        *,
+        data_source: DataSource,
     ) -> DecisionResult:
+        ds = data_source
         calibrated_trigger = risk_weights.get("_trigger_threshold_value")
         if calibrated_trigger is not None:
             thresholds = {
@@ -115,7 +144,7 @@ class DecisionOrchestrator:
                     "inventory_risk_trigger": calibrated_trigger,
                 },
             }
-        retrieval_result = ExperienceFeedback().retrieve(context)
+        retrieval_result = self._build_experience_feedback(ds).retrieve(context)
         inventory_risk = calculate_inventory_risk(
             context["inventory"],
             risk_weights,
@@ -188,7 +217,7 @@ class DecisionOrchestrator:
         }
         audit_entry_obj = build_audit_entry(audit_context)
         try:
-            AuditLog().append(audit_entry_obj)
+            self._append_audit(audit_entry_obj, ds)
         except Exception:
             pass
 
