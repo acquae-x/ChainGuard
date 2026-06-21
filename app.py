@@ -91,22 +91,140 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
 
         with st.expander("📥 企业数据导入"):
             tid = st.text_input("租户 ID（字母数字/_/-）")
+            server_dir = st.text_input(
+                "服务器端目录路径（大数据推荐，留空则使用上传文件）",
+                key="enterprise_server_dir",
+            )
             files = st.file_uploader(
                 "上传企业 CSV（materials/inventory/suppliers/...）",
                 type=["csv"],
                 accept_multiple_files=True,
             )
-            if st.button("导入并校验") and tid and files:
+            preflight_key = f"enterprise_preflight_{tid}_{server_dir}_{len(files or [])}"
+
+            def _preflight_paths_from_upload(tmp_dir: str):
+                import pathlib
+
+                paths = []
+                for f in files or []:
+                    path = pathlib.Path(tmp_dir, f.name)
+                    path.write_bytes(f.getbuffer())
+                    paths.append(path)
+                return paths
+
+            if st.button("先做容量预检", use_container_width=True) and tid and (
+                server_dir or files
+            ):
+                import tempfile
+                from pathlib import Path
+
+                from src.import_preflight import run_preflight
+                from src.data_source import tenant_scenario_db_path
+
+                try:
+                    tenant = enterprise_source(tid, require_exists=False).tenant_id
+                    db_path = tenant_scenario_db_path(tenant)
+                    if server_dir:
+                        csv_paths = sorted(Path(server_dir).glob("*.csv"))
+                        report = run_preflight(csv_paths, db_path)
+                    else:
+                        with tempfile.TemporaryDirectory() as tmp:
+                            report = run_preflight(
+                                _preflight_paths_from_upload(tmp),
+                                db_path,
+                            )
+                    st.session_state[preflight_key] = report
+                except Exception as _e:
+                    st.error(f"容量预检失败：{_e}")
+
+            preflight_report = st.session_state.get(preflight_key)
+            import_disabled = False
+            if preflight_report is not None:
+                cols = st.columns(4)
+                cols[0].metric("预检结论", preflight_report.verdict)
+                cols[1].metric("待导入", f"{preflight_report.incoming_bytes / 1024**2:.2f} MB")
+                cols[2].metric("预计行数", f"{preflight_report.estimated_rows:,}")
+                cols[3].metric(
+                    "还差磁盘",
+                    f"{preflight_report.disk_shortfall_bytes / 1024**3:.2f} GB",
+                )
+                st.dataframe(
+                    [{"message": message} for message in preflight_report.messages],
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                if preflight_report.verdict == "INSUFFICIENT_DISK":
+                    st.error("磁盘空间不足，导入已禁用。")
+                    import_disabled = True
+                elif preflight_report.verdict == "REVIEW":
+                    st.warning("数据量较大，建议评估 PostgreSQL 后再导入。")
+                else:
+                    st.success("容量预检通过。")
+
+            if st.button(
+                "导入并校验",
+                disabled=import_disabled,
+                use_container_width=True,
+            ) and tid and (server_dir or files):
                 import pathlib
                 import tempfile
 
                 from src.enterprise_ingest import import_tenant_from_dir
+                from src.import_preflight import estimate_incoming
 
                 try:
-                    with tempfile.TemporaryDirectory() as tmp:
-                        for f in files:
-                            pathlib.Path(tmp, f.name).write_bytes(f.getbuffer())
-                        res = import_tenant_from_dir(tid, tmp)
+                    progress_bar = st.progress(0, text="准备导入...")
+                    table_progress: dict[str, int] = {}
+
+                    def _progress(table_name: str, rows: int) -> None:
+                        table_progress[table_name] = rows
+                        total_done = sum(table_progress.values())
+                        fallback_estimate = st.session_state.get(
+                            preflight_key + "_estimated_rows",
+                            0,
+                        )
+                        total_est = max(
+                            int(
+                                getattr(
+                                    st.session_state.get(preflight_key),
+                                    "estimated_rows",
+                                    fallback_estimate,
+                                )
+                            ),
+                            total_done,
+                            1,
+                        )
+                        progress_bar.progress(
+                            min(total_done / total_est, 1.0),
+                            text=f"正在导入 {table_name}：{total_done:,}/{total_est:,} 行",
+                        )
+
+                    if server_dir:
+                        csv_paths = sorted(pathlib.Path(server_dir).glob("*.csv"))
+                        if preflight_report is None:
+                            total_est = estimate_incoming(csv_paths)[1]
+                            st.session_state[preflight_key + "_estimated_rows"] = total_est
+                        res = import_tenant_from_dir(
+                            tid,
+                            server_dir,
+                            progress=_progress,
+                            run_preflight_check=preflight_report is None,
+                        )
+                    else:
+                        with tempfile.TemporaryDirectory() as tmp:
+                            for f in files or []:
+                                pathlib.Path(tmp, f.name).write_bytes(f.getbuffer())
+                            if preflight_report is None:
+                                csv_paths = sorted(pathlib.Path(tmp).glob("*.csv"))
+                                total_est = estimate_incoming(csv_paths)[1]
+                                st.session_state[preflight_key + "_estimated_rows"] = total_est
+                            res = import_tenant_from_dir(
+                                tid,
+                                tmp,
+                                progress=_progress,
+                                run_preflight_check=preflight_report is None,
+                            )
+                    progress_bar.progress(1.0, text="导入完成，正在展示结果")
                     st.dataframe(
                         res.table_results,
                         hide_index=True,

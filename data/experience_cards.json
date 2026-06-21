@@ -14677,24 +14677,8 @@
       "财务 Agent"
     ],
     "final_decision_title": "替代路线 + 库存调拨 + 交期重排：功率模块-0126应急响应",
-    "confidence_score": 0.8,
-    "historical_references": [
-      {
-        "case_id": "EVT-000128-MAT-0126",
-        "scenario": "运输节点中断-上海-128 导致 SUP-049 受影响，库存支撑约 147 小时",
-        "recommended_pattern": "备用供应商 + 关键订单空运 + 非关键订单延期"
-      },
-      {
-        "case_id": "EVT-000065-MAT-0233",
-        "scenario": "需求突增-青岛-065 导致 SUP-008 受影响，库存支撑约 186 小时",
-        "recommended_pattern": "备用供应商 + 关键订单空运 + 非关键订单延期"
-      },
-      {
-        "case_id": "EVT-000016-MAT-0124",
-        "scenario": "质量召回-天津-016 导致 SUP-038 受影响，库存支撑约 271 小时",
-        "recommended_pattern": "备用供应商 + 关键订单空运 + 非关键订单延期"
-      }
-    ]
+    "confidence_score": 0.5,
+    "historical_references": []
   },
   {
     "case_id": "EVT-000177-MAT-0219",
