@@ -72,37 +72,36 @@ def run_preflight(
 
     messages = [
         (
-            f"Incoming data: {_gb(incoming)} "
-            f"(estimated {rows:,} rows, largest file {_gb(largest)})"
+            f"待导入数据：{_gb(incoming)}"
+            f"（约 {rows:,} 行，最大单表 {_gb(largest)}）"
         ),
         (
-            f"Estimated disk needed: {_gb(required)} "
-            f"(data x {DISK_MULTIPLIER}); free disk: {_gb(probe.free_disk_bytes)}"
+            f"预计占用磁盘：{_gb(required)}"
+            f"（数据 ×{DISK_MULTIPLIER}）；本机可用磁盘：{_gb(probe.free_disk_bytes)}"
         ),
     ]
     if not disk_ok:
         verdict = "INSUFFICIENT_DISK"
         can_proceed = False
         messages.append(
-            "Insufficient disk: need "
-            f"{_gb(shortfall)} more. Clear space or choose a larger disk."
+            f"磁盘不足：还需 {_gb(shortfall)}。请清理空间或更换更大的磁盘。"
         )
     elif recommend_postgres:
         verdict = "REVIEW"
         can_proceed = True
         messages.append(
-            "Data is above 5 GB. Import can proceed, but PostgreSQL via "
-            "DATABASE_URL is recommended for production query performance."
+            "数据量已超过 5 GB，可以导入；但生产环境建议通过 DATABASE_URL "
+            "切换到 PostgreSQL 以保证查询性能。"
         )
     else:
         verdict = "OK"
         can_proceed = True
-        messages.append("Capacity check passed; import can proceed.")
+        messages.append("容量满足，可以导入。")
 
     if probe.ram_source == "unavailable":
         messages.append(
-            "RAM was not detected because psutil is unavailable; streaming import "
-            "keeps memory usage bounded, so disk is the gating check."
+            "未检测内存（未安装 psutil）；流式导入已将内存占用限制为常量，"
+            "因此磁盘才是关键约束。"
         )
 
     return PreflightReport(
