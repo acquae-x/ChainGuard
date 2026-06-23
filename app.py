@@ -21,7 +21,13 @@ from src.sensitivity import run_sensitivity
 from src.supply_monitor import scan_supply_chain
 
 
-def render_intake_review(records: list[dict], history_counts: dict[str, int]) -> None:
+def render_intake_review(
+    records: list[dict],
+    history_counts: dict[str, int],
+    *,
+    fallback_self_count: bool = False,
+    data_source: DataSource | None = None,
+) -> bool:
     from src.intake_review import (
         OCCASIONAL_THRESHOLD,
         ROUTINE_THRESHOLD,
@@ -29,8 +35,9 @@ def render_intake_review(records: list[dict], history_counts: dict[str, int]) ->
         calibrate_intake_thresholds,
         review_batch,
     )
+    from src.signature_history import update_history
 
-    if not history_counts:
+    if fallback_self_count and not history_counts:
         history_counts = build_history_counts(records)
     routine_threshold, occasional_threshold = calibrate_intake_thresholds(history_counts)
     source = (
@@ -56,6 +63,12 @@ def render_intake_review(records: list[dict], history_counts: dict[str, int]) ->
         f"阈值来源：{source}（常规≥{routine_threshold}次 / 偶发={occasional_threshold}次）"
     )
 
+    history_cols = st.columns(3)
+    history_cols[0].metric("Accumulated signatures", len(history_counts))
+    history_cols[1].metric("Batch novel", report.novel_count)
+    history_cols[2].metric("Batch routine", report.routine_count)
+    st.caption(f"Tenant history currently contains {len(history_counts)} signatures.")
+
     novel_rows = [
         {
             "signature": assessment.signature,
@@ -68,6 +81,37 @@ def render_intake_review(records: list[dict], history_counts: dict[str, int]) ->
         st.dataframe(novel_rows, hide_index=True, use_container_width=True)
     else:
         st.caption("本批无首次出现记录。")
+    if data_source is None:
+        return False
+
+    if report.needs_confirmation == 0:
+        update_history(data_source, records)
+        st.success("All signatures are routine; this batch has been added to cumulative history.")
+        return True
+
+    st.warning("This batch contains novel or low-frequency signatures. Confirm before adding it to cumulative history.")
+    confirmed = True
+    for index, assessment in enumerate(report.assessments):
+        if not assessment.requires_confirmation:
+            continue
+        checked = st.checkbox(
+            f"{assessment.familiarity} - {assessment.signature}",
+            key=f"intake_history_confirm_{data_source.tenant_id}_{index}_{assessment.signature}",
+        )
+        for point in assessment.confirmation_points:
+            st.caption(point)
+        confirmed = confirmed and checked
+
+    if st.button(
+        "Confirm and update history",
+        disabled=not confirmed,
+        key=f"intake_history_update_{data_source.tenant_id}",
+    ):
+        update_history(data_source, records)
+        st.success("Confirmed and added to cumulative signature history.")
+        return True
+
+    return False
 
 
 def _available_enterprise_tenants() -> list[str]:
@@ -300,20 +344,37 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
                         st.success(f"✅ 导入成功（{res.ok_tables} 表）：{res.smoke_message}")
                         try:
                             if review_records is None:
+                                st.session_state.pop("enterprise_import_review_pending", None)
                                 st.caption("本批无事件数据，跳过复核。")
                             else:
-                                from src.intake_review import build_history_counts
-
-                                render_intake_review(
-                                    review_records,
-                                    build_history_counts(review_records),
-                                )
+                                target_ds = enterprise_source(res.tenant_id)
+                                st.session_state["enterprise_import_review_pending"] = {
+                                    "tenant_id": target_ds.tenant_id,
+                                    "records": review_records,
+                                }
                         except Exception as _e:
                             st.caption(f"导入复核展示失败，已跳过：{_e}")
                     else:
                         st.error(f"❌ {res.smoke_message}（该租户未激活，请检查 CSV）")
                 except Exception as _e:
                     st.error(f"导入失败：{_e}")
+
+            pending_review = st.session_state.get("enterprise_import_review_pending")
+            if pending_review:
+                try:
+                    from src.signature_history import load_history
+
+                    target_ds = enterprise_source(pending_review["tenant_id"])
+                    history = load_history(target_ds)
+                    updated = render_intake_review(
+                        pending_review["records"],
+                        history,
+                        data_source=target_ds,
+                    )
+                    if updated:
+                        st.session_state.pop("enterprise_import_review_pending", None)
+                except Exception as _e:
+                    st.caption(f"Intake review display skipped: {_e}")
 
     return scenario_mode, enterprise_event_id, data_source
 
