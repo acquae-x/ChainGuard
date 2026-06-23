@@ -1072,7 +1072,53 @@ def render_model_comparison() -> None:
                     st.code(decision_tree_result.decision_tree_text, language="text")
 
 
-def render_value_dashboard(result) -> None:
+def render_automation_panel(data_source) -> None:
+    """读取 data_source.audit_log_path 的审计记录，展示自动化率与升级规则。"""
+    from src.audit import AuditLog, DEFAULT_AUDIT_PATH, RISK_APPROVAL_THRESHOLD
+    from src.automation_stats import summarize_automation
+
+    import pandas as pd
+
+    audit_log_path = (
+        data_source.audit_log_path if data_source is not None else DEFAULT_AUDIT_PATH
+    )
+    entries = [entry.to_dict() for entry in AuditLog(audit_log_path).load()]
+    summary = summarize_automation(entries)
+
+    st.subheader("人机分工")
+    cols = st.columns(3)
+    cols[0].metric("自动化率", f"{summary.automation_rate:.1%}")
+    cols[1].metric("自动放行条数", summary.auto_approved)
+    cols[2].metric("升级人工条数", summary.escalated)
+    st.caption(
+        f"升级人工规则：风险指数 > {RISK_APPROVAL_THRESHOLD:.0f} / 辩论未收敛 / "
+        "约束无可行解，命中任一即需人工确认。"
+    )
+
+    if summary.total == 0:
+        st.info("暂无决策记录，运行一次决策后展示人机分工统计。")
+        return
+
+    if summary.escalated > 0:
+        if summary.escalation_reasons:
+            reason_rows = [
+                {"升级原因": reason, "命中次数": count}
+                for reason, count in sorted(
+                    summary.escalation_reasons.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            ]
+            st.bar_chart(
+                pd.DataFrame(reason_rows),
+                x="升级原因",
+                y="命中次数",
+            )
+        else:
+            st.caption("升级记录未命中可复原的规则原因。")
+
+
+def render_value_dashboard(result, data_source=None) -> None:
     from src.audit import AuditLog
     from src.economic_impact import calculate_economic_impact
     from src.value_dashboard import aggregate_timeline_value
@@ -1158,6 +1204,7 @@ def render_value_dashboard(result) -> None:
     )
     st.table(df)
     st.caption(f"ℹ️ {impact.note}")
+    render_automation_panel(data_source)
 
 
 def render_decision_process(result, low_score_threshold, *, data_source=None) -> None:
@@ -1240,7 +1287,7 @@ def main() -> None:
     tab_value, tab_process = st.tabs(["💰 决策价值（管理层视角）", "🔎 决策过程（人工决策视角）"])
 
     with tab_value:
-        render_value_dashboard(result)
+        render_value_dashboard(result, data_source=data_source)
     with tab_process:
         render_decision_process(
             result,

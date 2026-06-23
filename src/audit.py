@@ -8,6 +8,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_AUDIT_PATH = "data/audit_log.jsonl"
+RISK_APPROVAL_THRESHOLD: float = 80.0
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ def approval_required(result: dict[str, Any]) -> bool:
     converged = bool(debate_result.get("converged", True))
     feasible_count = int(constraint_analysis.get("feasible_count", 1) or 0)
 
-    return risk_index > 80 or not converged or feasible_count == 0
+    return risk_index > RISK_APPROVAL_THRESHOLD or not converged or feasible_count == 0
 
 
 def build_audit_entry(
