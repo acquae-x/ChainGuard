@@ -1149,6 +1149,59 @@ def render_model_comparison() -> None:
                     st.code(decision_tree_result.decision_tree_text, language="text")
 
 
+def render_security_panel(role: str, data_source) -> None:
+    from src.security.posture import (
+        masking_preview,
+        sample_sensitive_record,
+        security_posture,
+    )
+
+    roles = ["admin", "operator", "approver", "viewer"]
+    default_index = roles.index(role) if role in roles else 0
+    with st.expander("🔐 数据安全"):
+        demo_role = st.selectbox(
+            "查看角色",
+            roles,
+            index=default_index,
+            key="security_posture_role_select",
+            help="仅用于演示不同角色下的脱敏差异，不代表真实登录鉴权。",
+        )
+        posture = security_posture(demo_role, data_source)
+        preview = masking_preview(sample_sensitive_record(), demo_role)
+
+        status_icon = "✅" if posture.encryption_active else "⚠️"
+        cols = st.columns(3)
+        cols[0].metric("加密状态", f"{status_icon} {'已启用' if posture.encryption_active else '未启用'}")
+        cols[1].metric("租户隔离", "✅ 企业隔离" if posture.tenant_isolated else "演示数据")
+        cols[2].metric("当前租户", posture.tenant_id)
+        st.caption(posture.encryption_note)
+        st.caption(f"场景库：{Path(posture.scenario_db_path).name}")
+
+        st.markdown("**当前角色权限**")
+        if posture.permissions:
+            st.write(" ".join(f"`{permission}`" for permission in posture.permissions))
+        else:
+            st.caption("该角色暂无权限。")
+
+        st.markdown("**脱敏规则**")
+        if posture.masking_rules:
+            rule_rows = [
+                {"字段": field, "规则": rule}
+                for field, rule in sorted(posture.masking_rules.items())
+            ]
+            st.dataframe(rule_rows, hide_index=True, use_container_width=True)
+        else:
+            st.caption("admin 角色不脱敏。")
+
+        before_col, after_col = st.columns(2)
+        with before_col:
+            st.markdown("**脱敏前**")
+            st.json(preview["before"])
+        with after_col:
+            st.markdown("**脱敏后**")
+            st.json(preview["after"])
+
+
 def render_automation_panel(data_source) -> None:
     """读取 data_source.audit_log_path 的审计记录，展示自动化率与升级规则。"""
     from src.audit import AuditLog, DEFAULT_AUDIT_PATH, RISK_APPROVAL_THRESHOLD
@@ -1282,6 +1335,7 @@ def render_value_dashboard(result, data_source=None) -> None:
     st.table(df)
     st.caption(f"ℹ️ {impact.note}")
     render_automation_panel(data_source)
+    render_security_panel("admin", data_source)
 
 
 def render_decision_process(result, low_score_threshold, *, data_source=None) -> None:
