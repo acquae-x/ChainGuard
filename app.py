@@ -1248,6 +1248,85 @@ def render_automation_panel(data_source) -> None:
             st.caption("升级记录未命中可复原的规则原因。")
 
 
+def render_drift_panel(data_source) -> None:
+    from src.drift_monitor import (
+        CRITICAL_DROP,
+        WARN_DROP,
+        calibrate_drift_thresholds,
+        compute_drift,
+        load_historical_decisions,
+        run_recalibration_cycle,
+    )
+    from src.model_registry import ModelRegistry
+
+    with st.expander("🩺 系统健康 / 漂移体检"):
+        db_path = getattr(data_source, "scenario_db_path", "")
+        if not db_path:
+            st.info("暂无场景库，无法读取历史决策样本。")
+            return
+
+        records = load_historical_decisions(db_path)
+        registry = ModelRegistry()
+        stable = registry.get_stable()
+        baseline = None
+        if stable is not None and "success_rate" in stable.metrics:
+            baseline = float(stable.metrics["success_rate"])
+
+        warn_drop, critical_drop = calibrate_drift_thresholds(registry)
+        threshold_source = (
+            "calibrated"
+            if (warn_drop, critical_drop) != (WARN_DROP, CRITICAL_DROP)
+            else "default"
+        )
+        report = compute_drift(
+            records,
+            baseline_success_rate=baseline,
+            warn_drop=warn_drop,
+            critical_drop=critical_drop,
+        )
+
+        if report.sample_size == 0:
+            st.info("暂无可用于漂移体检的真实结果样本，当前仅保留安全默认状态。")
+
+        cols = st.columns(3)
+        cols[0].metric("当前成功率", f"{report.success_rate:.1%}")
+        cols[1].metric("样本量", report.sample_size)
+        cols[2].metric("相对基线变化", f"-{report.success_rate_drop:.1%}")
+
+        if report.severity == "critical":
+            st.error("漂移等级：critical，建议复核回滚或人工确认后处理。")
+        elif report.severity == "warn":
+            st.warning("漂移等级：warn，建议生成带人工放行的重校准建议。")
+        else:
+            st.success("漂移等级：ok，当前未检测到需要告警的漂移。")
+
+        st.caption(
+            "告警阈值来源："
+            f"{'数据校准' if threshold_source == 'calibrated' else '默认'}"
+            f"（warn≥{warn_drop:.1%} / critical≥{critical_drop:.1%}）"
+        )
+        for finding in report.findings:
+            st.write(f"- {finding}")
+        st.write(f"建议动作：`{report.recommended_action}`")
+
+        if st.button("生成重校准建议", key="drift_recalibration_button"):
+            result = run_recalibration_cycle(
+                records,
+                registry=registry,
+                baseline_success_rate=baseline,
+            )
+            st.caption("以下仅为带人工放行的重校准建议，不会自动应用到配置。")
+            st.metric("是否建议提升为稳定版本", "是" if result["should_promote"] else "否")
+            st.json(
+                {
+                    "suggestions": result["suggestions"],
+                    "registered_version": result["registered_version"],
+                    "drift_thresholds": result["drift_thresholds"],
+                    "alert_sent": result["alert_sent"],
+                }
+            )
+
+
 def render_value_dashboard(result, data_source=None) -> None:
     from src.audit import AuditLog
     from src.economic_impact import calculate_economic_impact
@@ -1335,6 +1414,7 @@ def render_value_dashboard(result, data_source=None) -> None:
     st.table(df)
     st.caption(f"ℹ️ {impact.note}")
     render_automation_panel(data_source)
+    render_drift_panel(data_source)
     render_security_panel("admin", data_source)
 
 
