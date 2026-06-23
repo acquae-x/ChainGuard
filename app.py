@@ -1657,20 +1657,39 @@ def render_monitor_overview(data_source, *, view: str = "管理者") -> None:
         metric_cols[1].metric("需决策", report.counts["action_required"])
         metric_cols[2].metric("预警", report.counts["warning"])
         metric_cols[3].metric("观察", report.counts["watch"])
+        if report.calibrated_thresholds:
+            _w, _wn, _ac = report.calibrated_thresholds
+            st.caption(
+                f"分级阈值由本次扫描风险分布数据驱动校准："
+                f"观察≥{_w:.1f} / 预警≥{_wn:.1f} / 需决策≥{_ac:.1f}"
+            )
 
         if report.action_queue:
-            rows = [
+            # 同样 mask-then-relabel：管理者(admin)看明文供应商，一线视角则会脱敏。
+            raw = [
                 {
-                    "事件": node.event_id,
-                    "类型": node.event_type,
-                    "物料": node.affected_material,
-                    "风险": round(node.risk_index, 2),
-                    "建议动作": node.recommended_action,
+                    "event_id": node.event_id,
+                    "event_type": node.event_type,
+                    "material": node.affected_material,
+                    "supplier_name": node.affected_supplier,
+                    "risk": round(node.risk_index, 2),
+                    "action": node.recommended_action,
                 }
                 for node in report.action_queue
             ]
+            rows = [
+                {
+                    "事件": r["event_id"],
+                    "类型": r["event_type"],
+                    "物料": r["material"],
+                    "供应商": r["supplier_name"],
+                    "风险": r["risk"],
+                    "建议动作": r["action"],
+                }
+                for r in mask_rows_for_view(raw, view)
+            ]
             st.dataframe(
-                mask_rows_for_view(rows, view),
+                rows,
                 hide_index=True,
                 use_container_width=True,
             )
@@ -1713,23 +1732,36 @@ def render_node_detail(data_source, *, view: str = "一线从业者") -> None:
             st.info("暂无可监控的节点。")
             return
 
-        rows = [
+        # 先用敏感字段名（supplier_name）建行 → 按视角脱敏 → 再改回中文列名展示。
+        # 这样脱敏在“供应商”列上真正生效：一线看到 ***，管理者看到明文。
+        raw_rows = [
             {
-                "事件": node.event_id,
-                "类型": node.event_type,
-                "物料": node.affected_material,
-                "供应商": node.affected_supplier,
-                "风险": round(node.risk_index, 2),
-                "状态": node.status,
-                "建议动作": node.recommended_action,
+                "event_id": node.event_id,
+                "event_type": node.event_type,
+                "material": node.affected_material,
+                "supplier_name": node.affected_supplier,
+                "risk": round(node.risk_index, 2),
+                "status": node.status,
+                "action": node.recommended_action,
             }
             for node in report.all_nodes
         ]
-        st.dataframe(
-            mask_rows_for_view(rows, view),
-            hide_index=True,
-            use_container_width=True,
-        )
+        masked = mask_rows_for_view(raw_rows, view)
+        display_rows = [
+            {
+                "事件": r["event_id"],
+                "类型": r["event_type"],
+                "物料": r["material"],
+                "供应商": r["supplier_name"],
+                "风险": r["risk"],
+                "状态": r["status"],
+                "建议动作": r["action"],
+            }
+            for r in masked
+        ]
+        st.dataframe(display_rows, hide_index=True, use_container_width=True)
+        if mask_rows_for_view([{"supplier_name": "x"}], view)[0]["supplier_name"] == "***":
+            st.caption("🔒 当前为一线视角：供应商等敏感字段已脱敏（***）。管理者视角可见明文。")
     except Exception as error:
         st.caption(f"节点明细暂不可用：{error}")
 
