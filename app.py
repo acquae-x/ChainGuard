@@ -1373,6 +1373,12 @@ def render_drift_panel(data_source) -> None:
         run_recalibration_cycle,
     )
     from src.model_registry import ModelRegistry
+    from src.drift_history import (
+        append_snapshot,
+        load_snapshots,
+        register_baseline,
+        trend_series,
+    )
 
     with st.expander("🩺 系统健康 / 漂移体检"):
         db_path = getattr(data_source, "scenario_db_path", "")
@@ -1440,6 +1446,42 @@ def render_drift_panel(data_source) -> None:
                     "alert_sent": result["alert_sent"],
                 }
             )
+
+        st.divider()
+        st.markdown("**达标基线 + 漂移趋势**")
+        if baseline is None:
+            st.caption("尚未注册基线，漂移恒为 ok；注册当前成功率后才能判断三个月后是否仍达标。")
+
+        base_col, snap_col = st.columns(2)
+        with base_col:
+            if st.button("📌 注册当前成功率为基线", key="drift_register_baseline"):
+                info = register_baseline(report.success_rate)
+                st.success(
+                    f"已注册基线：成功率 {info['success_rate']:.1%}"
+                    f"（版本 {info['version_id'][:8]}，已提升为 stable）"
+                )
+        with snap_col:
+            if st.button("🩺 记录本次体检", key="drift_record_snapshot"):
+                append_snapshot(data_source, report)
+                st.success("已记录本次体检快照。")
+
+        series = trend_series(load_snapshots(data_source))
+        if len(series) >= 2:
+            st.line_chart(
+                {
+                    "成功率": [point["success_rate"] for point in series],
+                    "相对基线下降": [point["success_rate_drop"] for point in series],
+                }
+            )
+            st.caption(f"已记录 {len(series)} 次体检；趋势反映系统随时间是否仍达标。")
+        else:
+            st.caption("快照不足，至少 2 次体检后展示趋势。")
+
+        st.caption(
+            "基线由人工注册；趋势反映系统随时间是否仍达标；重校准建议需人工放行。"
+            "可用 `python scripts/run_recalibration.py --db <租户库> --baseline <r>` "
+            "配 /schedule routine 或系统计划任务周期触发（本任务不实现常驻进程）。"
+        )
 
 
 def render_value_dashboard(result, data_source=None, *, view: str = "管理者") -> None:
