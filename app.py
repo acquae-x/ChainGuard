@@ -17,6 +17,7 @@ from src.orchestrator import DecisionOrchestrator
 from src.parameter_calibration import explain_simulation_limitations
 from src.scenario_loader import ScenarioLoader
 from src.scoring import detect_low_score, rank_proposals
+from src.security.view_roles import mask_rows_for_view, role_for_view
 from src.sensitivity import run_sensitivity
 from src.supply_monitor import scan_supply_chain
 
@@ -879,6 +880,7 @@ def render_step_9_experience_references(
     experience_references: dict,
     *,
     data_source: DataSource | None = None,
+    view: str = "供应链经理",
 ) -> None:
     st.header("Step 9 历史经验引用")
 
@@ -896,7 +898,7 @@ def render_step_9_experience_references(
         for item in risk_hints:
             st.write(f"- {item}")
 
-    references = experience_references.get("references") or []
+    references = mask_rows_for_view(experience_references.get("references") or [], view)
     if references:
         st.dataframe(
             [
@@ -1277,18 +1279,10 @@ def render_security_panel(role: str, data_source) -> None:
         security_posture,
     )
 
-    roles = ["admin", "operator", "approver", "viewer"]
-    default_index = roles.index(role) if role in roles else 0
     with st.expander("🔐 数据安全"):
-        demo_role = st.selectbox(
-            "查看角色",
-            roles,
-            index=default_index,
-            key="security_posture_role_select",
-            help="仅用于演示不同角色下的脱敏差异，不代表真实登录鉴权。",
-        )
-        posture = security_posture(demo_role, data_source)
-        preview = masking_preview(sample_sensitive_record(), demo_role)
+        st.caption(f"当前视角角色：`{role}`（演示映射，不代表真实登录鉴权）")
+        posture = security_posture(role, data_source)
+        preview = masking_preview(sample_sensitive_record(), role)
 
         status_icon = "✅" if posture.encryption_active else "⚠️"
         cols = st.columns(3)
@@ -1448,7 +1442,7 @@ def render_drift_panel(data_source) -> None:
             )
 
 
-def render_value_dashboard(result, data_source=None) -> None:
+def render_value_dashboard(result, data_source=None, *, view: str = "管理者") -> None:
     from src.audit import AuditLog
     from src.economic_impact import calculate_economic_impact
     from src.value_dashboard import aggregate_timeline_value
@@ -1536,10 +1530,16 @@ def render_value_dashboard(result, data_source=None) -> None:
     st.caption(f"ℹ️ {impact.note}")
     render_automation_panel(data_source)
     render_drift_panel(data_source)
-    render_security_panel("admin", data_source)
+    render_security_panel(role_for_view(view), data_source)
 
 
-def render_decision_process(result, low_score_threshold, *, data_source=None) -> None:
+def render_decision_process(
+    result,
+    low_score_threshold,
+    *,
+    data_source=None,
+    view: str = "供应链经理",
+) -> None:
     # 4 个决策阶段 + 高级分析做成分页，默认只展示当前阶段，避免单页过长。
     phase_tabs = st.tabs(
         [
@@ -1569,11 +1569,12 @@ def render_decision_process(result, low_score_threshold, *, data_source=None) ->
         )
 
     with phase_tabs[3]:
-        render_confirmation_gate(result.arbitration, result.audit_entry)
+        render_confirmation_gate(result.arbitration, result.audit_entry, view_role=view)
         render_step_7(result.experience_card)
         render_step_9_experience_references(
             result.experience_references,
             data_source=data_source,
+            view=view,
         )
         render_step_10_explanation(result.explanation)
         render_step_11_audit(result.audit_entry)
@@ -1590,7 +1591,7 @@ def render_decision_process(result, low_score_threshold, *, data_source=None) ->
         render_model_comparison()
 
 
-def render_monitor_overview(data_source) -> None:
+def render_monitor_overview(data_source, *, view: str = "管理者") -> None:
     try:
         report = scan_supply_chain(data_source)
         if report.overall_health == "at_risk":
@@ -1617,7 +1618,11 @@ def render_monitor_overview(data_source) -> None:
                 }
                 for node in report.action_queue
             ]
-            st.dataframe(rows, hide_index=True, use_container_width=True)
+            st.dataframe(
+                mask_rows_for_view(rows, view),
+                hide_index=True,
+                use_container_width=True,
+            )
             st.markdown("**行动队列**")
             for node in report.action_queue:
                 detail_col, action_col = st.columns([4, 1])
@@ -1649,7 +1654,7 @@ def _resolve_selected_event(session_state: dict, default_event_id: str | None) -
     return session_state.get("cg_selected_event_id") or default_event_id
 
 
-def render_node_detail(data_source) -> None:
+def render_node_detail(data_source, *, view: str = "一线从业者") -> None:
     """一线视角：展示 scan_supply_chain(...).all_nodes 的节点级状态明细表。"""
     try:
         report = scan_supply_chain(data_source)
@@ -1669,12 +1674,16 @@ def render_node_detail(data_source) -> None:
             }
             for node in report.all_nodes
         ]
-        st.dataframe(rows, hide_index=True, use_container_width=True)
+        st.dataframe(
+            mask_rows_for_view(rows, view),
+            hide_index=True,
+            use_container_width=True,
+        )
     except Exception as error:
         st.caption(f"节点明细暂不可用：{error}")
 
 
-def render_data_intake(data_source) -> None:
+def render_data_intake(data_source, *, view: str = "一线从业者") -> None:
     """Frontline multi-format intake, extraction report, preview, and import."""
     import csv
     import tempfile
@@ -1727,7 +1736,11 @@ def render_data_intake(data_source) -> None:
             st.markdown("**归一化预览**")
             for table_name, rows in result.normalized.items():
                 st.caption(f"{table_name}: {len(rows)} rows")
-                st.dataframe(rows, hide_index=True, use_container_width=True)
+                st.dataframe(
+                    mask_rows_for_view(rows, view),
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
             if getattr(data_source, "kind", "") != "enterprise":
                 st.info("演示数据源仅预览，不落库，避免污染演示数据。")
@@ -1819,19 +1832,20 @@ def main() -> None:
     )
 
     with tab_mgr:
-        render_monitor_overview(data_source)
+        render_monitor_overview(data_source, view="管理者")
         st.divider()
-        render_value_dashboard(result, data_source=data_source)
+        render_value_dashboard(result, data_source=data_source, view="管理者")
     with tab_manager:
         render_decision_process(
             result,
             low_score_threshold,
             data_source=data_source,
+            view="供应链经理",
         )
     with tab_frontline:
-        render_node_detail(data_source)
+        render_node_detail(data_source, view="一线从业者")
         st.divider()
-        render_data_intake(data_source)
+        render_data_intake(data_source, view="一线从业者")
 
     st.divider()
     st.warning(explain_simulation_limitations())
