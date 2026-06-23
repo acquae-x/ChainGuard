@@ -105,3 +105,53 @@ def _node(status: str) -> NodeStatus:
         status=status,
         recommended_action="test",
     )
+
+
+# --- 数据驱动阈值校准（修复"行动队列永远为空"）---
+from src.supply_monitor import (  # noqa: E402
+    WATCH_THRESHOLD,
+    WARNING_THRESHOLD,
+    calibrate_monitor_thresholds,
+)
+
+
+def test_calibrate_thresholds_ordered_and_data_driven():
+    # 有离散度的真实分布 → 阈值有序且不等于专家回退常量
+    values = [10, 12, 15, 18, 20, 25, 30, 45, 50, 52]
+    watch, warning, action = calibrate_monitor_thresholds(values)
+    assert watch < warning < action
+    assert (watch, warning, action) != (
+        WATCH_THRESHOLD,
+        WARNING_THRESHOLD,
+        ACTION_THRESHOLD,
+    )
+
+
+def test_calibrate_thresholds_few_nodes_fallback():
+    assert calibrate_monitor_thresholds([10, 20, 30]) == (
+        WATCH_THRESHOLD,
+        WARNING_THRESHOLD,
+        ACTION_THRESHOLD,
+    )
+
+
+def test_calibrate_thresholds_no_spread_fallback():
+    assert calibrate_monitor_thresholds([40.0] * 12) == (
+        WATCH_THRESHOLD,
+        WARNING_THRESHOLD,
+        ACTION_THRESHOLD,
+    )
+
+
+def test_calibrate_makes_top_node_actionable():
+    # 数据驱动阈值下，分布顶端的离群值应被判为 action_required（否则队列永远空）
+    values = [10, 12, 15, 18, 20, 22, 25, 28, 30, 52]
+    thresholds = calibrate_monitor_thresholds(values)
+    status, _ = classify_status(52, thresholds=thresholds)
+    assert status == "action_required"
+
+
+def test_scan_demo_action_queue_nonempty():
+    report = scan_supply_chain(demo_source())
+    assert len(report.action_queue) >= 1
+    assert report.calibrated_thresholds is not None
