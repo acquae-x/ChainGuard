@@ -3,6 +3,11 @@ from pathlib import Path
 
 import streamlit as st
 
+from src.confirmation import (
+    build_confirmation_items,
+    evaluate_gate,
+    record_confirmation,
+)
 from src.data_source import DataSource, demo_source, enterprise_source
 from src.learning import (
     load_experience_cards,
@@ -13,6 +18,7 @@ from src.parameter_calibration import explain_simulation_limitations
 from src.scenario_loader import ScenarioLoader
 from src.scoring import detect_low_score, rank_proposals
 from src.sensitivity import run_sensitivity
+from src.supply_monitor import scan_supply_chain
 
 
 def render_intake_review(records: list[dict], history_counts: dict[str, int]) -> None:
@@ -519,10 +525,6 @@ def render_step_6(
     for index, item in enumerate(arbitration["execution_plan"], start=1):
         st.write(f"{index}. {item}")
 
-    st.markdown("**人工确认点**")
-    for item in arbitration["manual_confirmation_points"]:
-        st.write(f"- {item}")
-
     st.markdown("**预期效果**")
     _effect = arbitration.get("expected_effect", {})
     st.dataframe(
@@ -987,6 +989,64 @@ def render_step_11_audit(audit_entry: dict) -> None:
         st.json(audit_entry)
 
 
+def render_confirmation_gate(
+    arbitration: dict,
+    audit_entry: dict,
+    *,
+    view_role: str = "供应链经理",
+) -> None:
+    decision_id = (audit_entry or {}).get("decision_id", "unknown")
+    items = build_confirmation_items(arbitration.get("manual_confirmation_points", []))
+    if not items:
+        st.info("本决策无需人工确认点，可直接执行。")
+        return
+
+    st.header("执行确认闸门")
+    confirmed_flags: dict[str, bool] = {}
+    for i, item in enumerate(items):
+        confirmed_flags[item.point] = st.checkbox(
+            f"[{item.role}] {item.point}",
+            key=f"confirm_{decision_id}_{i}",
+        )
+        st.caption(item.risk_if_skipped)
+
+    override = st.checkbox(
+        "带理由强制放行",
+        key=f"confirm_override_{decision_id}",
+    )
+    reason = st.text_input(
+        "强制放行理由",
+        key=f"confirm_override_reason_{decision_id}",
+    )
+    gate = evaluate_gate(
+        items,
+        confirmed_flags,
+        override=override,
+        override_reason=reason,
+    )
+
+    if not gate.can_execute:
+        st.warning(f"还有 {len(gate.blocked_points)} 项待确认，执行已锁定。")
+
+    if st.button(
+        "⬇️ 下发执行",
+        disabled=not gate.can_execute,
+        key=f"confirm_execute_{decision_id}",
+    ):
+        try:
+            record_confirmation(
+                decision_id,
+                items,
+                confirmed_flags,
+                confirmed_by=view_role,
+                override=override,
+                override_reason=reason,
+            )
+            st.success("已下发执行并留痕。")
+        except Exception as exc:
+            st.caption(f"确认日志写入失败：{exc}")
+
+
 def render_sensitivity(results: list[dict]) -> None:
     st.header("敏感性分析：当前库存对风险指数的影响")
     if not results:
@@ -1448,6 +1508,7 @@ def render_decision_process(result, low_score_threshold, *, data_source=None) ->
         )
 
     with phase_tabs[3]:
+        render_confirmation_gate(result.arbitration, result.audit_entry)
         render_step_7(result.experience_card)
         render_step_9_experience_references(
             result.experience_references,
@@ -1468,18 +1529,215 @@ def render_decision_process(result, low_score_threshold, *, data_source=None) ->
         render_model_comparison()
 
 
+def render_monitor_overview(data_source) -> None:
+    try:
+        report = scan_supply_chain(data_source)
+        if report.overall_health == "at_risk":
+            st.error("全链路健康：存在需立即决策的供应链节点")
+        elif report.overall_health == "attention":
+            st.warning("全链路健康：存在预警节点，建议关注行动队列")
+        else:
+            st.success("全链路健康：当前系统状态稳定")
+
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("扫描节点数", report.scanned)
+        metric_cols[1].metric("需决策", report.counts["action_required"])
+        metric_cols[2].metric("预警", report.counts["warning"])
+        metric_cols[3].metric("观察", report.counts["watch"])
+
+        if report.action_queue:
+            rows = [
+                {
+                    "事件": node.event_id,
+                    "类型": node.event_type,
+                    "物料": node.affected_material,
+                    "风险": round(node.risk_index, 2),
+                    "建议动作": node.recommended_action,
+                }
+                for node in report.action_queue
+            ]
+            st.dataframe(rows, hide_index=True, use_container_width=True)
+            st.markdown("**行动队列**")
+            for node in report.action_queue:
+                detail_col, action_col = st.columns([4, 1])
+                with detail_col:
+                    st.caption(
+                        f"{node.event_id} · {node.event_type} · "
+                        f"{node.affected_material} · 风险 {node.risk_index:.2f}"
+                    )
+                with action_col:
+                    if st.button(
+                        f"进入决策：{node.event_id}",
+                        key=f"goto_{node.event_id}",
+                        use_container_width=True,
+                    ):
+                        st.session_state["cg_selected_event_id"] = node.event_id
+                        st.rerun()
+        else:
+            st.info("全链路暂无预警节点，系统状态稳定。")
+
+        if report.skipped:
+            st.caption(f"监控扫描已跳过 {report.skipped} 个无法加载的节点。")
+    except Exception as error:
+        st.caption(f"监控总览暂不可用：{error}")
+
+
+def _resolve_selected_event(session_state: dict, default_event_id: str | None) -> str | None:
+    """从 session_state 取行动队列选中的 event_id；无则回退 default_event_id。
+    纯函数：读 dict，不碰 Streamlit。"""
+    return session_state.get("cg_selected_event_id") or default_event_id
+
+
+def render_node_detail(data_source) -> None:
+    """一线视角：展示 scan_supply_chain(...).all_nodes 的节点级状态明细表。"""
+    try:
+        report = scan_supply_chain(data_source)
+        if not report.all_nodes:
+            st.info("暂无可监控的节点。")
+            return
+
+        rows = [
+            {
+                "事件": node.event_id,
+                "类型": node.event_type,
+                "物料": node.affected_material,
+                "供应商": node.affected_supplier,
+                "风险": round(node.risk_index, 2),
+                "状态": node.status,
+                "建议动作": node.recommended_action,
+            }
+            for node in report.all_nodes
+        ]
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+    except Exception as error:
+        st.caption(f"节点明细暂不可用：{error}")
+
+
+def render_data_intake(data_source) -> None:
+    """Frontline multi-format intake, extraction report, preview, and import."""
+    import csv
+    import tempfile
+    from dataclasses import asdict
+
+    from src.ingestion_agent import ingest_files
+    from src.streaming_import import stream_import_csv
+
+    st.markdown("**数据接入 Agent（多格式 + OCR 级联）**")
+    uploads = st.file_uploader(
+        "上传 CSV / Excel / PDF / 图片",
+        accept_multiple_files=True,
+        type=["csv", "xlsx", "pdf", "png", "jpg", "jpeg"],
+        key="frontline_data_intake_uploads",
+    )
+    if not uploads:
+        st.caption("上传后先落地原始文件，再统一抽取、预览和落库。")
+        return
+
+    if not st.button("处理上传文件", use_container_width=True):
+        return
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths: list[Path] = []
+            for upload in uploads:
+                path = Path(tmp_dir) / Path(upload.name).name
+                path.write_bytes(upload.getbuffer())
+                paths.append(path)
+
+            result = ingest_files(paths)
+            report_rows = [asdict(extraction) for extraction in result.extractions]
+            if report_rows:
+                st.dataframe(report_rows, hide_index=True, use_container_width=True)
+            else:
+                st.info("本次未抽取到文件。")
+
+            st.caption(
+                f"成功 {result.ok_count} 个文件，需人工录入/复核 {result.needs_manual_count} 个文件。"
+            )
+            for extraction in result.extractions:
+                if extraction.needs_manual:
+                    note = extraction.note or "未识别"
+                    st.warning(f"{extraction.file_name} 需人工录入/复核：{note}")
+
+            if not result.normalized:
+                st.info("暂无可预览或落库的归一化行。")
+                return
+
+            st.markdown("**归一化预览**")
+            for table_name, rows in result.normalized.items():
+                st.caption(f"{table_name}: {len(rows)} rows")
+                st.dataframe(rows, hide_index=True, use_container_width=True)
+
+            if getattr(data_source, "kind", "") != "enterprise":
+                st.info("演示数据源仅预览，不落库，避免污染演示数据。")
+                return
+
+            db_path = getattr(data_source, "scenario_db_path", "")
+            if not db_path:
+                st.warning("当前租户数据库路径不可用，已跳过落库。")
+                return
+
+            import_rows = []
+            for table_name, rows in result.normalized.items():
+                temp_csv = Path(tmp_dir) / f"{table_name}.csv"
+                _write_normalized_csv(temp_csv, rows)
+                persisted = stream_import_csv(temp_csv, table_name, db_path)
+                import_rows.append(
+                    {
+                        "table_name": table_name,
+                        "extracted_rows": len(rows),
+                        "persisted_rows": persisted,
+                    }
+                )
+            st.success("归一化结果已统一落入当前企业租户库。")
+            st.dataframe(import_rows, hide_index=True, use_container_width=True)
+    except Exception as error:
+        st.error(f"数据接入失败：{error}")
+
+
+def _write_normalized_csv(csv_path: Path, rows: list[dict]) -> None:
+    headers: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for key in row:
+            if key not in seen:
+                headers.append(key)
+                seen.add(key)
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: row.get(key, "") for key in headers})
+
+
+def render_data_intake_placeholder(data_source) -> None:
+    """Compatibility wrapper for older UI routing tests."""
+    render_data_intake(data_source)
+
+
 def main() -> None:
     st.set_page_config(page_title="ChainGuard 演示模式", page_icon="CG", layout="wide")
     scenario_mode, enterprise_event_id, data_source = render_sidebar()
     render_header()
+    selected_event_id = _resolve_selected_event(
+        dict(st.session_state),
+        enterprise_event_id,
+    )
+    scenario_db_available = Path(getattr(data_source, "scenario_db_path", "")).exists()
     st.info(f"📡 当前数据源：{data_source.label} · 租户 {data_source.tenant_id}")
 
     try:
-        if scenario_mode == "企业真实场景":
+        if selected_event_id and scenario_db_available:
+            orchestrator = DecisionOrchestrator()
+            result = orchestrator.run_scenario(
+                selected_event_id,
+                ScenarioLoader(data_source.scenario_db_path),
+                data_source=data_source,
+            )
+        elif scenario_mode == "企业真实场景":
             if enterprise_event_id is None:
                 st.warning("请先在左侧选择一个企业事件。")
                 st.stop()
-
             orchestrator = DecisionOrchestrator()
             result = orchestrator.run_scenario(
                 enterprise_event_id,
@@ -1495,16 +1753,24 @@ def main() -> None:
         st.stop()
 
     low_score_threshold = result.thresholds["learning"]["low_score_threshold"]
-    tab_value, tab_process = st.tabs(["💰 决策价值（管理层视角）", "🔎 决策过程（人工决策视角）"])
+    tab_mgr, tab_manager, tab_frontline = st.tabs(
+        ["🏢 管理者", "📋 供应链经理", "🛠 一线从业者"]
+    )
 
-    with tab_value:
+    with tab_mgr:
+        render_monitor_overview(data_source)
+        st.divider()
         render_value_dashboard(result, data_source=data_source)
-    with tab_process:
+    with tab_manager:
         render_decision_process(
             result,
             low_score_threshold,
             data_source=data_source,
         )
+    with tab_frontline:
+        render_node_detail(data_source)
+        st.divider()
+        render_data_intake(data_source)
 
     st.divider()
     st.warning(explain_simulation_limitations())
