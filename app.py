@@ -1058,28 +1058,37 @@ def render_confirmation_gate(
     *,
     view_role: str = "供应链经理",
 ) -> None:
+    import hashlib
+
     decision_id = (audit_entry or {}).get("decision_id", "unknown")
     items = build_confirmation_items(arbitration.get("manual_confirmation_points", []))
     if not items:
         st.info("本决策无需人工确认点，可直接执行。")
         return
 
+    # 控件 key 必须在 rerun 间稳定：decision_id 每次 run_demo/run_scenario 都会重新生成，
+    # 若用它做 key，用户每勾一项就因 key 变化被清空，闸门永远锁死。改用确认点内容派生的
+    # 稳定 gate_id（同一组确认点 → 同一 key，跨 rerun 保留勾选；换场景 → 不同 key）。
+    gate_id = hashlib.md5(
+        "|".join(item.point for item in items).encode("utf-8")
+    ).hexdigest()[:10]
+
     st.header("执行确认闸门")
     confirmed_flags: dict[str, bool] = {}
     for i, item in enumerate(items):
         confirmed_flags[item.point] = st.checkbox(
             f"[{item.role}] {item.point}",
-            key=f"confirm_{decision_id}_{i}",
+            key=f"confirm_{gate_id}_{i}",
         )
         st.caption(item.risk_if_skipped)
 
     override = st.checkbox(
         "带理由强制放行",
-        key=f"confirm_override_{decision_id}",
+        key=f"confirm_override_{gate_id}",
     )
     reason = st.text_input(
         "强制放行理由",
-        key=f"confirm_override_reason_{decision_id}",
+        key=f"confirm_override_reason_{gate_id}",
     )
     gate = evaluate_gate(
         items,
@@ -1094,7 +1103,7 @@ def render_confirmation_gate(
     if st.button(
         "⬇️ 下发执行",
         disabled=not gate.can_execute,
-        key=f"confirm_execute_{decision_id}",
+        key=f"confirm_execute_{gate_id}",
     ):
         try:
             record_confirmation(
