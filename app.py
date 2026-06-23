@@ -1010,6 +1010,48 @@ def render_step_9_experience_references(
                     f"{'↑' if _delta > 0 else '↓'}{abs(_delta):.3f}"
                 )
 
+            # 触发阈值 + 预警支撑时长：同样从历史结果数据驱动校准（I40/I09），人工放行后应用。
+            from src.config_loader import load_thresholds
+            from src.parameter_calibration import (
+                calibrate_thresholds,
+                calibrate_trigger_threshold,
+            )
+
+            _expert_thr = load_thresholds()["inventory_warning"]
+            _weights_clean = {k: _calibrated.get(k, 0) for k in _expert}
+            _trig = calibrate_trigger_threshold(_records, _weights_clean)
+            _cal_thr = calibrate_thresholds(_records)["inventory_warning"]
+            _thr_rows = [
+                {
+                    "阈值参数": "库存风险触发阈值",
+                    "专家默认值": _expert_thr["inventory_risk_trigger"],
+                    "数据驱动校准值": _trig["value"],
+                    "方法 / 样本": f"{_trig['_method']} · n={_trig['_sample_size']}",
+                },
+                {
+                    "阈值参数": "黄色预警支撑时长 (h)",
+                    "专家默认值": _expert_thr["yellow_support_hours"],
+                    "数据驱动校准值": _cal_thr["yellow_support_hours"],
+                    "方法 / 样本": "P25 失败延误时长",
+                },
+                {
+                    "阈值参数": "红色预警支撑时长 (h)",
+                    "专家默认值": _expert_thr["red_support_hours"],
+                    "数据驱动校准值": _cal_thr["red_support_hours"],
+                    "方法 / 样本": "P10 失败延误时长",
+                },
+            ]
+            st.markdown("**触发 / 预警阈值校准对比（专家默认 vs 数据驱动）**")
+            st.dataframe(_thr_rows, use_container_width=True, hide_index=True)
+            st.caption(
+                "风险权重、触发阈值、预警时长均由历史结果数据驱动校准（建议值），经人工放行后"
+                "写入配置——保留「AI 建议、人把关」护栏，不自动覆盖 YAML。"
+            )
+            st.caption(
+                "说明：决策评分权重 / 博弈收益权重是模型结构系数，辩论触发差距、低分阈值是运营"
+                "策略阈值——二者无历史结果可作校准基准，故保持配置默认值，不做伪数据驱动。"
+            )
+
 
 def render_step_10_explanation(explanation: dict) -> None:
     st.header("Step 10 可解释决策说明")
