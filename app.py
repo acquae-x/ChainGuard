@@ -15,6 +15,55 @@ from src.scoring import detect_low_score, rank_proposals
 from src.sensitivity import run_sensitivity
 
 
+def render_intake_review(records: list[dict], history_counts: dict[str, int]) -> None:
+    from src.intake_review import (
+        OCCASIONAL_THRESHOLD,
+        ROUTINE_THRESHOLD,
+        build_history_counts,
+        calibrate_intake_thresholds,
+        review_batch,
+    )
+
+    if not history_counts:
+        history_counts = build_history_counts(records)
+    routine_threshold, occasional_threshold = calibrate_intake_thresholds(history_counts)
+    source = (
+        "default"
+        if (
+            routine_threshold == ROUTINE_THRESHOLD
+            and occasional_threshold == OCCASIONAL_THRESHOLD
+        )
+        else "calibrated"
+    )
+    report = review_batch(
+        records,
+        history_counts,
+        routine_threshold=routine_threshold,
+        occasional_threshold=occasional_threshold,
+    )
+
+    st.markdown("**规则复核（rule-based）**")
+    cols = st.columns(2)
+    cols[0].metric("常规自动通过", report.auto_passed)
+    cols[1].metric("需人工确认", report.needs_confirmation)
+    st.caption(
+        f"阈值来源：{source}（常规≥{routine_threshold}次 / 偶发={occasional_threshold}次）"
+    )
+
+    novel_rows = [
+        {
+            "signature": assessment.signature,
+            "confirmation_points": "；".join(assessment.confirmation_points),
+        }
+        for assessment in report.assessments
+        if assessment.familiarity == "novel"
+    ]
+    if novel_rows:
+        st.dataframe(novel_rows, hide_index=True, use_container_width=True)
+    else:
+        st.caption("本批无首次出现记录。")
+
+
 def _available_enterprise_tenants() -> list[str]:
     base = Path(demo_source().scenario_db_path)
     tenants: list[str] = []
@@ -161,6 +210,7 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
                 disabled=import_disabled,
                 use_container_width=True,
             ) and tid and (server_dir or files):
+                import csv
                 import pathlib
                 import tempfile
 
@@ -170,6 +220,7 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
                 try:
                     progress_bar = st.progress(0, text="准备导入...")
                     table_progress: dict[str, int] = {}
+                    review_records = None
 
                     def _progress(table_name: str, rows: int) -> None:
                         table_progress[table_name] = rows
@@ -205,6 +256,13 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
                             progress=_progress,
                             run_preflight_check=preflight_report is None,
                         )
+                        review_csv_path = pathlib.Path(server_dir) / "disruption_events.csv"
+                        if review_csv_path.exists():
+                            with review_csv_path.open(
+                                encoding="utf-8-sig",
+                                newline="",
+                            ) as _f:
+                                review_records = list(csv.DictReader(_f))
                     else:
                         with tempfile.TemporaryDirectory() as tmp:
                             for f in files or []:
@@ -219,6 +277,13 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
                                 progress=_progress,
                                 run_preflight_check=preflight_report is None,
                             )
+                            review_csv_path = pathlib.Path(tmp) / "disruption_events.csv"
+                            if review_csv_path.exists():
+                                with review_csv_path.open(
+                                    encoding="utf-8-sig",
+                                    newline="",
+                                ) as _f:
+                                    review_records = list(csv.DictReader(_f))
                     progress_bar.progress(1.0, text="导入完成，正在展示结果")
                     st.dataframe(
                         res.table_results,
@@ -227,6 +292,18 @@ def render_sidebar() -> tuple[str, str | None, DataSource]:
                     )
                     if res.smoke_ok:
                         st.success(f"✅ 导入成功（{res.ok_tables} 表）：{res.smoke_message}")
+                        try:
+                            if review_records is None:
+                                st.caption("本批无事件数据，跳过复核。")
+                            else:
+                                from src.intake_review import build_history_counts
+
+                                render_intake_review(
+                                    review_records,
+                                    build_history_counts(review_records),
+                                )
+                        except Exception as _e:
+                            st.caption(f"导入复核展示失败，已跳过：{_e}")
                     else:
                         st.error(f"❌ {res.smoke_message}（该租户未激活，请检查 CSV）")
                 except Exception as _e:
