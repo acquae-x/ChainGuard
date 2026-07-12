@@ -24,6 +24,8 @@ jobs:
       # 旧决策引擎保留历史单行风格；本阶段对 Web API 和其契约测试执行 Ruff。
       - run: ruff check src/webapi tests/test_webapi.py --ignore E701,E702
       - run: alembic upgrade head
+      # pytest.ini 配置 --basetemp=.tmp/pytest，pytest 不自动创建父目录（本地长期存在该目录掩盖了此问题）
+      - run: mkdir -p .tmp/pytest
       - run: pytest -q
 
   frontend:
@@ -39,5 +41,7 @@ jobs:
           cache: npm
           cache-dependency-path: chainguard-web/package-lock.json
       - run: npm ci
+      # 生成 src/.umi 类型声明（@/ 别名、useAccess 等），tsc 依赖它；本地有构建残留掩盖了此问题
+      - run: npx max setup
       - run: npx tsc --noEmit
       - run: npm run build
