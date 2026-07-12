@@ -26,6 +26,8 @@ jobs:
       - run: alembic upgrade head
       # pytest.ini 配置 --basetemp=.tmp/pytest，pytest 不自动创建父目录（本地长期存在该目录掩盖了此问题）
       - run: mkdir -p .tmp/pytest
+      # 演示企业库 *.db 不入库（.gitignore 排除），场景/监控/校准类测试依赖它，CI 现场确定性生成（固定 SEED）
+      - run: python scripts/generate_enterprise_demo_data.py
       - run: pytest -q
 
   frontend:
