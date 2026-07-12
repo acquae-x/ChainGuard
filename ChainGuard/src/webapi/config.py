@@ -16,6 +16,7 @@ class Settings:
     refresh_token_days: int = int(os.getenv("REFRESH_TOKEN_DAYS", "7"))
     refresh_cookie_secure: bool = os.getenv("REFRESH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
     max_import_bytes: int = int(os.getenv("MAX_IMPORT_BYTES", str(20 * 1024 * 1024)))
+    countersign_timeout_hours: float = float(os.getenv("COUNTERSIGN_TIMEOUT_HOURS", "4"))
     cors_origins: tuple[str, ...] = tuple(
         value.strip() for value in os.getenv(
             "CORS_ORIGINS", "http://localhost:8000,http://localhost:8080"

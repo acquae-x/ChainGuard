@@ -8,6 +8,8 @@ export type ApprovalActionCapabilities = {
   withdraw?: boolean;
   countersign?: boolean;
   reviewActions?: boolean;
+  // 会签人只有拒签权：显示驳回但不显示重算/转交（后端对会签人越权动作返回 403）
+  rejectOnly?: boolean;
 };
 
 export default function ApprovalActionBar({
@@ -34,7 +36,7 @@ export default function ApprovalActionBar({
         {capabilities.submit && <Button type="primary" icon={<SendOutlined />} onClick={() => Modal.confirm({ title: '提交老板终批？', content: '提交后将进入高风险终批与并行会签。', okText: '确认提交', cancelText: '取消', onOk: () => onDone?.('submit') })}>提交</Button>}
         {capabilities.withdraw && <Button icon={<RollbackOutlined />} onClick={() => Modal.confirm({ title: '撤回高风险审批单？', okText: '确认撤回', cancelText: '取消', onOk: () => onDone?.('withdraw') })}>撤回</Button>}
         {capabilities.countersign && <Button type="primary" icon={<AuditOutlined />} onClick={() => Modal.confirm({ title: '确认财务会签通过？', content: '会签意见将进入审批链并写入审计记录。', okText: '会签通过', cancelText: '取消', onOk: () => onDone?.('countersign') })}>会签</Button>}
-        {capabilities.reviewActions && <Button danger icon={<CloseOutlined />} onClick={() => setAction('reject')}>驳回</Button>}
+        {(capabilities.reviewActions || capabilities.rejectOnly) && <Button danger icon={<CloseOutlined />} onClick={() => setAction('reject')}>驳回</Button>}
         {capabilities.reviewActions && <Button icon={<RetweetOutlined />} onClick={() => setAction('recalc')}>要求重算</Button>}
         {capabilities.reviewActions && <Button icon={<SwapOutlined />} onClick={() => setAction('transfer')}>转交</Button>}
       </Space>

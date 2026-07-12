@@ -52,16 +52,21 @@ function ApprovalDetail({
       : riskLevel === "medium"
         ? access.canApproveMedium
         : riskLevel === "high" && access.canApproveHigh;
+  // 待会签阶段主审动作只读：批准/驳回/重算/转交仅在待审状态显示；会签人只看到会签+拒签
+  const awaitingReview = ["submitted", "pending", "transferred"].includes(detail.approval.status);
+  const canCountersignNow =
+    !detail.approval.countersigned &&
+    access.canCountersign &&
+    detail.approval.status === "pending_countersign" &&
+    (riskLevel === "high" ||
+      (riskLevel === "medium" && detail.approval.costImpact > 50000));
   const capabilities = {
-    approve: canApprove,
-    reviewActions: canApprove,
+    approve: canApprove && awaitingReview,
     submit: riskLevel === "high" && access.canSubmitHigh,
     withdraw: riskLevel === "high" && access.canSubmitHigh,
-    countersign:
-      !detail.approval.countersigned &&
-      access.canCountersign &&
-      (riskLevel === "high" ||
-        (riskLevel === "medium" && detail.approval.costImpact > 50000)),
+    countersign: canCountersignNow,
+    reviewActions: canApprove && awaitingReview,
+    rejectOnly: canCountersignNow,
   };
   const hasAction = Object.values(capabilities).some(Boolean);
   const comparison = detail.comparison;
@@ -95,7 +100,7 @@ function ApprovalDetail({
     if (action === "recalc") await recalcRequest(id, values);
     if (action === "transfer") await transfer(id, values);
     message.success(
-      action === "approve" ? "审批通过，任务已自动拆解" : "审批已处理",
+      action === "approve" && riskLevel === "high" ? "老板已批准，等待财务会签后生成任务" : action === "countersign" ? "会签完成，任务已自动拆解" : "审批已处理",
     );
     onDone();
     if (action === "approve") history.push("/task/all");
@@ -107,6 +112,7 @@ function ApprovalDetail({
         showIcon
         message={detail.alert}
       />
+      {detail.approval.status === "pending_countersign" && <Alert style={{ marginTop: 12 }} type="warning" showIcon message="待会签：财务会签后生效；超过配置时限将自动放行并通知财务追认。" />}
       <Descriptions
         title="决策摘要"
         bordered

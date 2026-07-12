@@ -1,7 +1,7 @@
 // 通知服务（Phase 2 §2.2 双模式）。api 模式对接 /notifications，mock 走 workflowStore。
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
-import { apiGet, apiPost } from '../utils/request';
+import { apiGet, apiPost, apiRequest } from '../utils/request';
 
 export type NotificationKind = 'risk' | 'approval' | 'task';
 export type NotificationItem = { id: string; kind: NotificationKind; title: string; target: string; read: boolean };
@@ -55,5 +55,10 @@ export async function markRead(id: string) {
 }
 
 export async function webhookConfig(values?: { enabled?: boolean; url?: string }) {
-  return { enabled: values?.enabled ?? false, url: values?.url || '' };
+  return pick(
+    async () => values
+      ? apiRequest('/notifications/webhook-config', { method: 'PUT', data: values })
+      : apiGet('/notifications/webhook-config'),
+    async () => ({ enabled: values?.enabled ?? false, url: values?.url || '' }),
+  );
 }

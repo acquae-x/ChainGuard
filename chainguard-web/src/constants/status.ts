@@ -19,6 +19,7 @@ export const STATUS_META: Record<string, { text: string; color: string }> = {
   reviewing: { text: '复盘中', color: 'purple' },
   closed: { text: '已关闭', color: 'green' },
   approved: { text: '已批准', color: 'green' },
+  pending_countersign: { text: '待会签', color: 'gold' },
   rejected: { text: '已驳回', color: 'red' },
   recalc_requested: { text: '待重算', color: 'orange' },
   transferred: { text: '已转交', color: 'blue' },

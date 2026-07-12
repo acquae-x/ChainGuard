@@ -4,12 +4,14 @@ import { Alert, Button, Card, Form, Grid, Input, Space, Tabs, Typography, messag
 import { useState } from 'react';
 import { DegradeBanner } from '@/components';
 import { login } from '@/services/user';
+import { isApiMode } from '@/services/dataMode';
 
 export default function LoginPage() {
   const { setInitialState } = useModel('@@initialState');
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(0);
   const screens = Grid.useBreakpoint();
+  const apiMode = isApiMode();
 
   const submit = async (values: any) => {
     setLoading(true);
@@ -18,9 +20,10 @@ export default function LoginPage() {
       await setInitialState(result);
       message.success('登录成功');
       history.push(result.tenant.status === 'initializing' ? '/onboarding' : '/dashboard');
-    } catch (error) {
+    } catch (error: any) {
       setFailed((value) => value + 1);
-      message.error('登录失败，请检查账号密码');
+      // 透传后端错误信封的真实原因（如限流"请求过于频繁"），不要一律误报成密码错误
+      message.error(error?.message || '登录失败，请检查账号密码');
     } finally {
       setLoading(false);
     }
@@ -54,16 +57,17 @@ export default function LoginPage() {
               key: 'password',
               label: '账号密码',
               children: (
-                <Form layout="vertical" onFinish={submit} initialValues={{ account: 'scm_lead@chainguard.demo', password: 'Demo@1234' }}>
+                <Form layout="vertical" onFinish={submit} initialValues={apiMode ? undefined : { account: 'scm_lead@chainguard.demo', password: 'Demo@1234' }}>
                   <Form.Item name="account" label="手机号/邮箱" rules={[{ required: true, message: '请输入手机号或邮箱' }]}><Input prefix={<UserOutlined />} /></Form.Item>
                   <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}><Input.Password prefix={<LockOutlined />} /></Form.Item>
-                  {failed >= 5 && <Form.Item name="captcha" label="图形验证码" rules={[{ required: true, message: '请输入验证码' }]}><Input placeholder="连续失败后出现，mock 任意输入" /></Form.Item>}
-                  {failed >= 10 && <Alert type="error" showIcon message="账号已锁定 15 分钟（mock 状态）" style={{ marginBottom: 16 }} />}
+                  {!apiMode && failed >= 5 && <Form.Item name="captcha" label="图形验证码" rules={[{ required: true, message: '请输入验证码' }]}><Input placeholder="连续失败后出现，mock 任意输入" /></Form.Item>}
+                  {!apiMode && failed >= 10 && <Alert type="error" showIcon message="账号已锁定 15 分钟（mock 状态）" style={{ marginBottom: 16 }} />}
+                  {apiMode && failed >= 3 && <Alert type="info" showIcon message="登录接口限流 5 次/分钟，多次失败请等待 1 分钟再试" style={{ marginBottom: 16 }} />}
                   <Button block type="primary" htmlType="submit" loading={loading}>登录</Button>
                 </Form>
               )
             },
-            {
+            ...(!apiMode ? [{
               key: 'sms',
               label: '验证码登录',
               children: (
@@ -73,10 +77,10 @@ export default function LoginPage() {
                   <Button block type="primary" htmlType="submit" loading={loading}>登录</Button>
                 </Form>
               )
-            }
+            }] : [])
           ]} />
           <Space direction="vertical" style={{ width: '100%', marginTop: 16 }}>
-            <Typography.Text type="secondary">演示账号使用对应角色邮箱，统一密码 Demo@1234；登录后可在头像菜单切换角色。</Typography.Text>
+            {!apiMode && <Typography.Text type="secondary">演示账号使用对应角色邮箱，统一密码 Demo@1234；登录后可在头像菜单切换角色。</Typography.Text>}
             <Space wrap>
               <Button type="link" onClick={() => history.push('/user/register')}>免费注册</Button>
               <Button type="link" onClick={() => history.push('/user/join')}>企业邀请码入口</Button>
