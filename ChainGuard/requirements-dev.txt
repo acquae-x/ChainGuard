@@ -1,2 +1,4 @@
 pytest
 ruff>=0.6,<1
+# 演示数据生成脚本（scripts/generate_enterprise_demo_data.py）写 xlsx 账套所需
+openpyxl>=3.1
