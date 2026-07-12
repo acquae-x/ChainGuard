@@ -1,12 +1,12 @@
 // 数据管理与导入服务（Phase 2 §2.2 双模式）。
-// 文件解析/字段映射/校验按规格保持在前端（SheetJS，两模式一致，用于预览）；
+// API 模式的容量/文件可用性预检以服务端结果为准，前端仅保留字段映射交互预览。
 // api 模式：基础资料表读写走 /data/{type}；导入 commit 走后端多步流水线
 // upload → preflight → confirm → execute → 轮询进度（保留原始 File 上传，服务端解析落库）。
 // logistics（物流）后端无对应 resource_type，保留 mock。
 import * as XLSX from 'xlsx';
 import { customers, inventories, materials, orders, suppliers } from './mockData';
 import { appendAudit } from './workflowStore';
-import { pick } from './dataMode';
+import { isApiMode, pick } from './dataMode';
 import { apiGet, apiPost } from '../utils/request';
 
 const API_RESOURCE_TYPES = new Set(['material', 'supplier', 'customer', 'order', 'inventory']);
@@ -60,6 +60,14 @@ export type ImportCommitResult = {
   preflightBlocked?: boolean;
   preflightReport?: any;
 };
+
+export async function preflightUpload(file: File, type: ImportType) {
+  if (!isApiMode()) return null;
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const uploaded = await apiPost<any>(`/imports/upload?type=${encodeURIComponent(type)}`, form);
+  return apiPost<any>(`/imports/${uploaded.id}/preflight`, {});
+}
 
 const importDefinitions: Record<ImportType, { label: string; sheetName: string; fields: ImportField[]; sample: Record<string, unknown> }> = {
   material: {

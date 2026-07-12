@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 from src.observability import log_event
 
@@ -23,6 +24,12 @@ def envelope(request: Request, status: int, code: str, message: str) -> JSONResp
 
 
 def install_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(OperationalError)
+    @app.exception_handler(DBAPIError)
+    async def database_unavailable(request: Request, error: Exception) -> JSONResponse:
+        log_event("database_unavailable", trace_id=request.state.trace_id, exception=type(error).__name__)
+        return envelope(request, 503, "CG-5030", "依赖服务不可用，请稍后重试")
+
     @app.exception_handler(ApiError)
     async def api_error(request: Request, error: ApiError) -> JSONResponse:
         return envelope(request, error.status_code, error.code, error.message)

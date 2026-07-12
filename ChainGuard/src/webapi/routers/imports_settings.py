@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict
 from pathlib import Path
+import csv
 import uuid
 from typing import Annotated, Any
 
@@ -26,8 +27,9 @@ router = APIRouter(tags=["imports-settings"])
 async def upload_import(file: UploadFile, import_type: str = Query(..., alias="type"), ctx: Annotated[AuthContext, Depends(require_permission("data:import"))] = None, db: Annotated[Session, Depends(get_db)] = None):
     job_id = f"import-{uuid.uuid4().hex}"
     safe_name = Path(file.filename or "upload.csv").name
-    if Path(safe_name).suffix.lower() not in {".csv", ".xlsx"}:
-        raise ApiError(422, "CG-2603", "仅支持 csv 或 xlsx 文件")
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in {".csv", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg"}:
+        raise ApiError(422, "CG-2603", "仅支持 csv、xlsx、pdf、png、jpg 或 jpeg 文件")
     directory = Path(".workspace") / "imports" / ctx.tenant_id / job_id
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / safe_name
@@ -50,6 +52,21 @@ async def upload_import(file: UploadFile, import_type: str = Query(..., alias="t
 def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("data:import"))], db: Annotated[Session, Depends(get_db)]):
     from src.import_preflight import run_preflight
     item = get_tenant_record(db, ImportJob, item_id, ctx.tenant_id)
+    suffix = Path(item.file_name).suffix.lower()
+    if suffix in {".pdf", ".png", ".jpg", ".jpeg"}:
+        from src.ingestion_agent import ingest_files
+        intake = ingest_files([item.options["path"]])
+        extraction = intake.extractions[0]
+        if extraction.needs_manual:
+            item.status, item.progress = "manual_required", 25
+            item.result = {"canProceed": False, "status": "manual_required", "message": "待人工处理：未配置可用的 OCR/视觉提取能力，原始文件已保留在 staging。", "extraction": asdict(extraction)}
+            db.commit(); payload = serialize(item); payload["options"].pop("path", None); return payload
+        rows = next(iter(intake.normalized.values()), [])
+        normalized_path = Path(item.options["path"]).parent / "normalized.csv"
+        with normalized_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader(); writer.writerows(rows)
+        item.options = {**item.options, "originalPath": item.options["path"], "path": str(normalized_path.resolve()), "extraction": asdict(extraction)}
     report = run_preflight([item.options["path"]], Path(item.options["path"]).parent / "import.db")
     item.status = "preflighted" if report.can_proceed else "failed"; item.progress = 25; item.result = asdict(report); db.commit()
     payload = serialize(item); payload["options"].pop("path", None); return payload

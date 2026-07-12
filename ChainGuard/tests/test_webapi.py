@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from src.webapi.auth.security import AuthContext, create_tokens, hash_password
 from src.webapi.database import SessionLocal
 from src.webapi.models import Approval, ImportJob, Job, NotificationMessage, Incident, Proposal, Risk, Tenant, User
 from src.webapi import jobs
+from src.webapi.routers.business import release_expired_countersigns
 from src.webapi.proposal_mapper import map_decision_result
 from src.webapi.seed import seed
 
@@ -108,10 +110,13 @@ def test_500_never_leaks_exception_or_internal_message():
 
 
 def test_decision_mapper_always_returns_three_frontend_proposals():
-    mapped = map_decision_result({"proposals": [{"agent_name": "采购 Agent", "total_score": 88}]}, "inc-1")
+    mapped = map_decision_result({"proposals": [{"agent_name": "采购 Agent", "proposal_title": "多源联合补货", "proposal": "采购说明", "total_score": 88}]}, "inc-1")
     assert len(mapped) == 3
     assert [item["tag"] for item in mapped] == ["recommended", "alternative", "invalid"]
     assert all(item["incident_id"] == "inc-1" for item in mapped)
+    assert mapped[0]["name"] == "多源联合补货"
+    assert mapped[0]["reason"] == "采购说明"
+    assert "totalCost" in mapped[0]["explanation"]["dataMissing"]
 
 
 def test_settings_user_crud_and_data_record_persistence():
@@ -222,6 +227,72 @@ def test_four_concurrent_decision_jobs_do_not_deadlock():
 
     with SessionLocal() as db:
         assert all(db.get(Job, job_id).status == "succeeded" for job_id in job_ids)
+
+
+def _high_risk_approval_for_countersign() -> tuple[str, str]:
+    suffix = uuid.uuid4().hex
+    incident_id, proposal_id, approval_id = f"inc-high-{suffix}", f"prop-high-{suffix}", f"ap-high-{suffix}"
+    with SessionLocal() as db:
+        db.add(Incident(id=incident_id, tenant_id="tenant-demo", code=incident_id, title="高风险会签测试", type="manual", level="high", status="approving", owner="测试", source_risk_ids=[], loss=0, cost=0))
+        db.add(Proposal(id=proposal_id, tenant_id="tenant-demo", incident_id=incident_id, name="高风险方案", tag="recommended", total_cost=123, lead_time_impact=1, residual_risk="low", customer_impact=1, high_value_customers=1, reason="测试", views={}, constraints=[], explanation={}))
+        db.add(Approval(id=approval_id, tenant_id="tenant-demo", proposal_id=proposal_id, incident_id=incident_id, status="submitted", risk_level="high", summary="高风险方案", cost_impact=123, submitter="供应链负责人", waiting_hours=0, cc_role_codes=["finance"], history=[]))
+        db.commit()
+    return incident_id, approval_id
+
+
+def test_high_risk_approval_requires_countersign_before_creating_tasks():
+    incident_id, approval_id = _high_risk_approval_for_countersign()
+    approved = client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers("boss"), json={})
+    assert approved.status_code == 200
+    assert approved.json()["approval"]["status"] == "pending_countersign"
+    with SessionLocal() as db:
+        assert not list(db.query(__import__("src.webapi.models", fromlist=["Task"]).Task).filter_by(incident_id=incident_id))
+    countersigned = client.post(f"/api/v1/approvals/{approval_id}/countersign", headers=headers("finance"), json={})
+    assert countersigned.status_code == 200
+    assert countersigned.json()["approval"]["status"] == "approved"
+    with SessionLocal() as db:
+        tasks = list(db.query(__import__("src.webapi.models", fromlist=["Task"]).Task).filter_by(incident_id=incident_id))
+        assert len(tasks) == 5
+        assert all(task.assignee.startswith("u-") and task.due_at for task in tasks)
+
+
+def test_expired_countersign_auto_releases_and_notifies_finance():
+    incident_id, approval_id = _high_risk_approval_for_countersign()
+    assert client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers("boss"), json={}).json()["approval"]["status"] == "pending_countersign"
+    with SessionLocal() as db:
+        approval = db.get(Approval, approval_id)
+        approval.history = [{**entry, "time": (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()} if entry["action"] == "approve" else entry for entry in approval.history]
+        db.commit()
+    assert release_expired_countersigns() == 1
+    with SessionLocal() as db:
+        assert db.get(Approval, approval_id).status == "approved"
+        assert db.get(Incident, incident_id).status == "executing"
+        assert any("超时自动放行" in item.title for item in db.query(NotificationMessage).filter_by(tenant_id="tenant-demo"))
+
+
+def test_late_boss_approval_does_not_skip_countersign_timeout_window():
+    incident_id, approval_id = _high_risk_approval_for_countersign()
+    with SessionLocal() as db:
+        db.get(Approval, approval_id).created_at = datetime.now(timezone.utc) - timedelta(hours=5)
+        db.commit()
+    approved = client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers("boss"), json={})
+    assert approved.status_code == 200
+    assert approved.json()["approval"]["status"] == "pending_countersign"
+    assert release_expired_countersigns() == 0
+    with SessionLocal() as db:
+        assert db.get(Approval, approval_id).status == "pending_countersign"
+        assert db.get(Incident, incident_id).status == "approving"
+        assert not list(db.query(__import__("src.webapi.models", fromlist=["Task"]).Task).filter_by(incident_id=incident_id))
+
+
+def test_finance_rejection_returns_high_risk_incident_to_planning():
+    incident_id, approval_id = _high_risk_approval_for_countersign()
+    client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers("boss"), json={})
+    rejected = client.post(f"/api/v1/approvals/{approval_id}/reject", headers=headers("finance"), json={"reason": "预算依据不足"})
+    assert rejected.status_code == 200
+    assert rejected.json()["approval"]["status"] == "rejected"
+    with SessionLocal() as db:
+        assert db.get(Incident, incident_id).status == "planning"
 
 
 def test_initial_migration_uses_explicit_alembic_operations():

@@ -6,6 +6,7 @@ import theme from './theme';
 import { currentUser, logout, switchDemoRole } from './services/user';
 import { roleNames } from './services/mockData';
 import { DegradeBanner, GlobalSearch, NotificationBell } from './components';
+import { isApiMode } from './services/dataMode';
 
 export async function getInitialState(): Promise<{ currentUser?: API.User; tenant?: API.Tenant; token?: string }> {
   const result = await currentUser();
@@ -32,12 +33,12 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       <GlobalSearch key="search" />,
       canCreateIncident ? <Button key="create" type="primary" icon={<PlusOutlined />} onClick={() => history.push('/risk/list')}>上报异常</Button> : null,
       <NotificationBell key="notice" />,
-      <Button key="help" type="text" icon={<QuestionCircleOutlined />} onClick={() => history.push('/onboarding')}>演练</Button>,
+      !isApiMode() ? <Button key="help" type="text" icon={<QuestionCircleOutlined />} onClick={() => history.push('/onboarding')}>演练</Button> : null,
       <Tag key="tenant" color="blue">{tenant?.name}</Tag>,
       <Dropdown key="user" trigger={['click']} menu={{
         items: [
           { key: 'profile', icon: <UserOutlined />, label: '个人设置' },
-          tenant?.demoDataFlag ? {
+          !isApiMode() && tenant?.demoDataFlag ? {
             key: 'switch-role',
             icon: <SwapOutlined />,
             label: '切换角色（仅演示模式）',

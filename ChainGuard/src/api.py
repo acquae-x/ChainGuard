@@ -4,6 +4,7 @@ import dataclasses as _dataclasses
 import os
 import sqlite3
 import time
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -45,6 +46,22 @@ app.add_middleware(
 app.middleware("http")(request_context)
 install_error_handlers(app)
 app.include_router(api_router)
+
+
+def _countersign_scheduler() -> None:
+    """Run the first lightweight background scan every five minutes."""
+    from src.webapi.routers.business import release_expired_countersigns
+    while True:
+        try:
+            release_expired_countersigns()
+        except Exception as error:
+            log_event("countersign_scheduler_failed", exception=type(error).__name__)
+        time.sleep(300)
+
+
+@app.on_event("startup")
+def start_countersign_scheduler() -> None:
+    threading.Thread(target=_countersign_scheduler, name="chainguard-countersign-scheduler", daemon=True).start()
 
 def _load_api_keys() -> dict[str, str]:
     """

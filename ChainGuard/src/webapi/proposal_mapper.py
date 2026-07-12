@@ -17,23 +17,21 @@ def map_decision_result(result: DecisionResult | dict[str, Any], incident_id: st
     mapped: list[dict[str, Any]] = []
     for index in range(3):
         source = raw[index] if index < len(raw) else {}
-        cost = source.get("total_cost", source.get("cost", source.get("economic_cost", 0)))
+        cost = source.get("total_cost", source.get("cost", source.get("economic_cost", source.get("estimated_cost"))))
         score = float(source.get("total_score", source.get("score", 0)) or 0)
-        agent = str(source.get("agent_name", source.get("name", f"方案{index + 1}")))
-        # 决策引擎当前没有稳定输出以下前端字段；按方案序位填充的是兼容占位值，
-        # 待 Incident 上下文直连引擎后应改为真实约束与影响评估结果。
+        agent = str(source.get("agent_name", source.get("name", "数据缺失")))
         mapped.append({
             "incident_id": incident_id,
-            "name": str(source.get("proposal_name", source.get("title", agent))),
+            "name": str(source.get("proposal_name", source.get("proposal_title", source.get("name", source.get("title", "数据缺失"))))),
             "tag": TAGS[index],
-            "total_cost": float(cost or 0),
-            "lead_time_impact": int(source.get("lead_time_impact", source.get("delay_days", index + 1)) or 0),
-            "residual_risk": "low" if index == 0 else "medium" if index == 1 else "high",
-            "customer_impact": int(source.get("customer_impact", index * 4 + 2) or 0),
-            "high_value_customers": int(source.get("high_value_customers", min(index + 1, 4)) or 0),
-            "reason": str(source.get("reason", source.get("description", f"综合评分 {score:.2f}"))),
+            "total_cost": float(cost) if cost is not None else 0.0,
+            "lead_time_impact": int(source.get("lead_time_impact", source.get("delay_days", 0)) or 0),
+            "residual_risk": str(source.get("residual_risk", "数据缺失")),
+            "customer_impact": int(source.get("customer_impact", 0) or 0),
+            "high_value_customers": int(source.get("high_value_customers", 0) or 0),
+            "reason": str(source.get("reason", source.get("description", source.get("proposal", "；".join(map(str, source.get("reasoning", []))) or (f"综合评分 {score:.2f}" if score else "数据缺失"))))),
             "views": {"采购": str(source.get("procurement_view", agent)), "物流": str(source.get("logistics_view", agent)), "财务": str(source.get("finance_view", agent)), "销售": str(source.get("sales_view", agent)), "生产": str(source.get("production_view", agent))},
             "constraints": constraints if isinstance(constraints, list) else [constraints],
-            "explanation": explanation if isinstance(explanation, dict) else {"summary": str(explanation)},
+            "explanation": {**(explanation if isinstance(explanation, dict) else {"summary": str(explanation)}), "dataMissing": [field for field, value in {"totalCost": cost, "customerImpact": source.get("customer_impact"), "highValueCustomers": source.get("high_value_customers")}.items() if value is None]},
         })
     return mapped

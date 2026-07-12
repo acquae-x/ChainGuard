@@ -10,6 +10,7 @@ import {
   getFieldMapping,
   getImportTemplate,
   parseFile,
+  preflightUpload,
   validateRows
 } from '@/services/data';
 import type {
@@ -82,6 +83,20 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
     setLastFile(file);
     setError(undefined);
     try {
+      // A1: API 模式直接展示后端 preflight，容量/格式的最终口径不再由浏览器单独裁决。
+      const serverPreflight = await preflightUpload(file, type);
+      setPreflightReport(serverPreflight?.result);
+      if (/\.(pdf|png|jpe?g)$/i.test(file.name)) {
+        // 非表格文件不应交给 SheetJS；服务端预检已完成 OCR/视觉级联或给出待人工处理标记。
+        setParsed({ fileName: file.name, headers: [], rows: [], total: 0 });
+        setFields([]);
+        setMapping({});
+        setConfidence({});
+        setValidation({ total: 0, success: 0, failed: 0, validRows: [], mappedRows: [], errors: [], errorSummary: {} });
+        setStep(3);
+        message.info(serverPreflight?.status === 'manual_required' ? '文件已进入 staging，等待人工处理' : '文件已由服务端归一化，正在展示预检结果');
+        return;
+      }
       const parsedFile = await parseFile(file);
       const mappingResult = await getFieldMapping(type, parsedFile.headers);
       setParsed(parsedFile);
@@ -98,7 +113,7 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
   };
 
   const uploadProps: UploadProps = {
-    accept: '.xlsx,.csv',
+    accept: '.xlsx,.csv,.pdf,.png,.jpg,.jpeg',
     maxCount: 1,
     showUploadList: false,
     beforeUpload: async (file) => {
@@ -221,8 +236,8 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <Upload.Dragger {...uploadProps} disabled={loading}>
             <p><InboxOutlined /></p>
-            <p>拖拽 Excel/CSV 到此处，文件不超过 10MB</p>
-            <Typography.Text type="secondary">上传后由 SheetJS 解析实际表头与全部数据，页面预览前 20 行</Typography.Text>
+            <p>拖拽 Excel/CSV/PDF/图片到此处，文件不超过 10MB</p>
+            <Typography.Text type="secondary">CSV/Excel 可映射字段；PDF/图片将由服务端 OCR/视觉级联提取，未配置能力时会明确转为待人工处理。</Typography.Text>
           </Upload.Dragger>
           <Button loading={loading} onClick={useExampleFile}>使用当前类型示例文件</Button>
         </Space>
@@ -230,6 +245,7 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
 
       {step === 2 && parsed && (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          {preflightReport && <Alert type={preflightReport.canProceed === false ? 'warning' : 'info'} showIcon message="服务端预检结果（导入最终口径）" description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(preflightReport, null, 2)}</pre>} />}
           {!!missingRequired.length && <Alert type="warning" showIcon message={`必填字段尚未映射：${missingRequired.map((field) => field.label).join('、')}`} />}
           <Table
             size="small"

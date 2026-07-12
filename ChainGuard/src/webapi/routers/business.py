@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -19,6 +19,65 @@ from ..schemas import IncidentCreate, PatchRequest
 
 router = APIRouter(tags=["business"])
 INCIDENT_TRANSITIONS = {"pending": {"planning"}, "planning": {"deciding"}, "deciding": {"approving", "planning"}, "approving": {"executing", "planning"}, "executing": {"closed"}, "closed": set()}
+
+
+def _create_execution_tasks(db: Session, approval: Approval, incident: Incident) -> None:
+    """Create post-approval tasks exactly once, assigned to active tenant users."""
+    if db.scalar(select(Task).where(Task.tenant_id == approval.tenant_id, Task.incident_id == incident.id)):
+        return
+    roles = [("buyer", "锁定替代供应商订单"), ("scm_lead", "安排关键物料加急运输"), ("sales", "通知受影响高等级客户"), ("warehouse", "调整安全库存与调拨"), ("planner", "调整生产排程")]
+    due_at = (datetime.now(timezone.utc) + timedelta(days=1 if incident.level == "high" else 3)).isoformat()
+    for role, title in roles:
+        assignee = db.scalar(select(User).where(User.tenant_id == approval.tenant_id, User.role_code == role, User.status == "active").order_by(User.id))
+        if assignee is not None:
+            db.add(Task(id=f"task-{uuid.uuid4().hex}", tenant_id=approval.tenant_id, title=title, source=incident.code, incident_id=incident.id, assignee=assignee.id, role_code=role, status="pending", due_at=due_at, priority="高" if incident.level == "high" else "中", checklist=[]))
+
+
+def _finalize_approval(db: Session, approval: Approval, incident: Incident, *, timed_out: bool = False) -> None:
+    approval.status = "approved"
+    incident.status = "executing"
+    _create_execution_tasks(db, approval, incident)
+    if timed_out:
+        approval.history = [*approval.history, {"action": "countersign_timeout_release", "reason": "超时未会签自动放行", "time": datetime.now(timezone.utc).isoformat()}]
+        db.add(NotificationMessage(id=f"notification-{uuid.uuid4().hex}", tenant_id=approval.tenant_id, kind="approval", title=f"{approval.summary}已超时自动放行，请财务事后追认", target=f"/decision/approval/{approval.id}"))
+
+
+def _countersign_requested_at(approval: Approval) -> datetime | None:
+    """Return the last boss-approval transition timestamp, not submission time."""
+    for entry in reversed(approval.history):
+        if entry.get("action") != "approve" or not entry.get("time"):
+            continue
+        try:
+            value = datetime.fromisoformat(str(entry["time"]))
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def release_expired_countersigns(now: datetime | None = None) -> int:
+    """First scheduler job: release high-risk approvals after the configured timeout."""
+    from ..config import settings
+    from ..database import SessionLocal
+    now = now or datetime.now(timezone.utc)
+    released = 0
+    with SessionLocal() as db:
+        pending = list(db.scalars(select(Approval).where(Approval.status == "pending_countersign").with_for_update(skip_locked=True)).all())
+        for approval in pending:
+            requested_at = _countersign_requested_at(approval)
+            # Existing malformed legacy records must not be released merely because
+            # they were submitted long ago; only a recorded transition starts SLA.
+            if requested_at is None or now - requested_at < timedelta(hours=settings.countersign_timeout_hours):
+                continue
+            incident = db.get(Incident, approval.incident_id)
+            if incident is None:
+                continue
+            _finalize_approval(db, approval, incident, timed_out=True)
+            add_audit(db, AuthContext("system-scheduler", approval.tenant_id, "系统调度器", "system", ()), "超时未会签自动放行", "approval", approval.id, approval.summary, {"timeoutHours": settings.countersign_timeout_hours})
+            released += 1
+        if released:
+            db.commit()
+    return released
 
 
 def page(items: list[Any], current: int, page_size: int) -> dict:
@@ -104,8 +163,19 @@ def delete_incident(item_id: str, ctx: Annotated[AuthContext, Depends(require_pe
 
 @router.get("/incidents/{item_id}/impact")
 def impact(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("incident:view"))], db: Annotated[Session, Depends(get_db)]):
-    get_tenant_record(db, Incident, item_id, ctx.tenant_id)
-    return {"id": item_id, "materials": [], "orders": [], "suppliers": [], "inventory": []}
+    from ..models import DataRecord
+    incident = get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    risks = list(db.scalars(select(Risk).where(Risk.tenant_id == ctx.tenant_id, Risk.id.in_(incident.source_risk_ids))).all())
+    terms = {value.strip().lower() for risk in risks for value in [risk.object_name, *(risk.details.values() if isinstance(risk.details, dict) else [])] if isinstance(value, str) and len(value.strip()) >= 2}
+    records = list_tenant_records(db, DataRecord, ctx.tenant_id)
+    def matches(record: DataRecord) -> bool:
+        text = " ".join([record.name, *map(str, record.payload.values())]).lower()
+        return any(term in text for term in terms)
+    materials = [{"id": item.id, "name": item.name, **item.payload} for item in records if item.resource_type == "material" and matches(item)]
+    orders = [{"id": item.id, "orderNo": item.payload.get("orderNo", item.name), **item.payload} for item in records if item.resource_type == "order" and matches(item)]
+    suppliers = [{"id": item.id, "name": item.name, **item.payload} for item in records if item.resource_type == "supplier" and matches(item)]
+    inventory = [{"id": item.id, "material": item.payload.get("material", item.name), **item.payload} for item in records if item.resource_type == "inventory" and matches(item)]
+    return {"id": item_id, "materials": materials, "orders": orders, "suppliers": suppliers, "inventory": inventory, "dataMissing": {"materials": not bool(materials), "orders": not bool(orders), "suppliers": not bool(suppliers), "inventory": not bool(inventory)}}
 
 
 @router.get("/incidents/{item_id}/timeline")
@@ -186,7 +256,7 @@ def approvals(ctx: Annotated[AuthContext, Depends(require_permission("approval:v
     done = {"approved", "rejected", "recalc_requested", "transferred", "withdrawn"}
     if tab == "done": items = [x for x in items if x.status in done]
     elif tab == "cc": items = [x for x in items if ctx.role_code in x.cc_role_codes]
-    else: items = [x for x in items if x.status in {"submitted", "pending"}]
+    else: items = [x for x in items if x.status in {"submitted", "pending", "pending_countersign"}]
     return {"data": [serialize(x) for x in items], "total": len(items), "success": True}
 
 
@@ -195,7 +265,7 @@ def approval_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_pe
     approval = get_tenant_record(db, Approval, item_id, ctx.tenant_id)
     proposal = get_tenant_record(db, Proposal, approval.proposal_id, ctx.tenant_id)
     options = list(db.scalars(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == approval.incident_id)).all())
-    return {"approval": serialize(approval), "proposal": serialize(proposal), "chain": ["供应链负责人提交", "老板/总经理终批", "财务并行会签"] if approval.risk_level == "high" else ["供应链负责人审批"], "comparison": {"current": serialize(proposal), "baseline": serialize(options[-1]) if options else serialize(proposal), "alternative": serialize(options[1]) if len(options) > 1 else serialize(proposal)}}
+    return {"approval": serialize(approval), "proposal": serialize(proposal), "chain": ["供应链负责人提交", "老板/总经理终批", "财务会签后生效"] if approval.risk_level == "high" else ["供应链负责人审批"], "comparison": {"current": serialize(proposal), "baseline": serialize(options[-1]) if options else serialize(proposal), "alternative": serialize(options[1]) if len(options) > 1 else serialize(proposal)}}
 
 
 def approval_action(item_id: str, action: str, body: PatchRequest, request: Request, ctx: AuthContext, db: Session):
@@ -205,7 +275,9 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
         raise ApiError(403, "CG-1003", "没有会签权限")
     if action == "submit" and "approval:submit_high" not in ctx.permissions:
         raise ApiError(403, "CG-1003", "没有高风险提交权限")
-    if action in {"approve", "reject", "recalc", "transfer"} and f"approval:{approval.risk_level}" not in ctx.permissions:
+    if action in {"approve", "recalc", "transfer"} and f"approval:{approval.risk_level}" not in ctx.permissions:
+        raise ApiError(403, "CG-1003", "没有该风险等级的审批权限")
+    if action == "reject" and not (f"approval:{approval.risk_level}" in ctx.permissions or (approval.status == "pending_countersign" and "approval:countersign" in ctx.permissions)):
         raise ApiError(403, "CG-1003", "没有该风险等级的审批权限")
     if action == "withdraw" and approval.submitter != ctx.name:
         raise ApiError(403, "CG-1003", "仅提交人可以撤回审批")
@@ -216,19 +288,21 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
         transfer_user = db.scalar(select(User).where(User.tenant_id == ctx.tenant_id, User.status == "active", or_(User.id == body.assignee, User.name == body.assignee)))
         if transfer_user is None:
             raise ApiError(422, "CG-2404", "转办接收人不是本租户有效用户")
-    if approval.status not in {"submitted", "pending", "transferred"} and action != "countersign": raise ApiError(409, "CG-2401", "审批单已处理")
+    if approval.status not in {"submitted", "pending", "transferred", "pending_countersign"}: raise ApiError(409, "CG-2401", "审批单已处理")
     if action == "reject" and not (body.reason or "").strip(): raise ApiError(422, "CG-2402", "驳回必须填写理由")
     mapping = {"approve": "approved", "reject": "rejected", "recalc": "recalc_requested", "transfer": "transferred", "withdraw": "withdrawn", "submit": "pending"}
-    if action == "countersign": approval.countersigned = True
+    if action == "countersign":
+        if approval.status != "pending_countersign": raise ApiError(409, "CG-2401", "审批单当前不等待会签")
+        approval.countersigned = True
+        _finalize_approval(db, approval, incident)
     else: approval.status = mapping[action]
     if action == "approve":
-        incident.status = "executing"
-        roles = [("buyer", "采购人员", "锁定替代供应商订单"), ("scm_lead", "供应链负责人", "安排关键物料加急运输"), ("sales", "销售/客服", "通知受影响高等级客户"), ("warehouse", "仓库人员", "调整安全库存与调拨"), ("planner", "生产计划人员", "调整生产排程")]
-        for role, assignee, title in roles:
-            db.add(Task(id=f"task-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, title=title, source=incident.code, incident_id=incident.id, assignee=assignee, role_code=role, status="pending", due_at="", priority="高", checklist=[]))
+        if approval.risk_level == "high": approval.status = "pending_countersign"
+        else: _finalize_approval(db, approval, incident)
     elif action in {"reject", "recalc", "withdraw"}: incident.status = "planning"
     elif action == "transfer": approval.transferred_to = transfer_user.id
-    approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": datetime.now().isoformat()}]
+    # 带时区写入：会签超时 SLA 依赖该时间戳做跨时区正确的差值计算（无时区会被扫描器按 UTC 解读）
+    approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": datetime.now().astimezone().isoformat()}]
     add_audit(db, ctx, f"审批{action}", "approval", approval.id, approval.summary, {"reason": body.reason, "assignee": body.assignee}, request.client.host if request.client else "")
     db.commit(); return {"ok": True, "id": item_id, "action": action, "approval": serialize(approval)}
 
@@ -254,7 +328,10 @@ def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permis
 def update_task(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("task:execute"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Task, item_id, ctx.tenant_id)
     if body.status: item.status = body.status
-    if body.assignee: item.assignee = body.assignee
+    if body.assignee:
+        assignee = db.scalar(select(User).where(User.tenant_id == ctx.tenant_id, User.status == "active", or_(User.id == body.assignee, User.name == body.assignee)))
+        if assignee is None: raise ApiError(422, "CG-2404", "任务负责人不是本租户有效用户")
+        item.assignee = assignee.id
     add_audit(db, ctx, "更新任务", "task", item.id, item.title, body.model_dump(exclude_none=True), request.client.host if request.client else "")
     db.commit(); return serialize(item)
 
