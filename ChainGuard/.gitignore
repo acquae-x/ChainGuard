@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/_runtime_tmp/
+.tmp/
+.streamlit/secrets.toml
+.env
+.tmp_test_experience_pipeline/
+
+# 运行态 / 多租户 / 探针产物（本地生成，不纳入版本库）
+*.bak
+*.db-journal
+*.db
+mt_probe.db
+data/audit_log.*.jsonl
+demo_assets/enterprise/database/chainguard_enterprise_demo.*.db
+backups/

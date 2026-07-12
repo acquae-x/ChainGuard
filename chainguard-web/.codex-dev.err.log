@@ -1,0 +1,22 @@
+node:internal/assert/utils:77
+    throw err;
+    ^
+
+AssertionError [ERR_ASSERTION]: Invalid config keys: reactStrictMode
+    at Config.validateConfig (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\config\config.js:209:31)
+    at Config.getConfig (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\config\config.js:67:12)
+    at FSWatcher.<anonymous> (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\config\config.js:92:49)
+    at invokeFunc (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\utils\compiled\lodash\index.js:9:61298)
+    at trailingEdge (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\utils\compiled\lodash\index.js:9:61694)
+    at Timeout.timerExpired [as _onTimeout] (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\utils\compiled\lodash\index.js:9:61597)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.18.0

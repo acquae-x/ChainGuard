@@ -1,0 +1,33 @@
+
+> chainguard-web@1.0.0 dev
+> max dev --port 8000
+
+info  - [你知道吗？] father 4 正式发布了，详见 https://zhuanlan.zhihu.com/p/558192063
+info  - Umi v4.6.74
+info  - Preparing...
+info  - MFSU eager strategy enabled
+[HPM] Proxy created: /api  -> http://127.0.0.1:8000
+event - [MFSU][eager] start build deps
+info  - [MFSU] buildDeps since cacheDependency has changed
+        ╔════════════════════════════════════════════════════╗
+        ║ App listening at:                                  ║
+        ║  >   Local: http://localhost:8000                  ║
+ready - ║  > Network: http://10.103.205.233:8000             ║
+        ║                                                    ║
+        ║ Now you can open browser with the above addresses↑ ║
+        ╚════════════════════════════════════════════════════╝
+info  - [MFSU][eager] worker init, takes 924ms
+info  - [MFSU][eager] build worker start to build
+event - [Webpack] Compiled in 3321 ms (471 modules)
+wait  - [Webpack] Compiling...
+event - [Webpack] Compiled in 122 ms (457 modules)
+wait  - [Webpack] Compiling...
+event - [Webpack] Compiled in 78 ms (457 modules)
+event - [Webpack] Compiled in 8143 ms (6036 modules)
+info  - [MFSU][eager] write cache
+info  - [MFSU] buildDepsAgain
+info  - [MFSU] skip buildDeps
+wait  - [Webpack] Compiling...
+event - [MFSU][eager] start build deps
+info  - [MFSU] skip buildDeps
+event - [Webpack] Compiled in 403 ms (457 modules)
