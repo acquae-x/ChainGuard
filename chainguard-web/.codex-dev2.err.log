@@ -1,0 +1,359 @@
+error - ./src/.umi/core/route.tsx:549:23-108
+X [ERROR] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core' [plugin esbuildAliasPlugin]
+
+    node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17:
+      309 │       const error = new Error("Can't " + message);
+          ╵                     ^
+
+    at finishWithoutResolve (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:309:18)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:386:15
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DirectoryExistsPlugin.js:41:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+  This error came from the "onResolve" callback registered here:
+
+    node_modules/@umijs/preset-umi/dist/features/prepare/esbuildPlugins/esbuildAliasPlugin.js:89:16:
+      89 │           build.onResolve({ filter: filter2 }, async (args) => {
+         ╵                 ~~~~~~~~~
+
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:89:17
+    at Array.forEach (<anonymous>)
+    at setup (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:75:10)
+    at handlePlugins (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1150:21)
+    at buildOrContextImpl (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:873:5)
+    at Object.buildOrContext (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:699:5)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:68
+    at new Promise (<anonymous>)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:27)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1874:58)
+    at build (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\build.js:96:46)
+    at Hook.fn (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\prepare.js:77:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\service\service.js:184:15
+
+  The plugin "esbuildAliasPlugin" was triggered by this import
+
+    src/.umi/core/route.tsx:54:76:
+      54 │ ...nkName: "p__Report__Executive" */'@/pages/Report/Executive.tsx')),
+         ╵                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 1 error:
+node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17: ERROR: [plugin: esbuildAliasPlugin] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core'
+X [ERROR] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core' [plugin esbuildAliasPlugin]
+
+    node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17:
+      309 │       const error = new Error("Can't " + message);
+          ╵                     ^
+
+    at finishWithoutResolve (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:309:18)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:386:15
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DirectoryExistsPlugin.js:41:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+  This error came from the "onResolve" callback registered here:
+
+    node_modules/@umijs/preset-umi/dist/features/prepare/esbuildPlugins/esbuildAliasPlugin.js:89:16:
+      89 │           build.onResolve({ filter: filter2 }, async (args) => {
+         ╵                 ~~~~~~~~~
+
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:89:17
+    at Array.forEach (<anonymous>)
+    at setup (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:75:10)
+    at handlePlugins (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1150:21)
+    at buildOrContextImpl (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:873:5)
+    at Object.buildOrContext (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:699:5)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:68
+    at new Promise (<anonymous>)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:27)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1874:58)
+    at build (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\build.js:96:46)
+    at Hook.fn (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\prepare.js:77:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\service\service.js:184:15
+
+  The plugin "esbuildAliasPlugin" was triggered by this import
+
+    src/.umi/core/route.tsx:54:76:
+      54 │ ...nkName: "p__Report__Executive" */'@/pages/Report/Executive.tsx')),
+         ╵                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 1 error:
+node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17: ERROR: [plugin: esbuildAliasPlugin] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core'
+X [ERROR] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core' [plugin esbuildAliasPlugin]
+
+    node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17:
+      309 │       const error = new Error("Can't " + message);
+          ╵                     ^
+
+    at finishWithoutResolve (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:309:18)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:386:15
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DirectoryExistsPlugin.js:41:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+  This error came from the "onResolve" callback registered here:
+
+    node_modules/@umijs/preset-umi/dist/features/prepare/esbuildPlugins/esbuildAliasPlugin.js:89:16:
+      89 │           build.onResolve({ filter: filter2 }, async (args) => {
+         ╵                 ~~~~~~~~~
+
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:89:17
+    at Array.forEach (<anonymous>)
+    at setup (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:75:10)
+    at handlePlugins (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1150:21)
+    at buildOrContextImpl (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:873:5)
+    at Object.buildOrContext (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:699:5)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:68
+    at new Promise (<anonymous>)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:27)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1874:58)
+    at build (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\build.js:96:46)
+    at Hook.fn (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\prepare.js:77:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\service\service.js:184:15
+
+  The plugin "esbuildAliasPlugin" was triggered by this import
+
+    src/.umi/core/route.tsx:54:76:
+      54 │ ...nkName: "p__Report__Executive" */'@/pages/Report/Executive.tsx')),
+         ╵                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 1 error:
+node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17: ERROR: [plugin: esbuildAliasPlugin] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core'
+X [ERROR] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core' [plugin esbuildAliasPlugin]
+
+    node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17:
+      309 │       const error = new Error("Can't " + message);
+          ╵                     ^
+
+    at finishWithoutResolve (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:309:18)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:386:15
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DirectoryExistsPlugin.js:41:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+  This error came from the "onResolve" callback registered here:
+
+    node_modules/@umijs/preset-umi/dist/features/prepare/esbuildPlugins/esbuildAliasPlugin.js:89:16:
+      89 │           build.onResolve({ filter: filter2 }, async (args) => {
+         ╵                 ~~~~~~~~~
+
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:89:17
+    at Array.forEach (<anonymous>)
+    at setup (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:75:10)
+    at handlePlugins (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1150:21)
+    at buildOrContextImpl (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:873:5)
+    at Object.buildOrContext (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:699:5)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:68
+    at new Promise (<anonymous>)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:27)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1874:58)
+    at build (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\build.js:96:46)
+    at Hook.fn (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\prepare.js:77:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\service\service.js:184:15
+
+  The plugin "esbuildAliasPlugin" was triggered by this import
+
+    src/.umi/core/route.tsx:54:76:
+      54 │ ...nkName: "p__Report__Executive" */'@/pages/Report/Executive.tsx')),
+         ╵                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 1 error:
+node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17: ERROR: [plugin: esbuildAliasPlugin] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/pages/Report/Executive.tsx' in 'D:\github_projects\Chainguard\chainguard-web\src\.umi\core'
+error - ./src/components/index.ts:4:0-67
+error - ./src/pages/Decision/Approval.tsx:335:43-60
+X [ERROR] Could not resolve "./ApprovalActionBar"
+
+    src/components/index.ts:2:45:
+      2 │ export { default as ApprovalActionBar } from './ApprovalActionBar';
+        ╵                                              ~~~~~~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 1 error:
+src/components/index.ts:2:45: ERROR: Could not resolve "./ApprovalActionBar"
+error - ./src/pages/Data/Import.tsx:13:0-61
+error - ./src/pages/Data/TablePage.tsx:14:0-47
+X [ERROR] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/services/data' in 'D:\github_projects\Chainguard\chainguard-web\src\pages\Data' [plugin esbuildAliasPlugin]
+
+    node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17:
+      309 │       const error = new Error("Can't " + message);
+          ╵                     ^
+
+    at finishWithoutResolve (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:309:18)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:386:15
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DirectoryExistsPlugin.js:41:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+  This error came from the "onResolve" callback registered here:
+
+    node_modules/@umijs/preset-umi/dist/features/prepare/esbuildPlugins/esbuildAliasPlugin.js:89:16:
+      89 │           build.onResolve({ filter: filter2 }, async (args) => {
+         ╵                 ~~~~~~~~~
+
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:89:17
+    at Array.forEach (<anonymous>)
+    at setup (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:75:10)
+    at handlePlugins (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1150:21)
+    at buildOrContextImpl (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:873:5)
+    at Object.buildOrContext (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:699:5)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:68
+    at new Promise (<anonymous>)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:27)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1874:58)
+    at build (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\build.js:96:46)
+    at Hook.fn (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\prepare.js:77:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\service\service.js:184:15
+
+  The plugin "esbuildAliasPlugin" was triggered by this import
+
+    src/pages/Data/Import.tsx:6:43:
+      6 │ import { getImportHistory, rollback } from '@/services/data';
+        ╵                                            ~~~~~~~~~~~~~~~~~
+
+X [ERROR] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/services/data' in 'D:\github_projects\Chainguard\chainguard-web\src\pages\Data' [plugin esbuildAliasPlugin]
+
+    node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17:
+      309 │       const error = new Error("Can't " + message);
+          ╵                     ^
+
+    at finishWithoutResolve (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:309:18)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:386:15
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:27:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DescriptionFilePlugin.js:87:43
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:16:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\Resolver.js:435:5
+    at eval (eval at create (D:\github_projects\Chainguard\chainguard-web\node_modules\tapable\lib\HookCodeFactory.js:31:10), <anonymous>:15:1)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\node_modules\enhanced-resolve\lib\DirectoryExistsPlugin.js:41:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+  This error came from the "onResolve" callback registered here:
+
+    node_modules/@umijs/preset-umi/dist/features/prepare/esbuildPlugins/esbuildAliasPlugin.js:89:16:
+      89 │           build.onResolve({ filter: filter2 }, async (args) => {
+         ╵                 ~~~~~~~~~
+
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:89:17
+    at Array.forEach (<anonymous>)
+    at setup (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\esbuildPlugins\esbuildAliasPlugin.js:75:10)
+    at handlePlugins (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1150:21)
+    at buildOrContextImpl (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:873:5)
+    at Object.buildOrContext (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:699:5)
+    at D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:68
+    at new Promise (<anonymous>)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:2032:27)
+    at Object.context (D:\github_projects\Chainguard\chainguard-web\node_modules\esbuild\lib\main.js:1874:58)
+    at build (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\build.js:96:46)
+    at Hook.fn (D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\preset-umi\dist\features\prepare\prepare.js:77:40)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async D:\github_projects\Chainguard\chainguard-web\node_modules\@umijs\core\dist\service\service.js:184:15
+
+  The plugin "esbuildAliasPlugin" was triggered by this import
+
+    src/pages/Data/TablePage.tsx:7:29:
+      7 │ import { getDataTable } from '@/services/data';
+        ╵                              ~~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 2 errors:
+node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17: ERROR: [plugin: esbuildAliasPlugin] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/services/data' in 'D:\github_projects\Chainguard\chainguard-web\src\pages\Data'
+node_modules/@umijs/preset-umi/node_modules/enhanced-resolve/lib/Resolver.js:309:17: ERROR: [plugin: esbuildAliasPlugin] Can't resolve 'D:/github_projects/Chainguard/chainguard-web/src/services/data' in 'D:\github_projects\Chainguard\chainguard-web\src\pages\Data'
+error - ./src/components/index.ts:7:0-57
+error - ./src/pages/Data/Import.tsx:31:58-70
+error - ./src/pages/Onboarding/index.tsx:171:37-49
+X [ERROR] Could not resolve "./ImportWizard"
+
+    src/components/index.ts:5:40:
+      5 │ export { default as ImportWizard } from './ImportWizard';
+        ╵                                         ~~~~~~~~~~~~~~~~
+
+error - [icons] build failed: Error: Build failed with 1 error:
+src/components/index.ts:5:40: ERROR: Could not resolve "./ImportWizard"

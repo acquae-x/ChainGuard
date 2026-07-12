@@ -1,0 +1,25 @@
+
+> chainguard-web@1.0.0 dev
+> max dev
+
+info  - [你知道吗？] 如果想预览构建后产物, 可尝试 max preview，详见 https://umijs.org/docs/api/commands#preview
+info  - Umi v4.6.74
+info  - Preparing...
+info  - MFSU eager strategy enabled
+info  - [MFSU][eager] restored cache
+[HPM] Proxy created: /api  -> http://127.0.0.1:8000
+event - [MFSU][eager] start build deps
+info  - [MFSU] skip buildDeps
+        ╔════════════════════════════════════════════════════╗
+        ║ App listening at:                                  ║
+        ║  >   Local: http://localhost:8001                  ║
+ready - ║  > Network: http://192.168.124.180:8001            ║
+        ║                                                    ║
+        ║ Now you can open browser with the above addresses↑ ║
+        ╚════════════════════════════════════════════════════╝
+info  - [MFSU][eager] worker init, takes 651ms
+event - [Webpack] Compiled in 1251 ms (480 modules)
+wait  - [Webpack] Compiling...
+event - [MFSU][eager] start build deps
+info  - [MFSU] skip buildDeps
+event - [Webpack] Compiled in 57 ms (466 modules)

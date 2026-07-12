@@ -1,0 +1,25 @@
+
+> chainguard-web@1.0.0 dev
+> max dev
+
+info  - [你知道吗？] 想快速修改 html 模板、DIY 项目？试试编写项目级插件，详见 https://umijs.org/docs/guides/directory-structure#plugints
+info  - Umi v4.6.74
+info  - Preparing...
+info  - MFSU eager strategy enabled
+info  - [MFSU][eager] restored cache
+[HPM] Proxy created: /api  -> http://127.0.0.1:8000
+event - [MFSU][eager] start build deps
+info  - [MFSU] skip buildDeps
+        ╔════════════════════════════════════════════════════╗
+        ║ App listening at:                                  ║
+        ║  >   Local: http://localhost:8002                  ║
+ready - ║  > Network: http://192.168.124.180:8002            ║
+        ║                                                    ║
+        ║ Now you can open browser with the above addresses↑ ║
+        ╚════════════════════════════════════════════════════╝
+info  - [MFSU][eager] worker init, takes 707ms
+event - [Webpack] Compiled in 1243 ms (480 modules)
+wait  - [Webpack] Compiling...
+event - [MFSU][eager] start build deps
+info  - [MFSU] skip buildDeps
+event - [Webpack] Compiled in 60 ms (466 modules)

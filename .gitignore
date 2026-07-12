@@ -1,15 +1,20 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-tests/_runtime_tmp/
-.tmp/
-.streamlit/secrets.toml
-.env
-.tmp_test_experience_pipeline/
+# 前端构建缓存与产物
+chainguard-web/dist/
+chainguard-web/src/.umi*
+chainguard-web/.umi/
+chainguard-web/.umi-production/
+node_modules/
 
-# 运行态 / 多租户 / 探针产物（本地生成，不纳入版本库）
-*.bak
+# 本地数据库运行态
 *.db-journal
 mt_probe.db
-data/audit_log.*.jsonl
-demo_assets/enterprise/database/chainguard_enterprise_demo.*.db
+
+# 本地工作区与产出（不入库）
+outputs/
+.claude/
+.agents/
+tools/
+
+# 机密
+.env
+**/.env

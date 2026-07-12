@@ -1,0 +1,23 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: ci-only-signing-key-not-for-deployment
+      SEED_DEMO_PASSWORD: ci-demo-password
+      DATABASE_URL: sqlite:///./ci.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff check src/webapi tests/test_webapi.py --ignore E701,E702
+      - run: alembic upgrade head
+      - run: pytest -q

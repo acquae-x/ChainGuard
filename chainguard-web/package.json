@@ -1,0 +1,25 @@
+{
+  "name": "chainguard-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ChainGuard 企业级供应链中断应急决策 SaaS 前端",
+  "scripts": {
+    "dev": "max dev",
+    "build": "max build",
+    "postbuild": "node scripts/generate-route-access-map.cjs"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.3.7",
+    "@ant-design/pro-components": "^2.8.10",
+    "@umijs/max": "^4.3.0",
+    "antd": "^5.21.6",
+    "echarts": "^5.5.1",
+    "echarts-for-react": "^3.0.2",
+    "xlsx": "^0.18.5",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "typescript": "^5.5.4"
+  }
+}

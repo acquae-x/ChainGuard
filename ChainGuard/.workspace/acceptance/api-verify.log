@@ -1,0 +1,18 @@
+{"timestamp": "2026-07-12T01:51:25.367340+00:00", "event": "http_request", "trace_id": "817aa0e76c28430591e769972fc3bb49", "method": "GET", "path": "/healthz", "status": 200, "latency_ms": 46.674}
+INFO:     127.0.0.1:53939 - "GET /healthz HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:51:47.793974+00:00", "event": "http_request", "trace_id": "77f08755efb64ffd89b3b34dff5006e1", "method": "GET", "path": "/healthz", "status": 200, "latency_ms": 1.343}
+INFO:     127.0.0.1:50490 - "GET /healthz HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:52:57.690188+00:00", "event": "http_request", "trace_id": "fccf858e88ea43549bd3840263097a8b", "method": "GET", "path": "/api/v1/auth/me", "status": 200, "latency_ms": 15.31}
+INFO:     127.0.0.1:58273 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:53:19.750147+00:00", "event": "http_request", "trace_id": "f489ca3cce514f7d960376bf81fad90b", "method": "POST", "path": "/api/v1/auth/login", "status": 200, "latency_ms": 184.312}
+INFO:     127.0.0.1:55865 - "POST /api/v1/auth/login HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:53:19.861820+00:00", "event": "http_request", "trace_id": "c111f7b4febe4f288f57dbaea6f59b4a", "method": "GET", "path": "/api/v1/notifications", "status": 200, "latency_ms": 3.294}
+INFO:     127.0.0.1:62440 - "GET /api/v1/notifications HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:53:19.945632+00:00", "event": "http_request", "trace_id": "71c5d4e3bbe04cff8a0dfcdaaa98b831", "method": "GET", "path": "/api/v1/dashboard/top-risks", "status": 200, "latency_ms": 6.348}
+INFO:     127.0.0.1:51738 - "GET /api/v1/dashboard/top-risks HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:53:19.951753+00:00", "event": "http_request", "trace_id": "32b8d43648fd4f1c89acf5b12b1e653e", "method": "GET", "path": "/api/v1/dashboard/my-tasks", "status": 200, "latency_ms": 12.228}
+INFO:     127.0.0.1:51739 - "GET /api/v1/dashboard/my-tasks HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:53:19.954165+00:00", "event": "http_request", "trace_id": "92fe09824f494e40a4afbe0909d60c6f", "method": "GET", "path": "/api/v1/dashboard/pending-approvals", "status": 200, "latency_ms": 14.072}
+INFO:     127.0.0.1:51740 - "GET /api/v1/dashboard/pending-approvals HTTP/1.1" 200 OK
+{"timestamp": "2026-07-12T01:53:19.954899+00:00", "event": "http_request", "trace_id": "1b26cebcb83545ca8152d63605246d8f", "method": "GET", "path": "/api/v1/dashboard/audit", "status": 200, "latency_ms": 14.502}
+INFO:     127.0.0.1:51741 - "GET /api/v1/dashboard/audit HTTP/1.1" 200 OK
