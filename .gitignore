@@ -18,3 +18,15 @@ tools/
 # 机密
 .env
 **/.env
+
+# Phase5A runtime / CI / verification artifacts (not source)
+*.log
+*.err.log
+ChainGuard/.workspace/
+ChainGuard/test_tmp/
+ChainGuard/data/audit_log.jsonl
+chainguard-web/test-results/
+chainguard-web/playwright-report/
+.playwright-cli/
+_demo_run.db
+_alembic_check.db

@@ -49,11 +49,12 @@ app.include_router(api_router)
 
 
 def _countersign_scheduler() -> None:
-    """Run the first lightweight background scan every five minutes."""
-    from src.webapi.routers.business import release_expired_countersigns
+    """Run workflow timeout and overdue-task scans every five minutes."""
+    from src.webapi.routers.business import release_expired_countersigns, release_overdue_tasks
     while True:
         try:
             release_expired_countersigns()
+            release_overdue_tasks()
         except Exception as error:
             log_event("countersign_scheduler_failed", exception=type(error).__name__)
         time.sleep(300)
@@ -137,6 +138,11 @@ def health(role: str = Depends(require("admin"))) -> dict[str, object]:
 
 @app.get("/metrics", deprecated=True)
 def metrics(role: str = Depends(require("admin"))) -> PlainTextResponse:
+    # Refresh the gauge at scrape time too, so restarts do not report a stale zero.
+    from src.webapi.database import SessionLocal
+    from src.webapi.jobs import sync_jobs_pending_metric
+    with SessionLocal() as db:
+        sync_jobs_pending_metric(db)
     return PlainTextResponse(Metrics.render(), media_type="text/plain; version=0.0.4")
 
 

@@ -28,6 +28,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       if (!user && !history.location.pathname.startsWith('/user')) {
         history.push('/user/login');
       }
+      if (user?.mustChangePassword && history.location.pathname !== '/user/profile') history.push('/user/profile');
     },
     actionsRender: () => [
       <GlobalSearch key="search" />,
@@ -48,7 +49,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
           { key: 'logout', icon: <LogoutOutlined />, label: '退出' }
         ],
         onClick: async ({ key }) => {
-          if (key === 'profile') message.info('个人设置即将开放');
+          if (key === 'profile') history.push('/user/profile');
           if (key === 'logout') {
             await logout();
             history.push('/user/login');

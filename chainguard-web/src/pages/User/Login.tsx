@@ -2,6 +2,7 @@ import { LockOutlined, MobileOutlined, SafetyCertificateOutlined, UserOutlined }
 import { history, useModel } from '@umijs/max';
 import { Alert, Button, Card, Form, Grid, Input, Space, Tabs, Typography, message } from 'antd';
 import { useState } from 'react';
+import { flushSync } from 'react-dom';
 import { DegradeBanner } from '@/components';
 import { login } from '@/services/user';
 import { isApiMode } from '@/services/dataMode';
@@ -17,9 +18,18 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const result = await login(values);
-      await setInitialState(result);
+      // setInitialState 的 Promise 会在 React 真正提交状态前返回；若紧接着
+      // history.push，layout.onPageChange 仍可能读到未登录状态并把用户推回登录页。
+      // 同步提交会话状态后再导航，消除这条竞态。
+      flushSync(() => {
+        void setInitialState(result);
+      });
       message.success('登录成功');
-      history.push(result.tenant.status === 'initializing' ? '/onboarding' : '/dashboard');
+      const requested = new URLSearchParams(history.location.search).get('redirect');
+      const safeRequested = requested?.startsWith('/') && !requested.startsWith('//') && !requested.startsWith('/user/login')
+        ? requested
+        : undefined;
+      history.replace(safeRequested || (result.tenant.status === 'initializing' ? '/onboarding' : '/dashboard'));
     } catch (error: any) {
       setFailed((value) => value + 1);
       // 透传后端错误信封的真实原因（如限流"请求过于频繁"），不要一律误报成密码错误

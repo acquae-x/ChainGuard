@@ -3,3 +3,5 @@ ruff>=0.6,<1
 # 演示数据生成脚本（scripts/generate_enterprise_demo_data.py）写 xlsx 账套与 PDF 单据所需
 openpyxl>=3.1
 reportlab>=4.0
+# P0-3：buyer/boss PDF 脱敏对照测试用 pypdf 做真实文本提取
+pypdf>=4.0

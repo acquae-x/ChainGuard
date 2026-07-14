@@ -13,4 +13,7 @@ slowapi>=0.1.9,<1
 # PostgreSQL 生产环境驱动；SQLite 开发模式不会建立 PostgreSQL 连接。
 psycopg[binary]>=3.1,<4
 pdfplumber>=0.10
+reportlab>=4.0
+# P1-4：XLSX 导入在服务端先归一化为 CSV 再预检/落库，openpyxl 是运行时依赖
+openpyxl>=3.1
 psutil  # optional - memory detection, degrades gracefully if absent

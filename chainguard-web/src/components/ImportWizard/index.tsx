@@ -45,6 +45,33 @@ const errorLabels: Record<string, string> = {
   duplicate: '重复行'
 };
 
+export function PreflightSummary({ report, blocked = false, onForce, loading }: { report: any; blocked?: boolean; onForce?: () => void; loading?: boolean }) {
+  if (!report) return null;
+  const hardBlocked = report.verdict === 'INSUFFICIENT_DISK';
+  // P1-4：解析失败或后端判定不可继续时必须红灯，禁止假绿灯
+  const parseError = report.verdict === 'PARSE_ERROR' || (report.canProceed === false && !hardBlocked);
+  const review = report.verdict === 'REVIEW';
+  const type = hardBlocked || parseError ? 'error' : review ? 'warning' : 'success';
+  const normalized = report.normalized || {};
+  const previewRows = normalized.previewRows || [];
+  return <Alert
+    type={type}
+    showIcon
+    message={hardBlocked ? '红灯：磁盘空间不足，已禁止导入' : parseError ? '红灯：文件解析失败或预检不通过，导入已阻止' : review ? '黄灯：可导入，建议切换 PostgreSQL' : '绿灯：容量与格式预检通过'}
+    description={<Space direction="vertical" style={{ width: '100%' }} size="small">
+      <Descriptions size="small" column={{ xs: 1, sm: 3 }} items={[
+        { key: 'rows', label: '预估行数', children: report.estimatedRows ?? '—' },
+        { key: 'disk', label: '磁盘校验', children: report.diskOk === false ? `缺 ${report.diskShortfallBytes ?? 0} B` : '通过' },
+        { key: 'verdict', label: '服务端结论', children: report.verdict || (report.canProceed === false ? '阻断' : '通过') },
+      ]} />
+      {(report.messages || []).map((item: string) => <Typography.Text key={item}>{item}</Typography.Text>)}
+      <Typography.Text strong>归一化数据预览（前 {normalized.previewLimit || 20} 行）</Typography.Text>
+      {previewRows.length ? <Table size="small" pagination={false} rowKey={(_, index) => String(index)} dataSource={previewRows} columns={Object.keys(previewRows[0]).map((key) => ({ title: key, dataIndex: key }))} scroll={{ x: true }} /> : <Typography.Text type="secondary">当前文件没有可展示的表格归一化行；图片/PDF 将由服务端提取后进入人工处理或导入流程。</Typography.Text>}
+      {blocked && !hardBlocked && !parseError && onForce && <Space><Button danger loading={loading} onClick={onForce}>确认仍要导入</Button><Typography.Text type="secondary">此操作只适用于非磁盘容量、非解析失败类预检异常。</Typography.Text></Space>}
+    </Space>}
+  />;
+}
+
 export default function ImportWizard({ embedded = false }: { embedded?: boolean }) {
   const { initialState } = useModel('@@initialState');
   const permissions = initialState?.currentUser?.permissions || [];
@@ -86,6 +113,11 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
       // A1: API 模式直接展示后端 preflight，容量/格式的最终口径不再由浏览器单独裁决。
       const serverPreflight = await preflightUpload(file, type);
       setPreflightReport(serverPreflight?.result);
+      // P1-4：服务端解析失败必须红灯并停在上传步骤，不再交给 SheetJS 继续
+      if (serverPreflight?.result?.verdict === 'PARSE_ERROR') {
+        setError(serverPreflight.result?.messages?.[0] || 'XLSX 解析失败：文件可能损坏，导入已阻止');
+        return;
+      }
       if (/\.(pdf|png|jpe?g)$/i.test(file.name)) {
         // 非表格文件不应交给 SheetJS；服务端预检已完成 OCR/视觉级联或给出待人工处理标记。
         setParsed({ fileName: file.name, headers: [], rows: [], total: 0 });
@@ -211,6 +243,8 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
     .filter((field) => mappedTargets.includes(field.key))
     .map((field) => ({ title: field.label, dataIndex: field.key }));
 
+  // P1-4/P2-13：解析失败是业务性红灯（展示预检报告并允许重新上传），不是"服务不可用"
+  if (error && preflightReport?.verdict === 'PARSE_ERROR') return <section aria-label="数据导入向导"><Steps current={step} items={items} style={{ marginBottom: 24 }} /><Space direction="vertical" style={{ width: '100%' }}><PreflightSummary report={preflightReport} /><Button type="primary" onClick={() => { setError(undefined); setPreflightReport(undefined); resetFileState(); setStep(1); }}>返回上传</Button></Space></section>;
   if (error) return <section aria-label="数据导入向导"><Steps current={step} items={items} style={{ marginBottom: 24 }} /><Result status="500" title="导入服务暂时不可用" subTitle={error} extra={<Button type="primary" disabled={!lastFile} onClick={() => lastFile && loadFile(lastFile)}>重试</Button>} /></section>;
   if (step === 2 && parsed && parsed.total === 0) return <section aria-label="数据导入向导"><Steps current={step} items={items} style={{ marginBottom: 24 }} /><EmptyGuide title="文件中没有数据行" description="请检查文件内容后重新上传。" actionText="返回上传" onAction={() => setStep(1)} /></section>;
 
@@ -245,7 +279,7 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
 
       {step === 2 && parsed && (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          {preflightReport && <Alert type={preflightReport.canProceed === false ? 'warning' : 'info'} showIcon message="服务端预检结果（导入最终口径）" description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(preflightReport, null, 2)}</pre>} />}
+          {preflightReport && <PreflightSummary report={preflightReport} />}
           {!!missingRequired.length && <Alert type="warning" showIcon message={`必填字段尚未映射：${missingRequired.map((field) => field.label).join('、')}`} />}
           <Table
             size="small"
@@ -295,23 +329,7 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
 
       {step === 3 && validation && (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          {preflightReport && (
-            <Alert
-              type="error"
-              showIcon
-              message="服务端预检未通过，已中止导入"
-              description={
-                <Space direction="vertical" style={{ width: '100%' }} size="small">
-                  <Typography.Text>预检报告如下，请核对后再决定是否继续导入（继续将带着问题数据落库）：</Typography.Text>
-                  <pre style={{ maxHeight: 220, overflow: 'auto', margin: 0, fontSize: 12, background: 'rgba(0,0,0,0.03)', padding: 8, borderRadius: 4 }}>{typeof preflightReport === 'string' ? preflightReport : JSON.stringify(preflightReport, null, 2)}</pre>
-                  <Space>
-                    <Button danger loading={loading} onClick={() => commit(true)}>仍要导入</Button>
-                    <Button onClick={() => setPreflightReport(undefined)}>取消</Button>
-                  </Space>
-                </Space>
-              }
-            />
-          )}
+          {preflightReport && <PreflightSummary report={preflightReport} blocked onForce={() => commit(true)} loading={loading} />}
           <Descriptions bordered size="small" column={{ xs: 1, sm: 3 }} items={[
             { key: 'total', label: '校验总数', children: validation.total },
             { key: 'success', label: '可导入', children: validation.success },

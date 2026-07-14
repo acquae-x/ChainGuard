@@ -1,5 +1,6 @@
 export { default as AgentProgress } from './AgentProgress';
 export { default as ApprovalActionBar } from './ApprovalActionBar';
+export { default as DecisionTrace } from './DecisionTrace';
 export { default as DegradeBanner } from './DegradeBanner';
 export { default as DynamicField } from './DynamicField';
 export { default as EmptyGuide } from './EmptyGuide';

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,9 @@ from ..auth import AuthContext, get_current_user, require_permission
 from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
-from ..models import Approval, AuditLog, Incident, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, Incident, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..decision_detail import mask_for_requester, render_pdf
+from ..notifications import ensure_rules, notify_event
 from ..repository import add_audit, get_tenant_record, list_tenant_records, serialize
 from ..schemas import IncidentCreate, PatchRequest
 
@@ -31,6 +34,8 @@ def _create_execution_tasks(db: Session, approval: Approval, incident: Incident)
         assignee = db.scalar(select(User).where(User.tenant_id == approval.tenant_id, User.role_code == role, User.status == "active").order_by(User.id))
         if assignee is not None:
             db.add(Task(id=f"task-{uuid.uuid4().hex}", tenant_id=approval.tenant_id, title=title, source=incident.code, incident_id=incident.id, assignee=assignee.id, role_code=role, status="pending", due_at=due_at, priority="高" if incident.level == "high" else "中", checklist=[]))
+            ensure_rules(db, approval.tenant_id)
+            notify_event(db, approval.tenant_id, "task_assigned", {"assignee_user_id": assignee.id, "title": f"任务已分派：{title}", "target": "/task/mine"})
 
 
 def _finalize_approval(db: Session, approval: Approval, incident: Incident, *, timed_out: bool = False) -> None:
@@ -39,7 +44,8 @@ def _finalize_approval(db: Session, approval: Approval, incident: Incident, *, t
     _create_execution_tasks(db, approval, incident)
     if timed_out:
         approval.history = [*approval.history, {"action": "countersign_timeout_release", "reason": "超时未会签自动放行", "time": datetime.now(timezone.utc).isoformat()}]
-        db.add(NotificationMessage(id=f"notification-{uuid.uuid4().hex}", tenant_id=approval.tenant_id, kind="approval", title=f"{approval.summary}已超时自动放行，请财务事后追认", target=f"/decision/approval/{approval.id}"))
+        ensure_rules(db, approval.tenant_id)
+        notify_event(db, approval.tenant_id, "countersign_timeout_release", {"submitter": approval.submitter, "title": f"{approval.summary}已超时自动放行，请财务事后追认", "target": f"/decision/approval/{approval.id}"})
 
 
 def _countersign_requested_at(approval: Approval) -> datetime | None:
@@ -78,6 +84,31 @@ def release_expired_countersigns(now: datetime | None = None) -> int:
         if released:
             db.commit()
     return released
+
+
+def release_overdue_tasks(now: datetime | None = None) -> int:
+    """Scheduler scan: mark overdue pending tasks once and notify rule recipients."""
+    from ..database import SessionLocal
+    now = now or datetime.now(timezone.utc)
+    overdue = 0
+    with SessionLocal() as db:
+        tasks = list(db.scalars(select(Task).where(Task.status == "pending").with_for_update(skip_locked=True)).all())
+        for task in tasks:
+            try:
+                due_at = datetime.fromisoformat(str(task.due_at))
+                due_at = due_at if due_at.tzinfo else due_at.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            if due_at >= now:
+                continue
+            task.status = "overdue"
+            ensure_rules(db, task.tenant_id)
+            notify_event(db, task.tenant_id, "task_overdue", {"assignee_user_id": task.assignee, "title": f"任务已逾期：{task.title}", "target": "/task/overdue"})
+            add_audit(db, AuthContext("system-scheduler", task.tenant_id, "系统调度器", "system", ()), "任务逾期", "task", task.id, task.title, {"dueAt": task.due_at})
+            overdue += 1
+        if overdue:
+            db.commit()
+    return overdue
 
 
 def page(items: list[Any], current: int, page_size: int) -> dict:
@@ -130,6 +161,9 @@ def create_incident(body: IncidentCreate, request: Request, ctx: Annotated[AuthC
     db.add(item)
     for risk in risks:
         risk.status, risk.incident_id = "incident_created", item_id
+    if level == "high":
+        ensure_rules(db, ctx.tenant_id)
+        notify_event(db, ctx.tenant_id, "risk_high", {"trigger_user_id": ctx.user_id, "title": f"高风险事件：{item.title}", "target": f"/incident/{item.id}"})
     add_audit(db, ctx, "创建事件", "incident", item.id, item.title, {"riskIds": body.risk_ids}, request.client.host if request.client else "")
     db.commit()
     return serialize(item)
@@ -184,6 +218,36 @@ def timeline(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissio
     return [serialize(x) for x in logs]
 
 
+def _decision_detail_response(item_id: str, ctx: AuthContext, db: Session) -> dict:
+    get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    detail = db.scalar(select(DecisionDetail).where(DecisionDetail.tenant_id == ctx.tenant_id, DecisionDetail.incident_id == item_id).order_by(DecisionDetail.created_at.desc()))
+    if detail is None: raise ApiError(404, "CG-2503", "尚未生成完整推演")
+    payload = dict(detail.payload)
+    approvals = list(db.scalars(select(Approval).where(Approval.tenant_id == ctx.tenant_id, Approval.incident_id == item_id)).all())
+    payload["approval_chain"] = [serialize(item) for item in approvals]
+    payload["decision_id"] = detail.id
+    return mask_for_requester(payload, ctx.permissions)
+
+
+@router.get("/incidents/{item_id}/decision-detail")
+def decision_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)]):
+    return _decision_detail_response(item_id, ctx, db)
+
+
+@router.get("/incidents/{item_id}/decision-detail/export")
+def export_decision_detail(item_id: str, format: str = "json", ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))] = None, db: Annotated[Session, Depends(get_db)] = None):
+    payload = _decision_detail_response(item_id, ctx, db)
+    if format == "json": return JSONResponse(payload, headers={"Content-Disposition": f'attachment; filename="decision-{item_id}.json"'})
+    if format == "pdf":
+        # P0-3：运行环境缺 reportlab 时给出明确业务错误（503），不再落到 CG-5000
+        try:
+            content = render_pdf(payload)
+        except RuntimeError as error:
+            raise ApiError(503, "CG-2505", "PDF 导出依赖未安装：请在服务运行环境执行 pip install -r requirements.txt 后重启") from error
+        return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="decision-{item_id}.pdf"'})
+    raise ApiError(422, "CG-2504", "仅支持 JSON 或 PDF 导出")
+
+
 @router.post("/incidents/{item_id}/proposals:generate", status_code=status.HTTP_202_ACCEPTED)
 def generate(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:generate"))], db: Annotated[Session, Depends(get_db)]):
     get_tenant_record(db, Incident, item_id, ctx.tenant_id)
@@ -199,6 +263,8 @@ def job_status(item_id: str, ctx: Annotated[AuthContext, Depends(get_current_use
 @router.get("/proposals")
 def proposals(ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)], incident_id: str | None = Query(None, alias="incidentId")):
     items = list_tenant_records(db, Proposal, ctx.tenant_id)
+    # P1-10：归档方案仅供审批详情按 id 追溯，不进入方案列表
+    items = [x for x in items if not x.archived]
     if incident_id: items = [x for x in items if x.incident_id == incident_id]
     return {"data": [serialize(x) for x in items], "total": len(items), "success": True}
 
@@ -218,7 +284,9 @@ def proposal_explanation(item_id: str, ctx: Annotated[AuthContext, Depends(requi
 def recalc_proposal(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("decision:modify"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id)
     before = item.total_cost
-    item.total_cost = round(float(body.overrides.get("totalCost", before * 1.04)), 2)
+    # P0-2：成本缺失（None）时无基数可推 4% 浮动；仅当调用方显式给出 totalCost 才写入，否则保持缺失
+    override_cost = body.overrides.get("totalCost", before * 1.04 if before is not None else None)
+    item.total_cost = round(float(override_cost), 2) if override_cost is not None else None
     item.modified = True
     add_audit(db, ctx, "重算方案", "proposal", item.id, item.name, {"before": before, "overrides": body.overrides}, request.client.host if request.client else "")
     db.commit(); return serialize(item)
@@ -242,10 +310,14 @@ def submit_approval(item_id: str, request: Request, ctx: Annotated[AuthContext, 
     proposal = get_tenant_record(db, Proposal, item_id, ctx.tenant_id)
     incident = get_tenant_record(db, Incident, proposal.incident_id, ctx.tenant_id)
     if incident.status != "deciding": raise ApiError(409, "CG-2301", "事件当前不能提交审批")
-    approval = Approval(id=f"ap-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, proposal_id=proposal.id, incident_id=incident.id, status="submitted", risk_level=incident.level, summary=proposal.name, cost_impact=proposal.total_cost, submitter=ctx.name, cc_role_codes=["finance"] if incident.level == "high" or (incident.level == "medium" and proposal.total_cost > 50000) else [], history=[])
+    # P0-2：成本未知（None）不是 0——中风险成本未知时保守抄送财务，而不是当作 0 跳过会签口径
+    cost_requires_finance = proposal.total_cost is None or proposal.total_cost > 50000
+    approval = Approval(id=f"ap-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, proposal_id=proposal.id, incident_id=incident.id, status="submitted", risk_level=incident.level, summary=proposal.name, cost_impact=proposal.total_cost, submitter=ctx.name, cc_role_codes=["finance"] if incident.level == "high" or (incident.level == "medium" and cost_requires_finance) else [], history=[])
     db.add(approval); incident.status = "approving"
+    ensure_rules(db, ctx.tenant_id)
+    notify_event(db, ctx.tenant_id, "approval_submitted", {"submitter_user_id": ctx.user_id, "risk_level": approval.risk_level, "cost_impact": approval.cost_impact, "title": f"{proposal.name}待审批", "target": f"/decision/approval/{approval.id}"})
     if approval.cc_role_codes:
-        db.add(NotificationMessage(id=f"notification-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, kind="approval", title=f"{proposal.name}待财务会签", target=f"/decision/approval/{approval.id}"))
+        notify_event(db, ctx.tenant_id, "countersign_requested", {"title": f"{proposal.name}待财务会签", "target": f"/decision/approval/{approval.id}"})
     add_audit(db, ctx, "提交审批", "approval", approval.id, proposal.name, {"incidentId": incident.id}, request.client.host if request.client else "")
     db.commit(); return serialize(approval)
 
@@ -264,8 +336,11 @@ def approvals(ctx: Annotated[AuthContext, Depends(require_permission("approval:v
 def approval_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("approval:view"))], db: Annotated[Session, Depends(get_db)]):
     approval = get_tenant_record(db, Approval, item_id, ctx.tenant_id)
     proposal = get_tenant_record(db, Proposal, approval.proposal_id, ctx.tenant_id)
-    options = list(db.scalars(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == approval.incident_id)).all())
-    return {"approval": serialize(approval), "proposal": serialize(proposal), "chain": ["供应链负责人提交", "老板/总经理终批", "财务会签后生效"] if approval.risk_level == "high" else ["供应链负责人审批"], "comparison": {"current": serialize(proposal), "baseline": serialize(options[-1]) if options else serialize(proposal), "alternative": serialize(options[1]) if len(options) > 1 else serialize(proposal)}}
+    options = list(db.scalars(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == approval.incident_id, Proposal.archived.is_(False))).all())
+    # 评审修复：审批页确认点清单依赖推演数据，随详情按请求者角色脱敏后一并返回（无推演的旧单为 None）
+    detail_row = db.scalar(select(DecisionDetail).where(DecisionDetail.tenant_id == ctx.tenant_id, DecisionDetail.incident_id == approval.incident_id).order_by(DecisionDetail.created_at.desc()))
+    decision_detail = mask_for_requester(detail_row.payload, ctx.permissions) if detail_row is not None else None
+    return {"approval": serialize(approval), "proposal": serialize(proposal), "decisionDetail": decision_detail, "chain": ["供应链负责人提交", "老板/总经理终批", "财务会签后生效"] if approval.risk_level == "high" else ["供应链负责人审批"], "comparison": {"current": serialize(proposal), "baseline": serialize(options[-1]) if options else serialize(proposal), "alternative": serialize(options[1]) if len(options) > 1 else serialize(proposal)}}
 
 
 def approval_action(item_id: str, action: str, body: PatchRequest, request: Request, ctx: AuthContext, db: Session):
@@ -288,6 +363,20 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
         transfer_user = db.scalar(select(User).where(User.tenant_id == ctx.tenant_id, User.status == "active", or_(User.id == body.assignee, User.name == body.assignee)))
         if transfer_user is None:
             raise ApiError(422, "CG-2404", "转办接收人不是本租户有效用户")
+    # 追认分支必须先于通用"审批单已处理"检查：追认只发生在超时放行后的 approved 状态（P0-1 修复）
+    if action in {"ratify_approve", "ratify_object"}:
+        if ctx.role_code != "finance" or approval.status != "approved" or not any(item.get("action") == "countersign_timeout_release" for item in approval.history):
+            raise ApiError(409, "CG-2401", "当前审批单不等待财务追认")
+        if any(item.get("action") in {"ratify_approve", "ratify_object"} for item in approval.history):
+            raise ApiError(409, "CG-2405", "该审批单已完成追认，不能重复追认")
+        if action == "ratify_object" and not (body.reason or "").strip(): raise ApiError(422, "CG-2402", "追认异议必须填写理由")
+        approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": datetime.now().astimezone().isoformat()}]
+        add_audit(db, ctx, "财务追认通过" if action == "ratify_approve" else "财务追认异议", "approval", approval.id, approval.summary, {"reason": body.reason}, request.client.host if request.client else "")
+        ensure_rules(db, ctx.tenant_id)
+        ratify_text = "财务追认通过" if action == "ratify_approve" else f"财务追认异议：{(body.reason or '').strip()}"
+        notify_event(db, ctx.tenant_id, "countersign_ratified", {"submitter": approval.submitter, "title": f"{approval.summary}{ratify_text}", "target": f"/decision/approval/{approval.id}"})
+        # 留痕不回滚：已生成的执行任务保持不变
+        db.commit(); return {"ok": True, "id": item_id, "action": action, "approval": serialize(approval)}
     if approval.status not in {"submitted", "pending", "transferred", "pending_countersign"}: raise ApiError(409, "CG-2401", "审批单已处理")
     if action == "reject" and not (body.reason or "").strip(): raise ApiError(422, "CG-2402", "驳回必须填写理由")
     mapping = {"approve": "approved", "reject": "rejected", "recalc": "recalc_requested", "transfer": "transferred", "withdraw": "withdrawn", "submit": "pending"}
@@ -303,13 +392,15 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
     elif action == "transfer": approval.transferred_to = transfer_user.id
     # 带时区写入：会签超时 SLA 依赖该时间戳做跨时区正确的差值计算（无时区会被扫描器按 UTC 解读）
     approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": datetime.now().astimezone().isoformat()}]
+    if action == "countersign": notify_event(db, ctx.tenant_id, "countersign_completed", {"submitter": approval.submitter, "title": f"{approval.summary}财务会签完成", "target": f"/decision/approval/{approval.id}"})
+    if action == "reject" and ctx.role_code == "finance": notify_event(db, ctx.tenant_id, "countersign_rejected", {"submitter": approval.submitter, "title": f"{approval.summary}财务拒签", "target": f"/decision/approval/{approval.id}"})
     add_audit(db, ctx, f"审批{action}", "approval", approval.id, approval.summary, {"reason": body.reason, "assignee": body.assignee}, request.client.host if request.client else "")
     db.commit(); return {"ok": True, "id": item_id, "action": action, "approval": serialize(approval)}
 
 
 @router.post("/approvals/{item_id}/{action}")
 def act_approval(item_id: str, action: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("approval:view"))], db: Annotated[Session, Depends(get_db)]):
-    if action not in {"approve", "reject", "recalc", "transfer", "withdraw", "submit", "countersign"}: raise ApiError(404, "CG-2001", "审批动作不存在")
+    if action not in {"approve", "reject", "recalc", "transfer", "withdraw", "submit", "countersign", "ratify_approve", "ratify_object"}: raise ApiError(404, "CG-2001", "审批动作不存在")
     return approval_action(item_id, action, body, request, ctx, db)
 
 
@@ -338,7 +429,7 @@ def update_task(item_id: str, body: PatchRequest, request: Request, ctx: Annotat
 
 @router.post("/tasks/{item_id}/urge")
 def urge_task(item_id: str, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("task:manage"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Task, item_id, ctx.tenant_id); add_audit(db, ctx, "催办任务", "task", item.id, item.title, {}, request.client.host if request.client else ""); db.commit(); return {"ok": True, "message": "已发送站内信催办"}
+    item = get_tenant_record(db, Task, item_id, ctx.tenant_id); ensure_rules(db, ctx.tenant_id); notify_event(db, ctx.tenant_id, "task_urged", {"assignee_user_id": item.assignee, "title": f"请处理任务：{item.title}", "target": "/task/mine"}); add_audit(db, ctx, "催办任务", "task", item.id, item.title, {}, request.client.host if request.client else ""); db.commit(); return {"ok": True, "message": "已发送站内信催办"}
 
 
 @router.get("/audit-logs")

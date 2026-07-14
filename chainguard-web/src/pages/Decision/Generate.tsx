@@ -3,9 +3,10 @@ import { PageContainer } from '@ant-design/pro-components';
 import { Alert, Badge, Button, Card, Collapse, Descriptions, Drawer, Empty, Flex, Form, InputNumber, Radio, Result, Select, Space, Statistic, Table, Tag, Typography, message } from 'antd';
 import { AppstoreOutlined, EditOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined, SendOutlined, TableOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';
-import { AgentProgress, EmptyGuide, RiskTag, SensitiveField, StatusTag } from '@/components';
+import { AgentProgress, DecisionTrace, EmptyGuide, RiskTag, SensitiveField, StatusTag } from '@/components';
 import { generateProposals, getDraft, getProposalsForIncident, recalc, saveDraft, submitForApproval } from '@/services/decision';
 import { getIncident } from '@/services/incident';
+import { customerLabel, daysLabel, isMissing, moneyLabel, riskLabel, MISSING_TEXT } from '@/utils/proposalMetrics';
 
 export default function DecisionGenerate() {
   const { incidentId = 'inc-supplier-shutdown' } = useParams<{ incidentId: string }>();
@@ -22,6 +23,7 @@ export default function DecisionGenerate() {
   const [proposals, setProposals] = useState<API.Proposal[]>([]);
   const [incident, setIncident] = useState<API.Incident>();
   const [error, setError] = useState<string>();
+  const [traceOpen, setTraceOpen] = useState(false);
 
   const loadExisting = async () => {
     setError(undefined);
@@ -53,11 +55,12 @@ export default function DecisionGenerate() {
     }
   };
 
+  // P0-2 同一口径：缺失指标显示"数据缺失"，不伪装成 0
   const compareRows = useMemo(() => [
     { key: 'cost', metric: '总成本', ...Object.fromEntries(proposals.map((item) => [item.id, item.totalCost])) },
-    { key: 'lead', metric: '交期影响', ...Object.fromEntries(proposals.map((item) => [item.id, `${item.leadTimeImpact} 天`])) },
-    { key: 'risk', metric: '剩余风险', ...Object.fromEntries(proposals.map((item) => [item.id, item.residualRisk === 'low' ? '低' : item.residualRisk === 'medium' ? '中' : '高'])) },
-    { key: 'customer', metric: '客户影响', ...Object.fromEntries(proposals.map((item) => [item.id, `${item.customerImpact} 单 / 高等级 ${item.highValueCustomers}`])) }
+    { key: 'lead', metric: '交期影响', ...Object.fromEntries(proposals.map((item) => [item.id, daysLabel(item.leadTimeImpact)])) },
+    { key: 'risk', metric: '剩余风险', ...Object.fromEntries(proposals.map((item) => [item.id, riskLabel(item.residualRisk)])) },
+    { key: 'customer', metric: '客户影响', ...Object.fromEntries(proposals.map((item) => [item.id, customerLabel(item.customerImpact, item.highValueCustomers)])) }
   ], [proposals]);
 
   const renderProposal = (proposal: API.Proposal) => {
@@ -73,14 +76,14 @@ export default function DecisionGenerate() {
           extra={<Access accessible={access.canModifyDecision && !readonly && !invalid}><Button type="text" icon={<EditOutlined />} onClick={(event) => { event.stopPropagation(); setEditing(proposal); }}>调整</Button></Access>}
         >
           <Flex gap={20} wrap="wrap">
-            <Statistic title="总成本" value={proposal.totalCost} formatter={() => <SensitiveField field="cost" value={`¥${proposal.totalCost.toLocaleString()}`} />} />
-            <Statistic title="交期影响" value={proposal.leadTimeImpact} suffix="天" />
-            <Statistic title="客户影响" value={proposal.customerImpact} suffix="单" />
-            <div><Typography.Text type="secondary">剩余风险</Typography.Text><div style={{ marginTop: 8 }}><RiskTag level={proposal.residualRisk} /></div></div>
+            <Statistic title="总成本" value={isMissing(proposal.totalCost) ? MISSING_TEXT : proposal.totalCost} formatter={() => isMissing(proposal.totalCost) ? <Typography.Text type="secondary">{MISSING_TEXT}</Typography.Text> : <SensitiveField field="cost" value={moneyLabel(proposal.totalCost)} />} />
+            <Statistic title="交期影响" value={daysLabel(proposal.leadTimeImpact)} />
+            <Statistic title="客户影响" value={isMissing(proposal.customerImpact) ? MISSING_TEXT : `${proposal.customerImpact} 单`} />
+            <div><Typography.Text type="secondary">剩余风险</Typography.Text><div style={{ marginTop: 8 }}>{isMissing(proposal.residualRisk) ? <Typography.Text type="secondary">{MISSING_TEXT}</Typography.Text> : <RiskTag level={proposal.residualRisk} />}</div></div>
           </Flex>
           <Collapse ghost style={{ marginTop: 16 }} items={[
             { key: 'views', label: '五视角明细', children: Object.entries(proposal.views).map(([name, value]) => <Descriptions key={name} size="small" column={1} items={[{ key: name, label: name, children: value }]} />) },
-            { key: 'ai', label: 'AI 解释与证据', children: <><Typography.Paragraph>{proposal.reason}</Typography.Paragraph><Space><Tag>EXP-019</Tag><Tag>高等级客户交付约束</Tag></Space></> }
+            { key: 'ai', label: 'AI 解释：结论 → 关键因素 → 证据链', children: <><Typography.Paragraph>{proposal.reason}</Typography.Paragraph><Typography.Text type="secondary">关键因素：成本、交期、客户影响与约束冲突</Typography.Text><br/><Space><Tag>EXP-019</Tag><Tag>高等级客户交付约束</Tag></Space></> }
           ]} />
           {invalid && <Alert type="error" showIcon message="违反硬约束" description={proposal.reason} />}
         </Card>
@@ -103,12 +106,13 @@ export default function DecisionGenerate() {
         {generated && <Alert type="success" showIcon message="多 Agent 推演完成" description={readonly ? '当前为只读推演，写操作已隐藏。' : '采购、物流、财务、销售、生产约束已汇总，可选择方案并提交审批。'} action={!readonly && <Button icon={<ReloadOutlined />} onClick={start}>重新生成</Button>} />}
       </Card>
       {generated && !proposals.length && <Card style={{ marginTop: 16 }}><EmptyGuide title="暂无可展示方案" description="当前事件尚未形成可用方案。" actionText={readonly ? undefined : '重新生成'} onAction={start} /></Card>}
+      {generated && <Button style={{ marginTop: 16 }} onClick={() => setTraceOpen(true)}>查看完整推演</Button>}
       {generated && view === 'card' && <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, marginTop: 16 }}>{feasible.map(renderProposal)}</div>
         {!!invalid.length && <Collapse style={{ marginTop: 16 }} items={[{ key: 'invalid', label: `查看不可行方案（${invalid.length}）`, children: <div style={{ maxWidth: 520 }}>{invalid.map(renderProposal)}</div> }]} />}
       </>}
-      {generated && view === 'table' && <Card style={{ marginTop: 16 }}><Table pagination={false} dataSource={compareRows} columns={[{ title: '指标', dataIndex: 'metric', fixed: 'left' }, ...proposals.map((item) => ({ title: item.name, dataIndex: item.id, render: (value: unknown, row: { key: string }) => row.key === 'cost' ? <SensitiveField field="cost" value={`¥${Number(value).toLocaleString()}`} /> : String(value ?? '') }))]} scroll={{ x: 760 }} /></Card>}
-      {generated && !readonly && <Card style={{ marginTop: 16, position: 'sticky', bottom: 12, zIndex: 2 }}><Flex justify="space-between" align="center" wrap="wrap" gap={12}><Typography.Text>{selectedProposal ? `已选择：${selectedProposal.name}` : '请选择一项可行方案'}</Typography.Text><Space><Button icon={<SaveOutlined />} onClick={async () => { await saveDraft(incidentId, selected); message.success('草稿已保存，再次进入本页自动恢复'); }}>保存草稿</Button><Access accessible={canSubmitApproval}><Button type="primary" icon={<SendOutlined />} disabled={!selected} onClick={async () => { await submitForApproval(selected!); message.success('已提交审批'); history.push('/decision/approval?tab=pending'); }}>提交审批</Button></Access></Space></Flex></Card>}
+      {generated && view === 'table' && <Card style={{ marginTop: 16 }}><Table pagination={false} dataSource={compareRows} columns={[{ title: '指标', dataIndex: 'metric', fixed: 'left' }, ...proposals.map((item) => ({ title: item.name, dataIndex: item.id, render: (value: unknown, row: { key: string }) => row.key === 'cost' ? (isMissing(value) ? MISSING_TEXT : <SensitiveField field="cost" value={moneyLabel(value as number)} />) : String(value ?? MISSING_TEXT) }))]} scroll={{ x: 760 }} /></Card>}
+      {generated && !readonly && <Card style={{ marginTop: 16, position: 'sticky', bottom: 12, zIndex: 2 }}><Flex justify="space-between" align="center" wrap="wrap" gap={12}><Typography.Text>{selectedProposal ? `已选择：${selectedProposal.name}` : '请选择一项可行方案'}</Typography.Text><Space><Button icon={<SaveOutlined />} onClick={async () => { try { await saveDraft(incidentId, selected); message.success('草稿已保存，再次进入本页自动恢复'); } catch (reason) { message.error(reason instanceof Error ? reason.message : '草稿保存失败'); } }}>保存草稿</Button><Access accessible={canSubmitApproval}><Button type="primary" icon={<SendOutlined />} disabled={!selected} onClick={async () => { try { await submitForApproval(selected!); message.success('已提交审批'); history.push('/decision/approval?tab=pending'); } catch (reason) { message.error(reason instanceof Error ? reason.message : '提交审批失败'); } }}>提交审批</Button></Access></Space></Flex></Card>}
       <Drawer width={440} title={`调整方案：${editing?.name || ''}`} open={!!editing && !readonly} onClose={() => setEditing(undefined)} destroyOnClose>
         <Form layout="vertical" initialValues={{ supplier: '宁波微电科技', quantity: 6000, transport: 'air', ratio: 60 }} onValuesChange={() => editing && setModified((value) => ({ ...value, [editing.id]: true }))} onFinish={async (values) => { if (!editing) return; const updated = await recalc(editing.id, values) as Partial<API.Proposal>; setProposals((items) => items.map((item) => item.id === editing.id ? { ...item, ...updated, modified: true } : item)); setModified((value) => ({ ...value, [editing.id]: false })); setEditing(undefined); message.success('重算完成，指标与修改痕迹已更新'); }}>
           <Form.Item name="supplier" label="替代供应商"><Select options={[{ label: '宁波微电科技', value: '宁波微电科技' }, { label: '无锡华芯', value: '无锡华芯' }]} /></Form.Item>
@@ -118,6 +122,7 @@ export default function DecisionGenerate() {
           <Button block type="primary" htmlType="submit" icon={<ReloadOutlined />}>重算方案</Button>
         </Form>
       </Drawer>
+      <DecisionTrace incidentId={incidentId} open={traceOpen} onClose={() => setTraceOpen(false)} />
     </PageContainer>
   );
 }

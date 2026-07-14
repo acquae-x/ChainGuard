@@ -18,6 +18,10 @@ export async function createUser(values: any) {
   );
 }
 
+export async function resetUserPassword(id: string) {
+  return pick(() => apiPost(`/settings/users/${id}/reset-password`, {}), async () => ({ ok: true, temporaryPassword: 'Cg!temporary-demo', mustChangePassword: true }));
+}
+
 export async function getRoles() {
   return pick(
     () => apiGet('/settings/roles'),
