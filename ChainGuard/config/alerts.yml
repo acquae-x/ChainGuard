@@ -1,0 +1,12 @@
+groups:
+  - name: chainguard-phase5a
+    rules:
+      - alert: DecisionFailureRateHigh
+        expr: rate(chainguard_decisions_total{status="error"}[5m]) / clamp_min(rate(chainguard_decisions_total[5m]), 0.001) > 0.10
+        for: 5m
+      - alert: DecisionJobBacklogHigh
+        expr: chainguard_jobs_pending > 10
+        for: 5m
+      - alert: DiskUsageHigh
+        expr: node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.20
+        for: 5m

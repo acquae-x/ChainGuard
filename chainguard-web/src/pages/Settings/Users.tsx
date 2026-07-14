@@ -4,7 +4,7 @@ import { Button, Drawer, Form, Input, Select, Space, Tag, message } from 'antd';
 import { CopyOutlined, PlusOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { ROLE_LABELS } from '@/constants/status';
-import { createUser, getDepartments, getUsers } from '@/services/settings';
+import { createUser, getDepartments, getUsers, resetUserPassword } from '@/services/settings';
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -20,7 +20,7 @@ export default function Users() {
           { title: '角色', dataIndex: 'roleCode', valueType: 'select', valueEnum: Object.fromEntries(Object.entries(ROLE_LABELS).map(([key, text]) => [key, { text }])), render: (_, row) => <Tag color="blue">{ROLE_LABELS[row.roleCode]}</Tag> },
           { title: '数据范围', dataIndex: 'dataScope', valueEnum: { all: { text: '全企业' }, dept: { text: '本部门' }, custom: { text: '自定义' } } },
           { title: '状态', dataIndex: 'status', render: (_, row) => <Tag color={row.status === 'active' ? 'green' : 'default'}>{row.status === 'active' ? '启用' : '未启用'}</Tag> },
-          { title: '操作', valueType: 'option', render: () => [<Button key="edit" type="link">编辑</Button>, <Button key="disable" type="link" danger>停用</Button>] }
+          { title: '操作', valueType: 'option', render: (_, row) => [<Button key="edit" type="link">编辑</Button>, <Button key="reset" type="link" onClick={async () => { const result = await resetUserPassword(row.id); message.success(`临时密码：${result.temporaryPassword}（仅显示一次，请安全转交）`); }}>重置密码</Button>, <Button key="disable" type="link" danger>停用</Button>] }
         ]}
       />
       <Drawer title="添加用户" width={460} open={open} onClose={() => setOpen(false)}>

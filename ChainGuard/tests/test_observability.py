@@ -1,5 +1,6 @@
 import json
 import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -73,6 +74,16 @@ def test_health_reports_dependencies():
     assert isinstance(dependencies["enterprise_db"], bool)
 
 
+def test_monitoring_bootstrap_exports_job_gauge_and_node_exporter():
+    Metrics.reset()
+    Metrics.set_jobs_pending(2)
+    assert _plain_metric_value(Metrics.render(), "chainguard_jobs_pending") == pytest.approx(2.0)
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+    prometheus = Path("config/prometheus.yml").read_text(encoding="utf-8")
+    assert "node-exporter:" in compose
+    assert "node-exporter:9100" in prometheus
+
+
 def _metric_value(text: str, name: str, status: str) -> float:
     pattern = re.compile(rf'^{re.escape(name)}{{status="{re.escape(status)}"}}\s+([0-9.]+)$')
     for line in text.splitlines():
@@ -80,3 +91,10 @@ def _metric_value(text: str, name: str, status: str) -> float:
         if match:
             return float(match.group(1))
     raise AssertionError(f"metric {name} with status={status!r} not found in:\n{text}")
+
+
+def _plain_metric_value(text: str, name: str) -> float:
+    for line in text.splitlines():
+        if line.startswith(f"{name} "):
+            return float(line.split()[-1])
+    raise AssertionError(f"metric {name!r} not found in:\n{text}")

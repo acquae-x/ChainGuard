@@ -7,7 +7,8 @@ const routes = [
       { path: '/user/login', component: '@/pages/User/Login' },
       { path: '/user/register', component: '@/pages/User/Register' },
       { path: '/user/join', component: '@/pages/User/Join' },
-      { path: '/user/reset', component: '@/pages/User/Reset' }
+      { path: '/user/reset', component: '@/pages/User/Reset' },
+      { path: '/user/profile', component: '@/pages/User/Profile' }
     ]
   },
   { path: '/onboarding', component: '@/pages/Onboarding' },
@@ -45,8 +46,8 @@ const routes = [
       { path: '/decision', redirect: '/decision/list' },
       { path: '/decision/generate/:incidentId', name: '方案生成', hideInMenu: true, component: '@/pages/Decision/Generate' },
       { path: '/decision/list', name: '方案列表', component: '@/pages/Decision/List' },
-      { path: '/decision/approval/:id', hideInMenu: true, component: '@/pages/Decision/Approval' },
-      { path: '/decision/approval', name: '审批中心', component: '@/pages/Decision/Approval' }
+        { path: '/decision/approval/:id', hideInMenu: true, component: '@/pages/Decision/Approval' },
+        { path: '/decision/approval', name: '审批中心', component: '@/pages/Decision/Approval' }
     ]
   },
   {

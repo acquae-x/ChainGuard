@@ -93,6 +93,32 @@ services:
     restart: unless-stopped
     logging: *json-logging
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["monitoring"]
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9090:9090"
+    logging: *json-logging
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    logging: *json-logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    profiles: ["monitoring"]
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    logging: *json-logging
+
 volumes:
   pgdata:
   appdata:

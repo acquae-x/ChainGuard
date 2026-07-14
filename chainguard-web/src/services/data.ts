@@ -322,6 +322,20 @@ export async function commitImport(values: CommitParams): Promise<ImportCommitRe
         preflight = { status: 'failed', result: { error: '预检执行失败' } };
       }
       const preflightFailed = preflight?.status === 'failed' || preflight?.result?.canProceed === false;
+      // P1-4：磁盘不足与解析失败都是硬闸门，"仍要导入"不适用
+      const hardBlocked = preflight?.result?.verdict === 'INSUFFICIENT_DISK' || preflight?.result?.verdict === 'PARSE_ERROR';
+      if (hardBlocked) {
+        return {
+          ok: false,
+          batchId: jobId,
+          success: 0,
+          failed: values.validation.total,
+          total: values.validation.total,
+          attempted: 0,
+          preflightBlocked: true,
+          preflightReport: preflight?.result ?? preflight,
+        };
+      }
       if (preflightFailed && !values.force) {
         return {
           ok: false,

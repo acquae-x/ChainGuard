@@ -90,6 +90,10 @@ export async function logout() {
   clearToken();
 }
 
+export async function changePassword(values: { oldPassword: string; newPassword: string }) {
+  return apiPost('/auth/change-password', values);
+}
+
 // ---- 以下为演示/向导用途，后端 Phase 1 未提供对应端点，保留 mock（见 ADR §4 缺口-C）----
 export async function sendSmsCode(phone: string) {
   return { phone, code: '123456' };

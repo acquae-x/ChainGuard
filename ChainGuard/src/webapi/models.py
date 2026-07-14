@@ -51,6 +51,7 @@ class User(Base):
     role_code: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(30), default="active")
     data_scope: Mapped[str] = mapped_column(String(30), default="all")
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class TenantRecord:
@@ -94,17 +95,20 @@ class Proposal(TenantRecord, Base):
     incident_id: Mapped[str] = mapped_column(String(64), index=True)
     name: Mapped[str] = mapped_column(String(255))
     tag: Mapped[str] = mapped_column(String(30))
-    total_cost: Mapped[float] = mapped_column(Float, default=0)
-    lead_time_impact: Mapped[int] = mapped_column(Integer, default=0)
-    residual_risk: Mapped[str] = mapped_column(String(20), default="medium")
-    customer_impact: Mapped[int] = mapped_column(Integer, default=0)
-    high_value_customers: Mapped[int] = mapped_column(Integer, default=0)
+    # P0-2：未知业务指标必须落 NULL（前端显示"数据缺失"），禁止伪装成 0
+    total_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lead_time_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    residual_risk: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    customer_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_value_customers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     views: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     constraints: Mapped[list[Any]] = mapped_column(JSON, default=list)
     explanation: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     modified: Mapped[bool] = mapped_column(Boolean, default=False)
     draft: Mapped[bool] = mapped_column(Boolean, default=False)
+    # P1-10：被审批引用的旧方案在重新推演时归档保留（审计追溯），列表默认不展示
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Approval(TenantRecord, Base):
@@ -114,7 +118,7 @@ class Approval(TenantRecord, Base):
     status: Mapped[str] = mapped_column(String(30), default="submitted")
     risk_level: Mapped[str] = mapped_column(String(20))
     summary: Mapped[str] = mapped_column(String(255))
-    cost_impact: Mapped[float] = mapped_column(Float, default=0)
+    cost_impact: Mapped[float | None] = mapped_column(Float, nullable=True)
     submitter: Mapped[str] = mapped_column(String(100))
     waiting_hours: Mapped[float] = mapped_column(Float, default=0)
     cc_role_codes: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -185,6 +189,48 @@ class NotificationMessage(TenantRecord, Base):
     title: Mapped[str] = mapped_column(String(255))
     target: Mapped[str] = mapped_column(String(255), default="")
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class DecisionDetail(TenantRecord, Base):
+    """The full, tenant-scoped decision trace.  The orchestrator stays untouched."""
+    __tablename__ = "decision_details"
+    incident_id: Mapped[str] = mapped_column(String(64), index=True)
+    job_id: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class DecisionAudit(TenantRecord, Base):
+    __tablename__ = "decision_audits"
+    incident_id: Mapped[str] = mapped_column(String(64), index=True)
+    decision_id: Mapped[str] = mapped_column(String(100), index=True)
+    entry: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class NotificationRule(TenantRecord, Base):
+    __tablename__ = "notification_rules"
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    recipient_strategy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    channels: Mapped[list[str]] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RefreshToken(Base):
+    """Issued refresh-token registry lets password changes revoke every device."""
+    __tablename__ = "refresh_tokens"
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class CustomField(TenantRecord, Base):

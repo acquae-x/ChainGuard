@@ -23,6 +23,66 @@ from ..schemas import PatchRequest
 router = APIRouter(tags=["imports-settings"])
 
 
+def _camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(part.title() for part in parts[1:])
+
+
+def camelize_report(report: Any) -> dict[str, Any]:
+    """P1-4：preflight 结果统一转 camelCase，与前端 estimatedRows/canProceed 契约对齐。"""
+    data = asdict(report) if hasattr(report, "__dataclass_fields__") else dict(report)
+    return {_camel(key): value for key, value in data.items()}
+
+
+def normalize_xlsx_to_csv(source: str | Path) -> Path:
+    """P1-4：XLSX 先解析归一化为 CSV，预检必须基于真实行而不是二进制字节估算。
+
+    解析失败必须抛出异常（由调用方转红灯），不允许吞异常后继续绿灯。
+    """
+    from openpyxl import load_workbook
+
+    path = Path(source)
+    sheet = load_workbook(path, read_only=True, data_only=True).active
+    values = sheet.iter_rows(values_only=True)
+    headers = [str(value or "").strip() for value in next(values, ())]
+    if not any(headers):
+        raise ValueError("XLSX 首行没有可用表头")
+    target = path.with_suffix(".csv")
+    with target.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(headers)
+        for row in values:
+            writer.writerow(["" if value is None else value for value in row[: len(headers)]])
+    return target
+
+
+def normalized_preview(path: str | Path, limit: int = 20) -> dict[str, Any]:
+    """Return a bounded, structured preview of the server-side normalized file."""
+    source = Path(path)
+    rows: list[dict[str, Any]] = []
+    if source.suffix.lower() == ".csv":
+        with source.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                if len(rows) < limit:
+                    rows.append(dict(row))
+                else:
+                    break
+    elif source.suffix.lower() == ".xlsx":
+        try:
+            from openpyxl import load_workbook
+            sheet = load_workbook(source, read_only=True, data_only=True).active
+            values = sheet.iter_rows(values_only=True)
+            headers = [str(value or "").strip() for value in next(values, ())]
+            for values_row in values:
+                if len(rows) >= limit:
+                    break
+                rows.append({headers[index]: value for index, value in enumerate(values_row) if index < len(headers) and headers[index]})
+        except Exception:
+            rows = []
+    return {"table": source.stem, "previewRows": rows, "previewLimit": limit}
+
+
 @router.post("/imports/upload", status_code=201)
 async def upload_import(file: UploadFile, import_type: str = Query(..., alias="type"), ctx: Annotated[AuthContext, Depends(require_permission("data:import"))] = None, db: Annotated[Session, Depends(get_db)] = None):
     job_id = f"import-{uuid.uuid4().hex}"
@@ -67,8 +127,27 @@ def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissi
             writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
             writer.writeheader(); writer.writerows(rows)
         item.options = {**item.options, "originalPath": item.options["path"], "path": str(normalized_path.resolve()), "extraction": asdict(extraction)}
+    elif suffix == ".xlsx":
+        # P1-4：XLSX 先归一化为 CSV 再做基于行的容量预检；解析失败必须红灯，禁止吞异常假绿灯
+        try:
+            normalized_path = normalize_xlsx_to_csv(item.options["path"])
+        except Exception:
+            item.status, item.progress = "failed", 25
+            item.result = {
+                "canProceed": False,
+                "verdict": "PARSE_ERROR",
+                "estimatedRows": None,
+                "messages": ["XLSX 解析失败：文件可能损坏或不是有效的 Excel 工作簿，导入已阻止。"],
+                "normalized": {"table": Path(item.file_name).stem, "previewRows": [], "previewLimit": 20},
+            }
+            db.commit(); payload = serialize(item); payload["options"].pop("path", None); return payload
+        item.options = {**item.options, "originalPath": item.options["path"], "path": str(normalized_path.resolve())}
     report = run_preflight([item.options["path"]], Path(item.options["path"]).parent / "import.db")
-    item.status = "preflighted" if report.can_proceed else "failed"; item.progress = 25; item.result = asdict(report); db.commit()
+    item.status = "preflighted" if report.can_proceed else "failed"
+    item.progress = 25
+    # camelCase 与前端 estimatedRows/canProceed 契约对齐（P1-4）；verdict 键名不变，confirm 闸门不受影响
+    item.result = {**camelize_report(report), "normalized": normalized_preview(item.options["path"])}
+    db.commit()
     payload = serialize(item); payload["options"].pop("path", None); return payload
 
 
@@ -76,8 +155,15 @@ def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissi
 def confirm_import(item_id: str, body: PatchRequest, ctx: Annotated[AuthContext, Depends(require_permission("data:import"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, ImportJob, item_id, ctx.tenant_id)
     force = bool(body.values.get("force"))
-    if item.status == "failed" and not force:
-        raise ApiError(409, "CG-2602", "预检未通过，需明确确认后才能继续导入")
+    if item.status == "failed":
+        # Disk shortage is a hard safety gate, not an override-able quality warning.
+        if item.result.get("verdict") == "INSUFFICIENT_DISK":
+            raise ApiError(409, "CG-2602", "磁盘空间不足，不能强制导入")
+        # P1-4：解析失败没有可导入的归一化数据，同样不允许强制
+        if item.result.get("verdict") == "PARSE_ERROR":
+            raise ApiError(409, "CG-2602", "文件解析失败，不能强制导入")
+        if not force:
+            raise ApiError(409, "CG-2602", "预检未通过，需明确确认后才能继续导入")
     if item.status not in {"preflighted", "failed"}:
         raise ApiError(409, "CG-2601", "导入任务尚未完成预检")
     item.status = "confirmed"; item.options = {**item.options, **body.values}; item.progress = 50; db.commit()
@@ -129,6 +215,19 @@ def update_user(item_id: str, body: dict[str, Any], ctx: Annotated[AuthContext, 
     if "roleId" in body:
         role = get_tenant_record(db, Role, body["roleId"], ctx.tenant_id); item.role_id = role.id; item.role_code = role.code
     add_audit(db, ctx, "更新用户", "user", item.id, item.name, {"before": before, "after": body}); db.commit(); return {"ok": True, "id": item.id}
+
+
+@router.post("/settings/users/{item_id}/reset-password")
+def reset_user_password(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    from ..auth.security import hash_password, revoke_refresh_tokens
+    import secrets
+    item = get_tenant_record(db, User, item_id, ctx.tenant_id)
+    temporary_password = f"Cg!{secrets.token_urlsafe(9)}"
+    item.password_hash, item.must_change_password = hash_password(temporary_password), True
+    revoke_refresh_tokens(db, item)
+    add_audit(db, ctx, "重置密码", "user", item.id, item.name, {"mustChangePassword": True})
+    db.commit()
+    return {"ok": True, "temporaryPassword": temporary_password, "mustChangePassword": True}
 
 
 @router.delete("/settings/users/{item_id}", status_code=204)
