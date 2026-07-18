@@ -84,6 +84,7 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
   const [erpPreview, setErpPreview] = useState<any[]>([]);
   const [selectedErpTypes, setSelectedErpTypes] = useState<string[]>([]);
   const [erpConfirmed, setErpConfirmed] = useState(false);
+  const [erpConnectionValues, setErpConnectionValues] = useState<{ baseUrl: string; apiKey?: string }>();
   const [results, setResults] = useState<EnterpriseImportJob[]>([]);
 
   useEffect(() => {
@@ -116,6 +117,7 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
     setErpPreview([]);
     setSelectedErpTypes([]);
     setErpConfirmed(false);
+    setErpConnectionValues(undefined);
     setResults([]);
   };
 
@@ -211,6 +213,7 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
     try {
       const types = allowedTypes.map((item) => item.value);
       const result = await previewErp({ ...values, types });
+      setErpConnectionValues(values);
       setErpPreview(result.resources || []);
       setSelectedErpTypes((result.resources || []).filter((item: any) => item.rows > 0).map((item: any) => item.type));
       setStep(2);
@@ -223,10 +226,10 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
 
   const executeErp = async () => {
     if (!erpConfirmed) return message.warning('请先人工确认 ERP 同步范围');
-    const values = await erpForm.validateFields();
+    if (!erpConnectionValues) return message.error('ERP 连接信息已失效，请返回连接步骤重新验证');
     setLoading(true);
     try {
-      const result = await syncErp({ ...values, types: selectedErpTypes });
+      const result = await syncErp({ ...erpConnectionValues, types: selectedErpTypes });
       setResults([result]);
       setStep(4);
       message.success('ERP 同步完成');

@@ -82,7 +82,18 @@ export default function HeaderActions({ user, tenant }: { user?: API.User; tenan
   );
 
   return (
-    <Space size={4} align="center" style={{ maxWidth: '100%' }}>
+    <Space
+      data-testid="compact-header-actions"
+      size={4}
+      align="center"
+      style={{
+        position: 'fixed',
+        top: 8,
+        right: 8,
+        zIndex: 101,
+        maxWidth: 'calc(100vw - 56px)',
+      }}
+    >
       {more}
       <NotificationBell />
       {userDropdown}
