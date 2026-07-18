@@ -2,6 +2,7 @@ import { Access, history, useAccess, useParams } from "@umijs/max";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
 import {
   Alert,
+  App,
   Button,
   Descriptions,
   Divider,
@@ -13,7 +14,6 @@ import {
   Table,
   Tabs,
   Typography,
-  message,
 } from "antd";
 import { DownloadOutlined, EyeOutlined, LinkOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
@@ -50,6 +50,7 @@ function ApprovalDetail({
 }) {
   const access = useAccess();
   const screens = Grid.useBreakpoint();
+  const { message } = App.useApp();
   const riskLevel = detail.approval.riskLevel;
   const canApprove =
     riskLevel === "low"
@@ -138,7 +139,7 @@ function ApprovalDetail({
   };
   const [traceOpen, setTraceOpen] = useState(false);
   return (
-    <div style={{ width: "100%", minWidth: 0, maxWidth: "100%" }}>
+    <div style={{ width: "100%", minWidth: 0, maxWidth: "100%", paddingBottom: screens.md ? 0 : 76 }}>
       <Alert
         type={riskLevel === "high" ? "warning" : "info"}
         showIcon
@@ -171,7 +172,7 @@ function ApprovalDetail({
             key: "cost",
             label: "总成本",
             children: missing(detail.proposal.totalCost) ? (
-              "数据缺失"
+              <Typography.Text type="secondary">成本数据缺失：引擎未给出可信成本，待人工测算</Typography.Text>
             ) : (
               <SensitiveField
                 field="cost"
@@ -192,7 +193,7 @@ function ApprovalDetail({
           {
             key: "reason",
             label: "系统推荐理由",
-            span: 2,
+            span: screens.md ? 2 : 1,
             children: detail.proposal.reason,
           },
         ]}
@@ -218,19 +219,17 @@ function ApprovalDetail({
           ...["current", "baseline", "alternative"].map((key, index) => ({
             title: ["本方案", "基线不作为", "次优方案"][index],
             dataIndex: key,
-            render: (value: any, row: any) =>
-              row.metric === "总成本" ? (
-                missing(value) ? (
-                  "数据缺失"
-                ) : (
-                  <SensitiveField
-                    field="cost"
-                    value={`¥${Number(value).toLocaleString()}`}
-                  />
-                )
-              ) : (
-                value
-              ),
+            render: (value: any, row: any) => {
+              if (row.metric === "总成本") {
+                return missing(value)
+                  ? <Typography.Text type="secondary">成本数据缺失：该候选未纳入成本测算，待人工确认</Typography.Text>
+                  : <SensitiveField field="cost" value={`¥${Number(value).toLocaleString()}`} />;
+              }
+              if (row.metric === "交期影响" && (value === MISSING_TEXT || value == null)) {
+                return <Typography.Text type="secondary">交期数据缺失：待供应商确认到货窗口</Typography.Text>;
+              }
+              return value;
+            },
           })),
         ]}
         scroll={{ x: 520 }}

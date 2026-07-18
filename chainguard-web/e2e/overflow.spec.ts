@@ -40,4 +40,17 @@ test.describe('审批页横向溢出（P1-二修复回归）', () => {
     });
     expect(overflowingCharts).toBe(0);
   });
+
+  test('方案卡片和角标在 375px 无 document 横向溢出', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await login(page);
+    await page.goto('/decision/generate/inc-supplier-shutdown?readonly=1');
+    await expect(page.getByText('多 Agent 推演完成')).toBeVisible();
+    await expect(page.locator('.ant-ribbon-wrapper').first()).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.getByRole('button', { name: '查看完整推演' }).click();
+    await expect(page.locator('.ant-drawer-title', { hasText: '完整推演' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
 });

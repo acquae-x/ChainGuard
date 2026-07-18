@@ -404,20 +404,48 @@ def act_approval(item_id: str, action: str, body: PatchRequest, request: Request
     return approval_action(item_id, action, body, request, ctx, db)
 
 
+def _can_manage_all_tasks(ctx: AuthContext) -> bool:
+    """P0-2：复用 task:manage 落实数据范围，不新增权限码。
+
+    有 task:manage（或超级 *）才能看/管理整租户任务；否则只能触达
+    分派给自己（assignee == 当前用户）的任务，落实 buyer 的 custom 数据范围。
+    """
+    return "*" in ctx.permissions or "task:manage" in ctx.permissions
+
+
 @router.get("/tasks")
 def tasks(ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)], scope: str | None = None):
     items = list_tenant_records(db, Task, ctx.tenant_id)
+    # P0-2：无 task:manage 的角色（buyer 等 custom 范围）只能看到分派给自己的任务，
+    # 不再返回租户全部任务。
+    if not _can_manage_all_tasks(ctx):
+        items = [x for x in items if x.assignee == ctx.user_id]
     if scope == "overdue": items = [x for x in items if x.status == "overdue"]
-    return {"data": [serialize(x) for x in items], "total": len(items), "success": True}
+    # P1-6：负责人展示姓名而非 u-buyer；前端逾期看板按姓名聚合
+    names = {u.id: u.name for u in list_tenant_records(db, User, ctx.tenant_id)}
+    data = []
+    for x in items:
+        row = serialize(x)
+        row["assigneeName"] = names.get(x.assignee, x.assignee)
+        data.append(row)
+    return {"data": data, "total": len(data), "success": True}
 
 
 @router.get("/tasks/{item_id}")
-def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)]): return serialize(get_tenant_record(db, Task, item_id, ctx.tenant_id))
+def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)]):
+    item = get_tenant_record(db, Task, item_id, ctx.tenant_id)
+    # P0-2：无 task:manage 者不得越权查看他人任务详情，返回 404 避免存在性枚举
+    if not _can_manage_all_tasks(ctx) and item.assignee != ctx.user_id:
+        raise ApiError(404, "CG-2010", "任务不存在")
+    return serialize(item)
 
 
 @router.patch("/tasks/{item_id}")
 def update_task(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("task:execute"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Task, item_id, ctx.tenant_id)
+    # P0-2：越权闸门——无 task:manage 者只能更新自己名下的任务
+    if not _can_manage_all_tasks(ctx) and item.assignee != ctx.user_id:
+        raise ApiError(403, "CG-2011", "只能操作分派给本人的任务")
     if body.status: item.status = body.status
     if body.assignee:
         assignee = db.scalar(select(User).where(User.tenant_id == ctx.tenant_id, User.status == "active", or_(User.id == body.assignee, User.name == body.assignee)))
@@ -442,7 +470,21 @@ def audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("audit:vie
 
 @router.get("/dashboard/kpis")
 def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]):
-    return {"riskCount": len(list_tenant_records(db, Risk, ctx.tenant_id)), "pendingApprovals": len([x for x in list_tenant_records(db, Approval, ctx.tenant_id) if x.status in {"pending", "submitted"}]), "myTasks": len(list_tenant_records(db, Task, ctx.tenant_id)), "incidentCount": len(list_tenant_records(db, Incident, ctx.tenant_id))}
+    # P1-7：KPI 由真实数据计算，且任务口径与 /tasks、逾期看板一致（无 task:manage 只算本人）。
+    risks = list_tenant_records(db, Risk, ctx.tenant_id)
+    approvals = list_tenant_records(db, Approval, ctx.tenant_id)
+    incidents = list_tenant_records(db, Incident, ctx.tenant_id)
+    all_tasks = list_tenant_records(db, Task, ctx.tenant_id)
+    mine = all_tasks if _can_manage_all_tasks(ctx) else [t for t in all_tasks if t.assignee == ctx.user_id]
+    return {
+        "riskCount": len(risks),
+        "highRiskCount": len([r for r in risks if r.level == "high"]),
+        "pendingApprovals": len([a for a in approvals if a.status in {"pending", "submitted"}]),
+        "countersign": len([a for a in approvals if a.status == "pending_countersign"]),
+        "myTasks": len(mine),
+        "overdueTasks": len([t for t in mine if t.status == "overdue"]),
+        "incidentCount": len([i for i in incidents if i.status != "closed"]),
+    }
 
 
 @router.get("/dashboard/top-risks")

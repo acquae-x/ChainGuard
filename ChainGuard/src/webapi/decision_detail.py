@@ -16,6 +16,24 @@ FINANCIAL_TOKENS = ("cost", "amount", "price", "profit", "benefit", "savings", "
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
+# 自然语言里内嵌的敏感数字/客户等级：仅按键名脱敏无法覆盖（键是 reasoning/explanation/
+# final_strategy 等中性名，值却写着“违约罚金 180000”“总毛利为 632000”“A类关键订单”）。
+# 以下正则对每个字符串值递归清洗，与键名脱敏共用同一入口，覆盖所有自然语言、解释、
+# 推演(rebuttal/arbitration)和审计字段。
+_NUM = r"\d[\d,，\.]*"
+# 财务语义词后紧邻的金额/数字（毛利/罚金/利润/成本/收益/节省…）
+_FIN_WORD = (
+    r"(?:毛利|净利润|利润|罚金|违约金|违约|赔付|货值|营业收入|营收|营业额|应急成本|成本|"
+    r"净收益|收益|节省|节约|金额|资金|保费|单价|售价|采购价|报价|价格|货款|敞口|损失)"
+)
+_MONEY_AFTER = re.compile(_FIN_WORD + r"(?:[^\d\n]{0,8}?)(" + _NUM + r")")
+# 带货币后缀/前缀的金额
+_MONEY_SUFFIX = re.compile(r"(" + _NUM + r")\s*(?:元|万元|万块|块钱|块|¥|￥|人民币|RMB)")
+_MONEY_PREFIX = re.compile(r"(?:¥|￥|人民币|RMB)\s*(" + _NUM + r")")
+# 客户等级：A类 / B/C类 / 等级为 A 等
+_TIER = re.compile(r"[A-Ea-e](?:\s*/\s*[A-Ea-e])*\s*类")
+_TIER_LEVEL = re.compile(r"(等级|级别)(?:[为是:：]\s*)?[A-Ea-e]\b")
+
 
 def _normalize_key(key: str) -> str:
     """camelCase → snake_case，统一小写；costImpact → cost_impact。"""
@@ -28,30 +46,53 @@ def is_financial_key(key: str) -> bool:
     return any(token in normalized for token in FINANCIAL_TOKENS)
 
 
+def _scrub_text(text: str, mask_financial: bool, mask_tier: bool) -> str:
+    """清洗自然语言字符串里内嵌的敏感数字与客户等级。"""
+    if mask_financial:
+        text = _MONEY_AFTER.sub(lambda m: m.group(0).replace(m.group(1), MASK_PLACEHOLDER, 1), text)
+        text = _MONEY_SUFFIX.sub(lambda m: m.group(0).replace(m.group(1), MASK_PLACEHOLDER, 1), text)
+        text = _MONEY_PREFIX.sub(lambda m: m.group(0).replace(m.group(1), MASK_PLACEHOLDER, 1), text)
+    if mask_tier:
+        text = _TIER.sub("*类", text)
+        text = _TIER_LEVEL.sub(lambda m: m.group(1) + MASK_PLACEHOLDER, text)
+    return text
+
+
 def mask_for_requester(payload: dict[str, Any], permissions: tuple[str, ...]) -> dict[str, Any]:
     """One masking path for detail and both exports; no export bypass exists.
 
-    复用既有财务字段查看权限(field:cost:view)，不新增权限码。GET decision-detail、
-    JSON 导出、PDF 导出都经过这里，PDF 只消费本函数返回的脱敏 payload。
+    复用既有字段查看权限(field:cost:view / field:profit:view / field:customerLevel:view)，
+    不新增权限码。GET decision-detail、JSON 导出、PDF 导出都经过这里，PDF 只消费本函数
+    返回的脱敏 payload。除按键名脱敏外，还递归清洗自然语言字段里内嵌的金额/毛利/罚金/
+    客户等级具体数字。
     """
-    can_view_cost = "*" in permissions or "field:cost:view" in permissions
+    perms = set(permissions)
+    superuser = "*" in perms
+    can_view_cost = superuser or "field:cost:view" in perms
+    can_view_profit = superuser or "field:profit:view" in perms
+    can_view_tier = superuser or "field:customerLevel:view" in perms
     result = mask_payload(payload, "admin" if can_view_cost else "viewer")
-    if not can_view_cost:
-        _mask_financial_fields(result)
+    mask_financial = not (can_view_cost and can_view_profit)
+    mask_tier = not can_view_tier
+    if mask_financial or mask_tier:
+        _deep_mask(result, mask_financial, mask_tier)
     return result
 
 
-def _mask_financial_fields(value: Any) -> None:
-    """递归：任意层级、任意财务语义字段(含 camelCase/复合字段)一律脱敏为 ***。"""
+def _deep_mask(value: Any, mask_financial: bool, mask_tier: bool) -> Any:
+    """递归：财务语义字段整体脱敏为 ***；所有字符串叶子再清洗内嵌敏感数字/等级。"""
     if isinstance(value, dict):
         for key, item in value.items():
-            if is_financial_key(key):
+            if mask_financial and is_financial_key(key):
                 value[key] = MASK_PLACEHOLDER
             else:
-                _mask_financial_fields(item)
-    elif isinstance(value, list):
-        for item in value:
-            _mask_financial_fields(item)
+                value[key] = _deep_mask(item, mask_financial, mask_tier)
+        return value
+    if isinstance(value, list):
+        return [_deep_mask(item, mask_financial, mask_tier) for item in value]
+    if isinstance(value, str):
+        return _scrub_text(value, mask_financial, mask_tier)
+    return value
 
 
 def render_pdf(payload: dict[str, Any]) -> bytes:
@@ -145,6 +186,14 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
     proposals = payload.get("proposals") or []
     approvals = payload.get("approval_chain") or []
 
+    # P1-12：PDF 统一中文业务文案，避免 submitted/high/ok 等英文状态与中英文异常空格。
+    _STATUS_CN = {"submitted": "已提交", "pending": "待审批", "pending_countersign": "待会签", "approved": "已批准", "rejected": "已驳回", "withdrawn": "已撤回", "timeout_released": "超时放行", "overdue": "已逾期", "ok": "正常", "succeeded": "成功", "failed": "失败", "running": "进行中", "planning": "规划中", "deciding": "决策中", "approving": "审批中", "executing": "执行中", "closed": "已关闭"}
+    _LEVEL_CN = {"high": "高", "medium": "中", "low": "低"}
+    def cn_status(value: Any) -> str:
+        return _STATUS_CN.get(str(value), "" if value is None else str(value))
+    def cn_level(value: Any) -> str:
+        return _LEVEL_CN.get(str(value), "" if value is None else str(value))
+
     story: list[Any] = [
         para("ChainGuard 决策报告", h1),
         para(f"报告编号 {payload.get('decision_id', '-')}", meta),
@@ -155,9 +204,9 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
         ("决策编号", audit.get("decision_id") or payload.get("decision_id")),
         ("生成时间", audit.get("timestamp")),
         ("触发事件类型", audit.get("event_type")),
-        ("事件严重度", audit.get("event_severity")),
+        ("事件严重度", cn_level(audit.get("event_severity"))),
         ("库存风险指数", audit.get("inventory_risk_index")),
-        ("决策状态", audit.get("decision_status")),
+        ("决策状态", cn_status(audit.get("decision_status"))),
         ("是否需人工审批", "是" if audit.get("human_approval_required") else "否"),
         ("决策成本", audit.get("cost")),
         ("净收益", audit.get("net_benefit")),
@@ -202,8 +251,8 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
         for item in approvals:
             rows.append([
                 item.get("submitter"),
-                item.get("status"),
-                item.get("riskLevel"),
+                cn_status(item.get("status")),
+                cn_level(item.get("riskLevel")),
                 item.get("costImpact"),
                 "是" if item.get("countersigned") else "否",
             ])
@@ -236,7 +285,7 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
     story.append(kv_table([
         ("审计决策编号", audit.get("decision_id")),
         ("时间戳", audit.get("timestamp")),
-        ("状态", audit.get("decision_status")),
+        ("状态", cn_status(audit.get("decision_status"))),
         ("错误信息", audit.get("error_message") or "无"),
     ]))
 
