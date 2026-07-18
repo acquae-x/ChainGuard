@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Phase 5A buyer / boss PDF 脱敏对照</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; background: #eef2f8; color: #17233d; font-family: "Microsoft YaHei", sans-serif; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    .note { margin-bottom: 14px; color: #52627a; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .panel { overflow: hidden; border: 2px solid #d8e0ec; border-radius: 10px; background: #fff; box-shadow: 0 4px 16px rgba(22, 42, 75, .08); }
+    .panel h2 { margin: 0; padding: 10px 14px; color: #fff; font-size: 18px; }
+    .buyer h2 { background: #1677ff; }
+    .boss h2 { background: #389e0d; }
+    img { display: block; width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+  <h1>同一决策报告、同一真实 API：按请求者角色脱敏</h1>
+  <div class="note">buyer：财务字段以 *** 展示；boss：净收益、违约节省、保护利润及审批成本影响保留真实值。</div>
+  <div class="grid">
+    <section class="panel buyer">
+      <h2>buyer / 采购人员（脱敏）</h2>
+      <img src="../../ChainGuard/output/pdf/phase5a-windows-20260715/buyer-render-1.png" alt="buyer PDF 第 1 页" />
+    </section>
+    <section class="panel boss">
+      <h2>boss / 老板（可见）</h2>
+      <img src="../../ChainGuard/output/pdf/phase5a-windows-20260715/boss-render-1.png" alt="boss PDF 第 1 页" />
+    </section>
+  </div>
+</body>
+</html>

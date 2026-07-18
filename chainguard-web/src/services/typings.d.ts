@@ -23,6 +23,6 @@ declare namespace API {
   // P0-2：未知业务指标由后端落 null，前端渲染"数据缺失"，禁止伪装成 0
   type Proposal = { id: string; incidentId: string; name: string; tag: 'recommended' | 'alternative' | 'invalid'; totalCost: number | null; leadTimeImpact: number | null; residualRisk: 'high' | 'medium' | 'low' | null; customerImpact: number | null; highValueCustomers: number | null; reason: string; views: Record<string, string>; modified?: boolean };
   type Approval = { id: string; proposalId: string; incidentId: string; status: string; riskLevel: string; summary: string; costImpact: number | null; submitter: string; waitingHours: number };
-  type Task = { id: string; title: string; source: string; incidentId?: string; assignee: string; roleCode: RoleCode; status: string; dueAt: string; priority: string; checklist: { text: string; done: boolean }[] };
+  type Task = { id: string; title: string; source: string; incidentId?: string; assignee: string; assigneeName?: string; roleCode: RoleCode; status: string; dueAt: string; priority: string; checklist: { text: string; done: boolean }[] };
   type AuditLog = { id: string; time: string; userId: string; userName: string; roleCode: RoleCode; action: string; targetType: string; targetId: string; targetName: string; detail: Record<string, any>; ip: string };
 }

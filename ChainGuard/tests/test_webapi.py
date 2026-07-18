@@ -697,3 +697,74 @@ def test_medium_risk_with_unknown_cost_conservatively_ccs_finance():
     body = response.json()
     assert body["costImpact"] is None
     assert "finance" in body["ccRoleCodes"]
+
+
+def test_decision_detail_natural_language_fields_are_scrubbed_for_buyer():
+    """P0-1：自然语言/解释/推演/审计字段里内嵌的毛利、罚金、客户等级具体数字，
+    GET decision-detail、JSON 导出、PDF 导出必须共用同一套脱敏并全部清洗。"""
+    pypdf = pytest.importorskip("pypdf")
+    pytest.importorskip("reportlab")
+    incident_id = f"inc-nl-{uuid.uuid4().hex}"
+    payload = {
+        "proposals": [{
+            "agent_name": "财务 Agent",
+            "proposal_title": "盈亏平衡截止",
+            "reasoning": [
+                "A类关键订单数量为 1，对应违约罚金 180000，占全部罚金 70.6%。",
+                "当前订单总毛利为 632000，全部违约罚金为 255000，B/C类订单占比 66.7%。",
+            ],
+        }],
+        "arbitration": {
+            "final_decision_title": "分级保障",
+            "final_score": 79.5,
+            "final_strategy": "优先保护A类关键客户，预计避免违约损失 600000 元，应急成本约 128000 元。",
+            "manual_confirmation_points": ["确认对A类订单的空运安排；违约罚金 180000 元敞口是否接受。"],
+        },
+        "audit_entry": {"decision_id": "d-nl", "note": "本次净收益 600000，保护利润 420000。"},
+    }
+    with SessionLocal() as db:
+        db.add(Incident(id=incident_id, tenant_id="tenant-demo", code=incident_id, title="自然语言脱敏", type="manual", level="high", status="deciding", owner="t", source_risk_ids=[], loss=1, cost=1))
+        db.add(DecisionDetail(id=f"detail-{uuid.uuid4().hex}", tenant_id="tenant-demo", incident_id=incident_id, job_id="job-nl", payload=payload))
+        db.commit()
+    leaks = ["180000", "632000", "255000", "600000", "420000", "128000"]
+    for path in (f"/api/v1/incidents/{incident_id}/decision-detail",
+                 f"/api/v1/incidents/{incident_id}/decision-detail/export?format=json"):
+        text = client.get(path, headers=headers("buyer")).text
+        for leaked in leaks:
+            assert leaked not in text, f"{leaked} 泄漏给 buyer：{path}"
+        assert "A类" not in text and "B/C类" not in text
+    # boss（具备 field:cost/profit/customerLevel:view）保留真实数字与等级
+    boss_text = client.get(f"/api/v1/incidents/{incident_id}/decision-detail", headers=headers("boss")).text
+    assert "180000" in boss_text and "632000" in boss_text and "A类" in boss_text
+    # PDF：仲裁结论与执行确认点渲染进报告，同样不得泄漏
+    def pdf_text(role):
+        r = client.get(f"/api/v1/incidents/{incident_id}/decision-detail/export?format=pdf", headers=headers(role))
+        assert r.status_code == 200
+        return "".join(p.extract_text() or "" for p in pypdf.PdfReader(BytesIO(r.content)).pages)
+    bt = pdf_text("buyer")
+    assert all(v not in bt for v in ("600000", "128000", "180000"))
+    ot = pdf_text("boss")
+    assert "600000" in ot and "128000" in ot
+
+
+def test_tasks_scope_enforces_custom_data_range_without_task_manage():
+    """P0-2：无 task:manage 的角色（buyer 等 custom 范围）只能看/改分派给自己的任务；
+    有 task:manage 才能看全部。复用 task:manage，不新增权限码。"""
+    mine = f"task-mine-{uuid.uuid4().hex}"
+    other = f"task-other-{uuid.uuid4().hex}"
+    with SessionLocal() as db:
+        db.add(Task(id=mine, tenant_id="tenant-demo", title="我的任务", source="test", incident_id="", assignee="u-buyer", role_code="buyer", status="pending", due_at="", priority="高", checklist=[]))
+        db.add(Task(id=other, tenant_id="tenant-demo", title="他人任务", source="test", incident_id="", assignee="u-sales", role_code="sales", status="pending", due_at="", priority="高", checklist=[]))
+        db.commit()
+    resp = client.get("/api/v1/tasks", headers=headers("buyer"))
+    assert resp.status_code == 200
+    ids = {t["id"] for t in resp.json()["data"]}
+    assert mine in ids and other not in ids
+    # 详情越权 404，本人 200
+    assert client.get(f"/api/v1/tasks/{other}", headers=headers("buyer")).status_code == 404
+    assert client.get(f"/api/v1/tasks/{mine}", headers=headers("buyer")).status_code == 200
+    # PATCH 越权 403
+    assert client.patch(f"/api/v1/tasks/{other}", headers=headers("buyer"), json={"status": "in_progress"}).status_code == 403
+    # scm_lead 具 task:manage，看全部
+    lead_ids = {t["id"] for t in client.get("/api/v1/tasks", headers=headers("scm_lead")).json()["data"]}
+    assert mine in lead_ids and other in lead_ids

@@ -1,6 +1,6 @@
 import { DownloadOutlined, InboxOutlined } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
-import { Alert, Button, Checkbox, Descriptions, Radio, Result, Select, Space, Steps, Table, Tag, Typography, Upload, message } from 'antd';
+import { Alert, App, Button, Checkbox, Descriptions, Radio, Result, Select, Space, Steps, Table, Tag, Typography, Upload } from 'antd';
 import type { UploadProps } from 'antd';
 import { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -54,6 +54,7 @@ export function PreflightSummary({ report, blocked = false, onForce, loading }: 
   const type = hardBlocked || parseError ? 'error' : review ? 'warning' : 'success';
   const normalized = report.normalized || {};
   const previewRows = normalized.previewRows || [];
+  const previewData = previewRows.map((row: Record<string, unknown>, index: number) => ({ ...row, __previewKey: `normalized-${index}` }));
   return <Alert
     type={type}
     showIcon
@@ -66,13 +67,14 @@ export function PreflightSummary({ report, blocked = false, onForce, loading }: 
       ]} />
       {(report.messages || []).map((item: string) => <Typography.Text key={item}>{item}</Typography.Text>)}
       <Typography.Text strong>归一化数据预览（前 {normalized.previewLimit || 20} 行）</Typography.Text>
-      {previewRows.length ? <Table size="small" pagination={false} rowKey={(_, index) => String(index)} dataSource={previewRows} columns={Object.keys(previewRows[0]).map((key) => ({ title: key, dataIndex: key }))} scroll={{ x: true }} /> : <Typography.Text type="secondary">当前文件没有可展示的表格归一化行；图片/PDF 将由服务端提取后进入人工处理或导入流程。</Typography.Text>}
+      {previewRows.length ? <Table size="small" pagination={false} rowKey="__previewKey" dataSource={previewData} columns={Object.keys(previewRows[0]).map((key) => ({ title: key, dataIndex: key }))} scroll={{ x: true }} /> : <Typography.Text type="secondary">当前文件没有可展示的表格归一化行；图片/PDF 将由服务端提取后进入人工处理或导入流程。</Typography.Text>}
       {blocked && !hardBlocked && !parseError && onForce && <Space><Button danger loading={loading} onClick={onForce}>确认仍要导入</Button><Typography.Text type="secondary">此操作只适用于非磁盘容量、非解析失败类预检异常。</Typography.Text></Space>}
     </Space>}
   />;
 }
 
 export default function ImportWizard({ embedded = false }: { embedded?: boolean }) {
+  const { message } = App.useApp();
   const { initialState } = useModel('@@initialState');
   const permissions = initialState?.currentUser?.permissions || [];
   const allowedTypes = useMemo(() => {
@@ -244,13 +246,13 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
     .map((field) => ({ title: field.label, dataIndex: field.key }));
 
   // P1-4/P2-13：解析失败是业务性红灯（展示预检报告并允许重新上传），不是"服务不可用"
-  if (error && preflightReport?.verdict === 'PARSE_ERROR') return <section aria-label="数据导入向导"><Steps current={step} items={items} style={{ marginBottom: 24 }} /><Space direction="vertical" style={{ width: '100%' }}><PreflightSummary report={preflightReport} /><Button type="primary" onClick={() => { setError(undefined); setPreflightReport(undefined); resetFileState(); setStep(1); }}>返回上传</Button></Space></section>;
-  if (error) return <section aria-label="数据导入向导"><Steps current={step} items={items} style={{ marginBottom: 24 }} /><Result status="500" title="导入服务暂时不可用" subTitle={error} extra={<Button type="primary" disabled={!lastFile} onClick={() => lastFile && loadFile(lastFile)}>重试</Button>} /></section>;
-  if (step === 2 && parsed && parsed.total === 0) return <section aria-label="数据导入向导"><Steps current={step} items={items} style={{ marginBottom: 24 }} /><EmptyGuide title="文件中没有数据行" description="请检查文件内容后重新上传。" actionText="返回上传" onAction={() => setStep(1)} /></section>;
+  if (error && preflightReport?.verdict === 'PARSE_ERROR') return <section aria-label="数据导入向导"><Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} /><Space direction="vertical" style={{ width: '100%' }}><PreflightSummary report={preflightReport} /><Button type="primary" onClick={() => { setError(undefined); setPreflightReport(undefined); resetFileState(); setStep(1); }}>返回上传</Button></Space></section>;
+  if (error) return <section aria-label="数据导入向导"><Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} /><Result status="500" title="导入服务暂时不可用" subTitle={error} extra={<Button type="primary" disabled={!lastFile} onClick={() => lastFile && loadFile(lastFile)}>重试</Button>} /></section>;
+  if (step === 2 && parsed && parsed.total === 0) return <section aria-label="数据导入向导"><Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} /><EmptyGuide title="文件中没有数据行" description="请检查文件内容后重新上传。" actionText="返回上传" onAction={() => setStep(1)} /></section>;
 
   return (
-    <section aria-label="数据导入向导">
-      <Steps current={step} items={items} style={{ marginBottom: 24 }} />
+    <section aria-label="数据导入向导" style={{ maxWidth: "100%", overflowX: "hidden" }}>
+      <Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} />
 
       {step === 0 && (
         <Space direction="vertical" size="middle">
@@ -295,7 +297,7 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
                   <Select
                     allowClear
                     value={mapping[source]}
-                    style={{ width: 220 }}
+                    style={{ width: '100%', minWidth: 160 }}
                     placeholder="不导入该列"
                     onChange={(value) => setMapping((current) => ({ ...current, [source]: value }))}
                     options={fields.map((field) => ({
@@ -319,8 +321,8 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
             size="small"
             title={() => `原始数据预览（前 20 行，共 ${parsed.total} 行）`}
             pagination={false}
-            rowKey={(_, index) => String(index)}
-            dataSource={parsed.rows.slice(0, 20)}
+            rowKey="__previewKey"
+            dataSource={parsed.rows.slice(0, 20).map((row, index) => ({ ...row, __previewKey: `raw-${index}` }))}
             columns={parsed.headers.map((header) => ({ title: header, dataIndex: header }))}
             scroll={{ x: true }}
           />
@@ -370,7 +372,7 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
         </Space>
       )}
 
-      <Space style={{ marginTop: 24 }}>
+      <Space style={{ marginTop: 24 }} wrap>
         <Button disabled={step === 0 || loading} onClick={() => setStep((current) => Math.max(current - 1, 0))}>上一步</Button>
         <Button
           type="primary"
