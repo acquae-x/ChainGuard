@@ -17,6 +17,11 @@ describe('HeaderActions 375px 收纳', () => {
     expect(screen.getByLabelText('通知')).toBeInTheDocument();
     expect(screen.getByLabelText('更多')).toBeInTheDocument();
     expect(screen.getByLabelText('用户菜单')).toBeInTheDocument();
+    expect(screen.getByTestId('compact-header-actions')).toHaveStyle({
+      position: 'fixed',
+      top: '8px',
+      right: '8px',
+    });
     // 搜索在未展开的「更多」内，不在常驻栏
     expect(screen.queryByTestId('global-search')).toBeNull();
   });

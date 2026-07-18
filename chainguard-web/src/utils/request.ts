@@ -37,6 +37,7 @@ type RequestOptions = {
   data?: unknown;
   params?: Record<string, unknown>;
   headers?: Record<string, string>;
+  timeoutMs?: number;
   skipAuth?: boolean;
   // 静默模式：不弹全局 message（用于探针 / 调用方自行处理）
   silent?: boolean;
@@ -77,7 +78,7 @@ async function core<T>(url: string, options: RequestOptions, attempt = 0): Promi
       data: options.data,
       params: options.params,
       headers,
-      timeout: TIMEOUT,
+      timeout: options.timeoutMs ?? TIMEOUT,
     });
   } catch (raw: any) {
     const error = normalizeError(raw);

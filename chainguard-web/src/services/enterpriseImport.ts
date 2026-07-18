@@ -104,5 +104,9 @@ export async function previewErp(values: { baseUrl: string; apiKey?: string; typ
 }
 
 export async function syncErp(values: { baseUrl: string; apiKey?: string; types: string[] }): Promise<EnterpriseImportJob> {
-  return apiPost<EnterpriseImportJob>('/imports/erp/sync', { values: { ...values, confirmed: true } });
+  return apiPost<EnterpriseImportJob>(
+    '/imports/erp/sync',
+    { values: { ...values, confirmed: true } },
+    { timeoutMs: 5 * 60 * 1000 },
+  );
 }
