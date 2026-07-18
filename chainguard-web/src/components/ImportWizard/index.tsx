@@ -20,6 +20,7 @@ import type {
   ImportValidationResult,
   ParsedImportFile
 } from '@/services/data';
+import EnterpriseImportWizard from './EnterpriseImportWizard';
 
 const typeOptions: Array<{ label: string; value: ImportType }> = [
   { label: '物料', value: 'material' },
@@ -73,7 +74,7 @@ export function PreflightSummary({ report, blocked = false, onForce, loading }: 
   />;
 }
 
-export default function ImportWizard({ embedded = false }: { embedded?: boolean }) {
+function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
   const { message } = App.useApp();
   const { initialState } = useModel('@@initialState');
   const permissions = initialState?.currentUser?.permissions || [];
@@ -387,3 +388,6 @@ export default function ImportWizard({ embedded = false }: { embedded?: boolean 
     </section>
   );
 }
+
+export { LegacyImportWizard };
+export default EnterpriseImportWizard;

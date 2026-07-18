@@ -1,7 +1,8 @@
 import { approvals as seedApprovals, auditLogs as seedAuditLogs, incident as seedIncident, inventories, materials, orders, proposals as seedProposals, risks as seedRisks, suppliers, tasks as seedTasks } from './mockData';
 
 type Actor = Pick<API.User, 'id' | 'name' | 'roleCode'>;
-type ApprovalRecord = API.Approval & { ccRoleCodes?: API.RoleCode[]; transferredTo?: string; countersigned?: boolean; experienceSaved?: boolean };
+type ApprovalHistory = { action: string; reason?: string; createdAt: string; actor: string };
+type ApprovalRecord = API.Approval & { ccRoleCodes?: API.RoleCode[]; transferredTo?: string; countersigned?: boolean; experienceSaved?: boolean; history?: ApprovalHistory[] };
 type ExperienceCard = { id: string; title: string; trigger: string; action: string; constraint: string; outcome: string; status: string; approvalId?: string };
 
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -157,7 +158,7 @@ export const workflowStore = {
     return approval;
   },
 
-  updateApproval(id: string, action: 'approve' | 'reject' | 'recalc' | 'transfer' | 'submit' | 'withdraw' | 'countersign', values: Record<string, unknown> = {}, actor?: Actor) {
+  updateApproval(id: string, action: 'approve' | 'reject' | 'recalc' | 'transfer' | 'submit' | 'withdraw' | 'countersign' | 'ratify_approve' | 'ratify_object', values: Record<string, unknown> = {}, actor?: Actor) {
     const approval = state.approvals.find((item) => item.id === id);
     if (!approval) throw new Error('审批单不存在');
     const incident = state.incidents.find((item) => item.id === approval.incidentId);
@@ -191,6 +192,14 @@ export const workflowStore = {
     if (action === 'submit') approval.status = 'pending';
     if (action === 'withdraw') { approval.status = 'withdrawn'; if (incident) incident.status = 'planning'; }
     if (action === 'countersign') approval.countersigned = true;
+    if (action === 'ratify_approve' || action === 'ratify_object') {
+      approval.history = [...(approval.history || []), {
+        action,
+        reason: typeof values.reason === 'string' ? values.reason : undefined,
+        createdAt: now(),
+        actor: actorOf(actor).name,
+      }];
+    }
     appendAudit(`审批${action}`, 'approval', id, proposal?.name || approval.summary, { ...values, incidentId: approval.incidentId }, actor);
     return approval;
   },
