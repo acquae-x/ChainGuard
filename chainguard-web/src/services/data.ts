@@ -8,6 +8,7 @@ import { customers, inventories, materials, orders, suppliers } from './mockData
 import { appendAudit } from './workflowStore';
 import { isApiMode, pick } from './dataMode';
 import { apiGet, apiPost } from '../utils/request';
+import { normalizeImportHistoryJob } from './importHistory';
 
 const API_RESOURCE_TYPES = new Set(['material', 'supplier', 'customer', 'order', 'inventory']);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -399,18 +400,10 @@ export async function getImportHistory() {
     async () => {
       const res = await apiGet<any>('/imports');
       const list: any[] = Array.isArray(res) ? res : res.data || [];
-      const data = list.map((job) => ({
-        id: job.id,
-        type: job.importType || job.type || '-',
-        success: job.result?.success ?? job.result?.imported ?? 0,
-        failed: job.result?.failed ?? 0,
-        operator: job.operator || '-',
-        time: job.createdAt || job.updatedAt || '-',
-        status: job.status,
-      }));
+      const data = list.map(normalizeImportHistoryJob);
       return { data };
     },
-    async () => ({ data: importBatches }),
+    async () => ({ data: importBatches.map(normalizeImportHistoryJob) }),
   );
 }
 

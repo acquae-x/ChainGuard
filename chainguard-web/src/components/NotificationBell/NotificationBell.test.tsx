@@ -9,8 +9,8 @@ const { pushMock, markReadMock, getNotificationsMock } = vi.hoisted(() => ({
 }));
 vi.mock('@umijs/max', () => ({ history: { push: pushMock } }));
 vi.mock('@/services/notify', () => ({
-  getNotifications: (...a: any[]) => getNotificationsMock(...a),
-  markRead: (...a: any[]) => markReadMock(...a),
+  getNotifications: getNotificationsMock,
+  markRead: markReadMock,
 }));
 
 import NotificationBell from './index';
