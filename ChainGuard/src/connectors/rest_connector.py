@@ -27,14 +27,27 @@ class RestErpConnector(ErpConnector):
         self,
         base_url: str,
         *,
+        api_key: str | None = None,
         timeout: float = 5.0,
         retries: int = 1,
         page_size: int = 500,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.api_key = (api_key or "").strip()
         self.timeout = timeout
         self.retries = max(0, retries)
         self.page_size = min(1000, max(1, page_size))
+
+    def fetch_resource(self, resource: str) -> list[dict[str, Any]]:
+        """Fetch a complete ERP resource for the shared import adapter."""
+        return self._fetch_resource(resource)
+
+    def test_connection(self) -> dict[str, Any]:
+        """Perform a bounded, read-only ERP connectivity check."""
+        payload = self._json_request("GET", "/api/v1/materials", params={"page": 1, "page_size": 1})
+        if not isinstance(payload, dict):
+            raise ErpConnectorError("Unexpected ERP health response")
+        return {"ok": True, "sampleRows": len(payload.get("items", [])), "total": self._int(payload.get("total"), 0)}
 
     def fetch_disruption_events(self) -> list[dict[str, Any]]:
         """Return valid disruption events from ERP, skipping malformed rows."""
@@ -151,6 +164,8 @@ class RestErpConnector(ErpConnector):
         url = f"{self.base_url}{path}{query}"
         body = None
         headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"

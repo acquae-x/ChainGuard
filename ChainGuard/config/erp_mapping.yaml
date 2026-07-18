@@ -1,0 +1,164 @@
+# ChainGuard 5B / C2 共用映射源（唯一事实源）
+# 契约来源：codex_landing_spec/11_Phase5B_前置产出.md v2 §②「数据流三合一与唯一映射源」。
+# CSV 导入向导与 ERP 同步（scripts/erp_sync.py 编排 + RestErpConnector 规范化）共同消费本文件；
+# 禁止在 router/脚本/builder 各维护第二套字段口径。
+# 规则：
+#   - fields: {源列: 目标实体列}，直存或重命名；目标列类型由实体模型决定，adapter 自动做类型/时间转换。
+#   - converts: {目标列: {from: 源列, type: bool|bool_level}} 用于非平凡转换。
+#   - required: 源侧必填/业务主键；缺失该行被拒绝（写拒绝清单，不猜值）。
+#   - 未声明的源列 → 目标实体 extra（JSON）；sensitive_columns 中的列一律拒绝（不落库、不进 extra）。
+#   - 订单头(order)取财务值一次；订单行(order_line)只负责物料需求数量，禁止按行复制订单头金额后累计。
+#   - inventory 的 planned_arrival_at/estimated_arrival_at 来源 shipments 跨源聚合，属"导入落表"阶段（后续 C2），本批不接线。
+version: 1
+unknown_columns: extra
+
+sensitive_columns:
+  - password
+  - secret
+  - token
+  - api_key
+  - credential
+  - access_key
+  - id_card
+  - ssn
+  - bank_account
+
+# 外部 road 只在 adapter 边界转成 canonical truck；引擎内部不新增 road。
+transport:
+  canonical_modes: [air, truck, rail, sea]
+  aliases:
+    road: truck
+    highway: truck
+    公路: truck
+    陆运: truck
+    卡车: truck
+
+resources:
+  material:
+    source_table: materials
+    source_key: material_id
+    target_table: materials
+    target_key: material_id
+    aggregation: row
+    unknown_columns: extra
+    fields:
+      material_id: material_id
+      material_name: material_name
+      category: category
+      unit: unit
+    converts:
+      daily_consumption: { from: daily_consumption, type: float, source_unit: pieces/day, target_unit: pieces/day }
+      unit_cost: { from: standard_cost, type: float, source_unit: CNY/unit, target_unit: CNY/unit }
+      is_critical: { from: criticality, type: bool_level }
+    required: [material_id]
+
+  supplier:
+    source_table: suppliers
+    source_key: supplier_id
+    target_table: suppliers
+    target_key: supplier_id
+    aggregation: row
+    unknown_columns: extra
+    fields:
+      supplier_id: supplier_id
+      supplier_name: supplier_name
+      region: region
+      status: status
+    converts:
+      reliability_score: { from: reliability_score, type: float, source_unit: score_0_100, target_unit: score_0_100 }
+    required: [supplier_id]
+
+  supplier_material:
+    source_table: supplier_materials
+    source_key: [supplier_id, material_id]
+    target_table: supplier_materials
+    target_key: [supplier_id, material_id]
+    aggregation: relation
+    unknown_columns: extra
+    fields:
+      supplier_material_id: supplier_material_id
+      supplier_id: supplier_id
+      material_id: material_id
+    converts:
+      qualified: { from: qualified, type: bool }
+      supplier_rank: { from: supplier_rank, type: integer }
+      lead_time_hours: { from: lead_time_hours, type: float, source_unit: hours, target_unit: hours }
+      available_emergency_qty: { from: available_emergency_qty, type: float, source_unit: pieces, target_unit: pieces }
+      emergency_cost_multiplier: { from: emergency_cost_multiplier, type: float, source_unit: ratio, target_unit: ratio }
+      supplier_price: { from: unit_cost, type: float, source_unit: CNY/unit, target_unit: CNY/unit }
+    required: [supplier_material_id, supplier_id, material_id]
+
+  customer:
+    source_table: customers
+    source_key: customer_id
+    target_table: customers
+    target_key: customer_id
+    aggregation: row
+    unknown_columns: extra
+    fields:
+      customer_id: customer_id
+      customer_name: customer_name
+      customer_level: customer_level
+      region: region
+      contract: contract
+      owner: owner
+    required: [customer_id]
+
+  order:
+    source_table: sales_orders
+    source_key: sales_order_id
+    target_table: sales_orders
+    target_key: sales_order_id
+    aggregation: header                  # 头级：财务值取一次
+    unknown_columns: extra
+    fields:
+      sales_order_id: sales_order_id
+      customer_id: customer_id
+      order_status: order_status
+    converts:
+      promised_delivery_at: { from: promised_delivery_at, type: datetime, source_unit: ISO8601, target_unit: UTC }
+      order_amount: { from: order_amount, type: float, source_unit: CNY, target_unit: CNY }
+      gross_profit: { from: gross_profit, type: float, source_unit: CNY, target_unit: CNY }
+      penalty_cost: { from: penalty_cost, type: float, source_unit: CNY, target_unit: CNY }
+    required: [sales_order_id, customer_id]
+
+  order_line:
+    source_table: sales_order_lines
+    source_key: [sales_order_id, line_no]
+    target_table: sales_order_lines
+    target_key: [sales_order_id, line_no]
+    aggregation: line                    # 行级：只负责物料需求数量，不带订单头财务
+    unknown_columns: extra
+    # 订单头财务字段不得落到行级（即使作为未知列进入 extra 也拒绝）。
+    forbidden_columns: [order_amount, gross_profit, penalty_cost]
+    fields:
+      sales_order_line_id: sales_order_line_id
+      sales_order_id: sales_order_id
+      material_id: material_id
+    converts:
+      line_no: { from: line_no, type: integer }
+      ordered_qty: { from: ordered_qty, type: float, source_unit: pieces, target_unit: pieces }
+      unit_price: { from: unit_price, type: float, source_unit: CNY/unit, target_unit: CNY/unit }
+    required: [sales_order_line_id, sales_order_id, line_no, material_id]
+
+  inventory:
+    source_table: inventory
+    source_key: inventory_id
+    target_table: inventory
+    target_key: inventory_id
+    aggregation: warehouse_snapshot
+    unknown_columns: extra
+    fields:
+      inventory_id: inventory_id
+      material_id: material_id
+      warehouse_id: warehouse_id
+      warehouse_name: warehouse_name
+    converts:
+      on_hand_qty: { from: on_hand_qty, type: float, source_unit: pieces, target_unit: pieces }
+      available_qty: { from: available_qty, type: float, source_unit: pieces, target_unit: pieces }
+      safety_stock_qty: { from: safety_stock_qty, type: float, source_unit: pieces, target_unit: pieces }
+      in_transit_qty: { from: in_transit_qty, type: float, source_unit: pieces, target_unit: pieces }
+      planned_arrival_at: { from: planned_arrival_at, type: datetime, source_unit: ISO8601, target_unit: UTC }
+      estimated_arrival_at: { from: estimated_arrival_at, type: datetime, source_unit: ISO8601, target_unit: UTC }
+    required: [inventory_id, material_id]
+    # planned_arrival_at/estimated_arrival_at：来源 shipments，按物料汇总最近未完成在途 → 后续 C2 落表阶段接线

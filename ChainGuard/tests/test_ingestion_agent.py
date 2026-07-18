@@ -32,6 +32,8 @@ def test_detect_kind() -> None:
     assert detect_kind("materials.csv") == "csv"
     assert detect_kind("materials.xlsx") == "excel"
     assert detect_kind("report.pdf") == "pdf"
+    assert detect_kind("contract.docx") == "word"
+    assert detect_kind("legacy.doc") == "word"
     assert detect_kind("scan.png") == "image"
     assert detect_kind("scan.unknown") == "unknown"
 

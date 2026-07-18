@@ -1,0 +1,201 @@
+{
+  "generatedAt": "2026-07-18T09:23:46.153901+00:00",
+  "database": "D:\\github_projects\\Chainguard\\ChainGuard\\test_tmp\\phase5b_c2_acceptance_frozen_66be2d27-59c5-4af2-ad83-a230604fdaea.db",
+  "alembicRevision": "20260718_0005",
+  "tenantId": "tenant-phase5b-c2-frozen",
+  "importJobId": "job-phase5b-c2-frozen",
+  "sourceRows": 111460,
+  "successRows": 111460,
+  "rejectedRows": 0,
+  "auditedRows": 111460,
+  "tableReports": [
+    {
+      "table": "customers",
+      "sourceRows": 120,
+      "successRows": 120,
+      "rejectedRows": 0,
+      "inserted": 120,
+      "updated": 0,
+      "entityRows": 120,
+      "elapsedSeconds": 0.043563
+    },
+    {
+      "table": "disruption_events",
+      "sourceRows": 240,
+      "successRows": 240,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.007958
+    },
+    {
+      "table": "historical_decisions",
+      "sourceRows": 600,
+      "successRows": 600,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.016993
+    },
+    {
+      "table": "inventory",
+      "sourceRows": 1440,
+      "successRows": 1440,
+      "rejectedRows": 0,
+      "inserted": 1440,
+      "updated": 0,
+      "entityRows": 1440,
+      "elapsedSeconds": 0.59561
+    },
+    {
+      "table": "inventory_movements",
+      "sourceRows": 35000,
+      "successRows": 35000,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.621419
+    },
+    {
+      "table": "inventory_snapshots",
+      "sourceRows": 44640,
+      "successRows": 44640,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 1.065403
+    },
+    {
+      "table": "materials",
+      "sourceRows": 240,
+      "successRows": 240,
+      "rejectedRows": 0,
+      "inserted": 240,
+      "updated": 0,
+      "entityRows": 240,
+      "elapsedSeconds": 0.076104
+    },
+    {
+      "table": "production_plans",
+      "sourceRows": 2000,
+      "successRows": 2000,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.069221
+    },
+    {
+      "table": "purchase_order_lines",
+      "sourceRows": 4501,
+      "successRows": 4501,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.143879
+    },
+    {
+      "table": "purchase_orders",
+      "sourceRows": 1800,
+      "successRows": 1800,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.065556
+    },
+    {
+      "table": "quality_inspections",
+      "sourceRows": 2000,
+      "successRows": 2000,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.072287
+    },
+    {
+      "table": "sales_order_lines",
+      "sourceRows": 10527,
+      "successRows": 10527,
+      "rejectedRows": 0,
+      "inserted": 10527,
+      "updated": 0,
+      "entityRows": 10527,
+      "elapsedSeconds": 5.318036
+    },
+    {
+      "table": "sales_orders",
+      "sourceRows": 3500,
+      "successRows": 3500,
+      "rejectedRows": 0,
+      "inserted": 3500,
+      "updated": 0,
+      "entityRows": 3500,
+      "elapsedSeconds": 1.381461
+    },
+    {
+      "table": "shipments",
+      "sourceRows": 3000,
+      "successRows": 3000,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 240,
+      "elapsedSeconds": 0.105526,
+      "aggregation": {
+        "materialsAggregated": 240,
+        "inventoryRowsUpdated": 240,
+        "rejectedRows": 0
+      }
+    },
+    {
+      "table": "supplier_materials",
+      "sourceRows": 1066,
+      "successRows": 1066,
+      "rejectedRows": 0,
+      "inserted": 1066,
+      "updated": 0,
+      "entityRows": 1066,
+      "elapsedSeconds": 0.524408
+    },
+    {
+      "table": "supplier_performance",
+      "sourceRows": 720,
+      "successRows": 720,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.030098
+    },
+    {
+      "table": "suppliers",
+      "sourceRows": 60,
+      "successRows": 60,
+      "rejectedRows": 0,
+      "inserted": 60,
+      "updated": 0,
+      "entityRows": 60,
+      "elapsedSeconds": 0.025407
+    },
+    {
+      "table": "warehouses",
+      "sourceRows": 6,
+      "successRows": 6,
+      "rejectedRows": 0,
+      "inserted": 0,
+      "updated": 0,
+      "entityRows": 0,
+      "elapsedSeconds": 0.002578
+    }
+  ],
+  "elapsedSeconds": 10.764254,
+  "persistedSourceRows": 111460,
+  "persistedRejections": 0
+}

@@ -1,10 +1,53 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from src.intake_review import DEFAULT_KEY_FIELDS, build_history_counts
+from src.intake_review import DEFAULT_KEY_FIELDS, build_history_counts, signature_of
+
+
+def tabular_file_signature(path: str | Path, resource_type: str) -> tuple[str, int]:
+    """Return a stable D04 signature and data-row count for normalized input.
+
+    CSV/XLSX/OCR inputs all reach execute as normalized CSV.  Values reuse the
+    existing ``signature_of`` normalization contract (trim, lowercase, empty
+    becomes ``unknown``), while sorted column names make equivalent CSV/XLSX
+    payloads produce the same SHA-256 signature.  Non-tabular files use a
+    streamed byte hash as a defensive fallback.
+    """
+
+    source = Path(path)
+    digest = hashlib.sha256()
+    digest.update(f"chainguard-import-v1\0{resource_type.strip().lower()}\0".encode())
+    if source.suffix.lower() == ".csv":
+        last_error: UnicodeDecodeError | None = None
+        for encoding in ("utf-8-sig", "utf-8", "gbk"):
+            try:
+                with source.open("r", encoding=encoding, newline="") as handle:
+                    reader = csv.DictReader(handle)
+                    columns = sorted(str(name or "").strip() for name in (reader.fieldnames or []))
+                    digest.update(json.dumps(columns, ensure_ascii=False).encode("utf-8"))
+                    count = 0
+                    for row in reader:
+                        digest.update(signature_of(dict(row), columns).encode("utf-8"))
+                        digest.update(b"\n")
+                        count += 1
+                return digest.hexdigest(), count
+            except UnicodeDecodeError as error:
+                last_error = error
+                digest = hashlib.sha256()
+                digest.update(f"chainguard-import-v1\0{resource_type.strip().lower()}\0".encode())
+        assert last_error is not None
+        raise last_error
+
+    count = 0
+    with source.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest(), count
 
 
 def history_path_for(data_source: Any) -> Path:
