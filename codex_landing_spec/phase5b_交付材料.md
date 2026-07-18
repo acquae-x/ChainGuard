@@ -127,6 +127,46 @@ derived_metrics 未建实体表（明确为 Web builder 加法字段，属 C1）
 
 ### 验收脚本归档
 
+#### 顶层全量回归证据（2026-07-18 复核）
+
+在 `ChainGuard/` 目录按指定命令实际执行：
+
+```text
+python -m pytest tests/ -q
+```
+
+受限文件沙箱内的首次执行未被隐藏或记为通过；其结尾摘要原样为：
+
+```text
+1 failed, 521 passed, 4 skipped, 53 warnings, 40 errors in 105.73s (0:01:45)
+```
+
+唯一 `failed` 和 40 个 `errors` 均为 Windows ACL 拒绝写入或清理
+`data/`、`test_tmp/pytest`、`.pytest_cache/` 所致；失败点为
+`PermissionError: [WinError 5]` / `PermissionError: [Errno 13]`，不是业务断言失败。
+不改测试、不改业务代码，在正常本机文件权限下使用完全相同的命令复跑，退出码为 `0`，结尾摘要原样为：
+
+```text
+562 passed, 4 skipped, 11 warnings in 108.11s (0:01:48)
+```
+
+4 个 `skipped` 是默认不连接外部 PostgreSQL 的专项用例；已有 PostgreSQL 16
+专项验收结果仍为 4 passed，见本文顶部验收表。
+
+#### Git 工作区复核
+
+实际执行 `git status --short` 后，**整个工作区不干净**，因此不宣称
+"工作区干净"或"无任何 C2 相关未提交改动"。当时状态包含：
+
+- `ChainGuard/data/audit_log.jsonl`、`ChainGuard/data/model_registry.json` 和 `ChainGuard/output/`
+  等运行生成物；
+- `chainguard-web` 下正在进行的 EnterpriseImportWizard、导入历史兼容、数据展示及
+  Playwright API 验收等未提交前端改动，这些与 C2 企业导入后续收口有关，不得忽略。
+
+同时，将 `bfe3ce8 feat(phase5b): land C2 entity imports and freeze backfill`
+的 33 个已提交文件与 `git status --porcelain=v1` 逐项求交，交集为 `0`：
+**本文所述 C2 第二批后端提交范围无未提交残留，但整体工作区与 C2 前端后续工作仍未干净。**
+
 直接入口实际执行：
 
 ```text
@@ -164,3 +204,79 @@ persistedRejections=0
 - `git log` 中没有 Phase 5B 提交；最新提交仍为 `69b8b0d phase5a: ...`。
 - 接手时 0004、0005、`entity_import.py`、`entity_mapping.py`、`entity_repository.py`、`erp_mapping.yaml`、验收脚本及 Phase 5B 测试均为未跟踪文件；不是“已提交但状态没留档”。
 - 本次按 Phase 5B/C2 清单选择性暂存并提交相关实现、测试与证据；工作区中其它既有 Phase 5A/非本批前端修改继续保留，未混入本批提交。
+
+## Phase 5B/C2 外部集成补验（2026-07-18）
+
+本节只记录本轮验收事实；未修改 orchestrator 决策流水线、既有 Phase 5B/C2 后端或测试。
+
+### 真实 OCR 能力与降级边界
+
+- 运行时探针结果：`llm_vision=False`、`ocr_engine=False`、`text_layer=True`、`word_text=True`。
+  本机未安装 `paddleocr`、`pytesseract` 或 tesseract 可执行文件；环境也没有
+  `CHAINGUARD_VISION_API_KEY` / `CHAINGUARD_VISION_API_URL`。因此本轮不能宣称真实扫描件
+  OCR 成功识别。
+- 实际上传一张带文本的 PNG 后，预检状态为 `manual_required`、提取方式为
+  `manual_required`；继续确认返回 HTTP 409，证明缺少 OCR 后端时不会静默落库或绕过人工闸门。
+- 实际 PDF 通过 `pypdf` 文本层提取成功，状态进入 `manual_review`；未人工确认时返回
+  HTTP 409，确认字段映射后成功落库 1 行。该结果属于真实 PDF 文本提取，不冒充 OCR。
+
+### 真实 HTTP ERP 连接器同步
+
+使用仓库 `scripts/mock_erp_server.py` 启动真实本地 HTTP 服务，API 路由通过
+`RestErpConnector` 实际分页读取并写入 GUID 隔离 SQLite；未 mock connector 或同步函数。
+
+```text
+连接探测：ok=true，样例 1 行，materials 总数 240
+目录预览/同步总行数：16953
+materials=240, suppliers=60, customers=120, supplier_materials=1066,
+sales_orders=3500, sales_order_lines=10527, inventory=1440
+同步结果：sourceRows=16953, successRows=16953, rejectedRows=0
+```
+
+逐表报告、导入历史和五个资料页总数均与源数据一致；第二租户五个资料页均为 0，读取第一租户
+ERP job 返回 404。隔离数据库在进程退出后已删除。
+
+### CSV + 文档/图片 + ERP 混合闭环
+
+同一租户、同一批量分类入口实际上传 `materials.csv`、`materials_scan.pdf`、
+`materials_scan.png`，系统分别识别为 `structured`、`ocr`、`ocr`：
+
+- CSV 成功落库 1 行；
+- PDF 经真实文本层提取、人工确认和字段映射后成功落库 1 行；
+- PNG 因无真实 OCR 后端停在 `manual_required`，确认被 HTTP 409 阻止；
+- 随后同租户从 ERP 同步 materials 240 行，资料页最终为 242 行，CSV/PDF 两条可见，
+  PNG 未被静默导入；历史状态依次为 `succeeded`、`succeeded`、`manual_required`、
+  `succeeded`。
+
+因此混合渠道的真实闭环在当前环境下达到“可处理来源落库、不可处理来源明确人工挂起、ERP 继续同步并在
+同一资料页汇合”；唯一未完成项是外部 OCR 引擎本身的成功识别。
+
+### 隔离 PostgreSQL 16 补验
+
+Docker Desktop 29.6.1 启动后创建一次性 `postgres:16-alpine` 容器，使用独立数据库名、
+测试凭证和随机本机端口；未使用默认数据库或现有 compose volume。Alembic 从 0001 在线升级至
+`20260718_0005` 后：
+
+```text
+python -m pytest tests/test_phase5b_c2_postgres.py -q
+4 passed in 0.79s
+```
+
+另经真实 API 完成 CSV 上传→预检→确认→异步执行→job 轮询→资料页：
+`sourceRows=1, successRows=1, rejectedRows=0`；第二租户资料页为 0，读取该 job 返回 404。
+容器、隔离数据库和临时上传目录均已删除，Docker Desktop 已恢复为未运行状态。
+
+### 定向回归与运行证据边界
+
+OCR、连接器、企业导入和 C2 映射相关 7 个测试文件在正常本机权限下复跑：
+
+```text
+69 passed in 15.69s
+```
+
+受限文件沙箱首次运行出现的 13 个 setup error 及 pytest 收尾异常均为 GUID basetemp 的
+Windows ACL 拒绝访问；不改测试、不改业务代码后重跑全绿。
+
+`ChainGuard/data/audit_log.jsonl`（新增 671 条运行事件）、
+`ChainGuard/data/model_registry.json`（新增 168 条逐行记录）、`ChainGuard/output/` 和根目录
+`output/` 均为既有运行证据/噪声。本轮只检查、不删除、不提交，也不与本交付文档混入同一提交。
