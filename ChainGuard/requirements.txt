@@ -16,4 +16,7 @@ pdfplumber>=0.10
 reportlab>=4.0
 # P1-4：XLSX 导入在服务端先归一化为 CSV 再预检/落库，openpyxl 是运行时依赖
 openpyxl>=3.1
+# 文档导入：DOCX 文本与表格提取；旧版 .doc 无可靠解析器时进入人工处理。
+python-docx>=1.1
 psutil  # optional - memory detection, degrades gracefully if absent
+PyYAML>=6,<7  # 5B C2：erp_mapping.yaml 单一映射源解析

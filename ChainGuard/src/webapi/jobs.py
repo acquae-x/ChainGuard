@@ -130,23 +130,45 @@ def enqueue_import_job(job_id: str, ctx: AuthContext) -> None:
 
 
 def _run_import_job(job_id: str, ctx: AuthContext) -> None:
-    """复用流式导入与 intake review，避免把整份文件载入内存。"""
+    """Stream normalized rows through the shared YAML adapter into entities."""
     from pathlib import Path
-    from src.streaming_import import stream_import_csv
     from src.intake_review import review_batch
+    from .entity_import import import_audit_file, import_enterprise_directory, import_entity_rows, iter_csv_rows, update_import_signature
+    from .enterprise_import_catalog import IMPORT_TYPE_CATALOG
     try:
         with SessionLocal() as db:
-            item = db.get(ImportJob, job_id); item.status = "running"; item.progress = 60; path = Path(item.options["path"]); db.commit()
-        target = path.parent / "import.db"
-        if item.options.get("enterpriseMode"):
-            from src.enterprise_ingest import import_tenant_from_dir
-            enterprise_result = import_tenant_from_dir(ctx.tenant_id, str(path.parent))
-            result = asdict(enterprise_result)
-        else:
-            result = stream_import_csv(path, path.stem.lower(), target, overwrite=True)
-        review = review_batch([{"signature": path.stem, "result": result}], {})
-        with SessionLocal() as db:
-            item = db.get(ImportJob, job_id); item.status = "succeeded"; item.progress = 100; item.result = {"batchId": item.id, "streaming": asdict(result) if hasattr(result, "__dataclass_fields__") else result, "review": asdict(review) if hasattr(review, "__dataclass_fields__") else str(review)}
+            item = db.get(ImportJob, job_id)
+            item.status = "running"
+            item.progress = 60
+            path = Path(item.options["path"])
+            update_import_signature(db, ctx.tenant_id, item.id, "running")
+            db.commit()
+            if item.options.get("enterpriseMode"):
+                directory = Path(item.options.get("enterpriseDir") or path.parent)
+                result = import_enterprise_directory(db, ctx.tenant_id, item.id, directory)
+            else:
+                definition = IMPORT_TYPE_CATALOG[item.import_type]
+                field_mapping = item.options.get("fieldMapping")
+                if definition["entity"]:
+                    result = import_entity_rows(
+                        db, ctx.tenant_id, item.id, iter_csv_rows(path), item.import_type,
+                        field_mapping=field_mapping,
+                    )
+                else:
+                    result = import_audit_file(db, ctx.tenant_id, item.id, path)
+            review = review_batch([{"signature": item.options.get("signature", path.stem), "result": result}], {})
+            item.status = "succeeded"
+            item.progress = 100
+            item.result = {
+                "batchId": item.id,
+                "streaming": result,
+                "total": int(result.get("sourceRows", 0)),
+                "success": int(result.get("successRows", 0)),
+                "failed": int(result.get("rejectedRows", 0)),
+                "imported": int(result.get("successRows", 0)),
+                "review": asdict(review),
+            }
+            update_import_signature(db, ctx.tenant_id, item.id, "succeeded", int(result.get("sourceRows", 0)))
             ensure_rules(db, ctx.tenant_id)
             notify_event(db, ctx.tenant_id, "import_succeeded", {"trigger_user_id": ctx.user_id, "title": f"{item.file_name}导入完成", "target": "/data/import"})
             add_audit(db, ctx, "执行导入", "import", item.id, item.file_name, {"batchId": item.id}); db.commit()
@@ -156,6 +178,7 @@ def _run_import_job(job_id: str, ctx: AuthContext) -> None:
             item = db.get(ImportJob, job_id)
             if item:
                 item.status = "failed"; item.progress = 100; item.result = {"code": "CG-2602", "message": "导入失败"}
+                update_import_signature(db, item.tenant_id, item.id, "failed")
                 ensure_rules(db, ctx.tenant_id)
                 notify_event(db, ctx.tenant_id, "import_failed", {"trigger_user_id": ctx.user_id, "title": f"{item.file_name}导入失败", "target": "/data/import"})
                 db.commit()

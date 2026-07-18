@@ -62,6 +62,9 @@ def _countersign_scheduler() -> None:
 
 @app.on_event("startup")
 def start_countersign_scheduler() -> None:
+    if settings.scheduler_disabled:
+        log_event("countersign_scheduler_disabled")
+        return
     threading.Thread(target=_countersign_scheduler, name="chainguard-countersign-scheduler", daemon=True).start()
 
 def _load_api_keys() -> dict[str, str]:

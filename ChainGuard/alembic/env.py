@@ -24,6 +24,12 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
+        if connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            # exec_driver_sql starts SQLAlchemy's implicit transaction.  End it
+            # before Alembic opens its migration transaction, otherwise SQLite
+            # DDL/version writes are rolled back when this connection closes.
+            connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction(): context.run_migrations()
 

@@ -166,6 +166,36 @@ class TextLayerBackend:
         return None
 
 
+class WordTextBackend:
+    """Extract paragraphs and tables from modern Word documents."""
+
+    name = "word_text"
+
+    def available(self) -> bool:
+        try:
+            return importlib.util.find_spec("docx") is not None
+        except Exception:
+            return False
+
+    def extract(self, file_path: str | Path) -> str | None:
+        path = Path(file_path)
+        if path.suffix.lower() != ".docx":
+            return None
+        try:
+            from docx import Document  # type: ignore
+
+            document = Document(str(path))
+            lines = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+            for table in document.tables:
+                for row in table.rows:
+                    values = [cell.text.strip() for cell in row.cells]
+                    if any(values):
+                        lines.append("\t".join(values))
+            return "\n".join(lines).strip() or None
+        except Exception:
+            return None
+
+
 def detect_kind(file_path: str | Path) -> str:
     """Classify file kind by extension."""
     suffix = Path(file_path).suffix.lower()
@@ -175,6 +205,8 @@ def detect_kind(file_path: str | Path) -> str:
         return "excel"
     if suffix == ".pdf":
         return "pdf"
+    if suffix in {".doc", ".docx"}:
+        return "word"
     if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
         return "image"
     return "unknown"
@@ -182,7 +214,7 @@ def detect_kind(file_path: str | Path) -> str:
 
 def default_backends() -> list[ExtractBackend]:
     """Build cascaded extraction backends with their own availability probes."""
-    return [LLMVisionBackend(), OcrEngineBackend(), TextLayerBackend()]
+    return [LLMVisionBackend(), OcrEngineBackend(), TextLayerBackend(), WordTextBackend()]
 
 
 def extract_with_cascade(
@@ -242,7 +274,7 @@ def ingest_files(
                 )
             continue
 
-        if kind in {"excel", "pdf", "image"}:
+        if kind in {"excel", "pdf", "image", "word"}:
             text, method_used = extract_with_cascade(path, backends)
             rows = _text_to_rows(text or "")
             if rows:
