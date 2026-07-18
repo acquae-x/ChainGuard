@@ -280,3 +280,48 @@ Windows ACL 拒绝访问；不改测试、不改业务代码后重跑全绿。
 `ChainGuard/data/audit_log.jsonl`（新增 671 条运行事件）、
 `ChainGuard/data/model_registry.json`（新增 168 条逐行记录）、`ChainGuard/output/` 和根目录
 `output/` 均为既有运行证据/噪声。本轮只检查、不删除、不提交，也不与本交付文档混入同一提交。
+
+## Phase 5B/C2 前端最终收口（2026-07-18）
+
+本节补记提交 `48bb5b6 fix(web): close ERP sync and mobile header acceptance` 的最终验收事实；
+未修改 orchestrator 决策流水线或已验收的 Phase 5B/C2 后端，也未弱化既有测试。
+
+### ERP 同步确认与长请求
+
+- ERP 连接预览成功后，确认步骤继续使用已预览的 `baseUrl` / `apiKey`，不再因连接表单卸载而
+  丢失 `baseUrl`。
+- ERP 同步请求单独允许 5 分钟超时，以覆盖十万级数据分页读取与落库；其它 API 请求仍保持
+  10 秒默认超时，未扩大长超时范围。
+- 在 GUID 隔离 SQLite 与仓库 `scripts/mock_erp_server.py` 提供的真实本地 HTTP ERP 上，
+  从 UI 发起全量同步并轮询完成：`sourceRows=111460`、`successRows=111460`、
+  `rejectedRows=0`，耗时约 16.8 秒。导入历史与物料资料页均正常回显。
+
+### 375px 移动端顶栏
+
+在 `375×812` 视口实测“更多 / 通知 / 用户菜单”三个入口均固定在可见区域，横向坐标范围为
+`x=221–346`，没有被右侧裁切。
+
+验收截图（本机 Codex 可视化留档，不纳入 Git 运行证据）：
+
+- `phase5bc2-fix-acceptance/01-mobile-header-fixed.png`
+- `phase5bc2-fix-acceptance/02-erp-ui-111460-succeeded.png`
+
+### 前端定向回归与构建
+
+新增或更新的测试覆盖 ERP 连接信息跨步骤保留、ERP 长请求超时和移动端顶栏定位。最终验证：
+
+```text
+Vitest：11 个文件、21 个测试通过
+tsc --noEmit：零错误
+DATA_MODE=api 生产构建：通过
+```
+
+### 最终外部依赖边界
+
+- 真实 PNG/JPG 扫描件 OCR 成功验收仍需可用 OCR 引擎或
+  `CHAINGUARD_VISION_API_KEY` / `CHAINGUARD_VISION_API_URL`；当前环境已验证缺少能力时进入
+  `manual_required`，确认返回 HTTP 409，不会静默落库。
+- 第三方生产 ERP 仍需客户测试租户、地址、凭据与证书，后续应补验真实鉴权、分页、限流、
+  失败重试和错误脱敏。本轮的 111,460 行验收使用真实本地 HTTP 与 `RestErpConnector`，
+  不冒充第三方生产 ERP 验收。
+- 验收所用隔离服务、数据库和临时目录均已清理；默认数据库未使用、未污染。
