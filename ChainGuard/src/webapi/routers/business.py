@@ -13,6 +13,7 @@ from ..auth import AuthContext, get_current_user, require_permission
 from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
+from ..context_builder import TenantContextBuilder
 from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, Incident, Job, NotificationMessage, Proposal, Risk, Task, User
 from ..decision_detail import mask_for_requester, render_pdf
 from ..notifications import ensure_rules, notify_event
@@ -232,6 +233,17 @@ def _decision_detail_response(item_id: str, ctx: AuthContext, db: Session) -> di
 @router.get("/incidents/{item_id}/decision-detail")
 def decision_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)]):
     return _decision_detail_response(item_id, ctx, db)
+
+
+@router.get("/incidents/{item_id}/decision-readiness")
+def decision_readiness(
+    item_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    # Preserve the product's non-enumerating cross-tenant 404 contract.
+    get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    return TenantContextBuilder(db, ctx.tenant_id).readiness(item_id)
 
 
 @router.get("/incidents/{item_id}/decision-detail/export")

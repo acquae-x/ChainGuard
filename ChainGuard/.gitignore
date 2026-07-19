@@ -12,6 +12,8 @@ tests/_runtime_tmp/
 *.db-journal
 *.db
 mt_probe.db
+data/audit_log.jsonl
 data/audit_log.*.jsonl
 demo_assets/enterprise/database/chainguard_enterprise_demo.*.db
 backups/
+output/

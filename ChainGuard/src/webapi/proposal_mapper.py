@@ -84,7 +84,7 @@ def map_decision_result(result: DecisionResult | dict[str, Any], incident_id: st
         score = _number(source.get("total_score")) or _number(source.get("score")) or 0.0
         agent = str(source.get("agent_name", source.get("name", "数据缺失")))
         lead_time = _first_number(source, ("lead_time_impact", "delay_days"))
-        lead_time_days = int(lead_time) if lead_time is not None else _supplier_lead_days(source, context)
+        lead_time_days = int(math.ceil(lead_time)) if lead_time is not None else _supplier_lead_days(source, context)
         row_customer_impact = _first_number(source, ("customer_impact",))
         row_high_value = _first_number(source, ("high_value_customers",))
         residual = source.get("residual_risk") if isinstance(source.get("residual_risk"), str) else _residual_risk(source)
