@@ -42,8 +42,9 @@ import {
   uploadForRecognition,
 } from '@/services/enterpriseImport';
 import type { ClassifiedFile, EnterpriseImportJob, ImportCatalogType, ImportMode } from '@/services/enterpriseImport';
+import { getEnterpriseFieldMapping } from '@/services/data';
 import { normalizeImportHistoryJob } from '@/services/importHistory';
-import type { ImportTableReport } from '@/services/importHistory';
+import type { ImportRowRejection, ImportTableReport } from '@/services/importHistory';
 
 const channelCards: Array<{ value: ImportMode; title: string; description: string; icon: ReactNode }> = [
   { value: 'structured', title: 'CSV / Excel', description: '上传表格，自动识别资料类型、映射字段并校验落库', icon: <FileExcelOutlined /> },
@@ -65,6 +66,13 @@ const reportColumns = [
   { title: '拒绝', dataIndex: 'rejectedRows' },
   { title: '新增', dataIndex: 'inserted' },
   { title: '更新', dataIndex: 'updated' },
+];
+
+const rejectionColumns = [
+  { title: '源行', dataIndex: 'row', width: 80, render: (value: number | null) => value ?? '-' },
+  { title: '拒绝原因', dataIndex: 'reason' },
+  { title: '修复建议', dataIndex: 'suggestion' },
+  { title: '源数据', dataIndex: 'source', render: (value: Record<string, unknown>) => <Typography.Text code>{JSON.stringify(value)}</Typography.Text> },
 ];
 
 export default function EnterpriseImportWizard(_props: { embedded?: boolean } = {}) {
@@ -148,7 +156,20 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
     try {
       const next = await Promise.all(files.map(async (file) => {
         const job = await preflightRecognizedJob(file.jobId);
-        return { ...file, recognition: job.result?.recognition || file.recognition, preflight: job.result };
+        const previewRows = Array.isArray((job.result?.normalized as { previewRows?: unknown[] } | undefined)?.previewRows)
+          ? (job.result?.normalized as { previewRows: Array<Record<string, unknown>> }).previewRows
+          : [];
+        const sourceFields = previewRows.length ? Object.keys(previewRows[0]) : [];
+        const mapping = file.mode === 'ocr' && file.selectedType
+          ? await getEnterpriseFieldMapping(file.selectedType, sourceFields)
+          : { fields: [], matches: [] };
+        return {
+          ...file,
+          recognition: job.result?.recognition || file.recognition,
+          preflight: job.result,
+          mappingFields: mapping.fields,
+          fieldMapping: Object.fromEntries(mapping.matches.map((match) => [match.source, match.target])),
+        };
       }));
       setFiles(next);
       setStep(3);
@@ -162,7 +183,11 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
   const executeFiles = async () => {
     const unconfirmedOcr = files.some((file) => file.mode === 'ocr' && !file.manualConfirmed);
     const blocked = files.some((file) => file.preflight?.canProceed === false);
+    const incompleteMapping = files.find((file) => file.mode === 'ocr' && (file.mappingFields || [])
+      .filter((field) => field.required)
+      .some((field) => !Object.values(file.fieldMapping || {}).includes(field.key)));
     if (unconfirmedOcr) return message.warning('OCR/文档文件必须逐项完成人工确认');
+    if (incompleteMapping) return message.warning(`${incompleteMapping.fileName} 尚未映射全部必填目标字段`);
     if (blocked) return message.error('存在未提取或预检不通过的文件，不能执行');
     setLoading(true);
     try {
@@ -261,7 +286,7 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
         placeholder="待人工指定"
         style={{ width: '100%' }}
         options={typeOptions}
-        onChange={(value) => setFiles((current) => current.map((item) => item.jobId === row.jobId ? { ...item, selectedType: value } : item))}
+        onChange={(value) => setFiles((current) => current.map((item) => item.jobId === row.jobId ? { ...item, selectedType: value, fieldMapping: undefined, mappingFields: undefined } : item))}
       />,
     },
     {
@@ -394,6 +419,51 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
           },
         ]}
       />
+      {files.filter((file) => file.mode === 'ocr').map((file) => {
+        const previewRows = Array.isArray((file.preflight?.normalized as { previewRows?: unknown[] } | undefined)?.previewRows)
+          ? (file.preflight?.normalized as { previewRows: Array<Record<string, unknown>> }).previewRows
+          : [];
+        const sourceFields = previewRows.length ? Object.keys(previewRows[0]) : [];
+        const mappedTargets = Object.values(file.fieldMapping || {}).filter(Boolean);
+        const missingRequired = (file.mappingFields || []).filter((field) => field.required && !mappedTargets.includes(field.key));
+        return <Card key={`${file.jobId}-mapping`} size="small" title={`${file.fileName} · 字段映射`}>
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Typography.Text type="secondary">已识别 {sourceFields.length} 个源字段。系统按现有别名规则给出建议，请逐项核对；“必填”目标必须完成映射。</Typography.Text>
+            {missingRequired.length > 0 && <Alert type="error" showIcon message={`缺少必填映射：${missingRequired.map((field) => `${field.label} (${field.key})`).join('、')}`} />}
+            {!file.mappingFields?.length && <Alert type="warning" showIcon message="当前资料类型尚无可用的前端字段定义，请改选受支持的资料类型或人工处理。" />}
+            <Table
+              aria-label={`${file.fileName} 字段映射`}
+              rowKey="source"
+              size="small"
+              pagination={false}
+              dataSource={sourceFields.map((source) => ({ source, sample: previewRows[0]?.[source] }))}
+              columns={[
+                { title: '识别到的源字段', dataIndex: 'source' },
+                { title: '样例值', dataIndex: 'sample', render: (value: unknown) => String(value ?? '') },
+                {
+                  title: '目标字段', key: 'target', width: 320,
+                  render: (_: unknown, row: { source: string }) => <Select
+                    aria-label={`${row.source} 目标字段`}
+                    allowClear
+                    placeholder="不导入此字段"
+                    value={file.fieldMapping?.[row.source]}
+                    style={{ width: '100%' }}
+                    options={(file.mappingFields || []).map((field) => ({
+                      value: field.key,
+                      label: `${field.label} (${field.key})${field.required ? ' · 必填' : ''}`,
+                      disabled: mappedTargets.includes(field.key) && file.fieldMapping?.[row.source] !== field.key,
+                    }))}
+                    onChange={(value) => setFiles((current) => current.map((item) => item.jobId === file.jobId
+                      ? { ...item, fieldMapping: { ...item.fieldMapping, [row.source]: value } }
+                      : item))}
+                  />,
+                },
+              ]}
+              scroll={{ x: 720 }}
+            />
+          </Space>
+        </Card>;
+      })}
     </Space>}
 
     {step === 3 && mode === 'erp' && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -416,16 +486,27 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
         dataSource={normalizedResults}
         pagination={false}
         expandable={{
-          rowExpandable: (row) => row.reports.length > 0,
-          expandedRowRender: (row) => <Table<ImportTableReport>
-            aria-label={`${row.id} 逐表导入报告`}
-            rowKey={(report) => `${report.table}-${report.label}`}
-            size="small"
-            pagination={false}
-            dataSource={row.reports}
-            columns={reportColumns}
-            scroll={{ x: 680 }}
-          />,
+          rowExpandable: (row) => row.reports.length > 0 || row.rejections.length > 0,
+          expandedRowRender: (row) => <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {row.reports.length > 0 && <Table<ImportTableReport>
+              aria-label={`${row.id} 逐表导入报告`}
+              rowKey={(report) => `${report.table}-${report.label}`}
+              size="small"
+              pagination={false}
+              dataSource={row.reports}
+              columns={reportColumns}
+              scroll={{ x: 680 }}
+            />}
+            {row.rejections.length > 0 && <Table<ImportRowRejection>
+              aria-label={`${row.id} 逐行拒绝明细`}
+              rowKey={(rejection, index) => `${rejection.row ?? 'unknown'}-${index}`}
+              size="small"
+              pagination={false}
+              dataSource={row.rejections}
+              columns={rejectionColumns}
+              scroll={{ x: 900 }}
+            />}
+          </Space>,
         }}
         columns={[
         { title: '批次号', dataIndex: 'id' },

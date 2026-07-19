@@ -74,6 +74,78 @@ async function importMaterialThroughApi(page: Page, token: string) {
   throw new Error('API import polling timed out');
 }
 
+async function renderOcrImage(page: Page, headers: string, row: string) {
+  await page.setViewportSize({ width: 1400, height: 360 });
+  await page.setContent(`<!doctype html><html><body style="margin:0;background:white"><pre style="margin:48px;font:48px/1.8 'Microsoft YaHei','Segoe UI',sans-serif;color:#000;white-space:pre">${headers}\n${row}</pre></body></html>`);
+  return page.screenshot({ type: 'png' });
+}
+
+async function importOcrMaterialThroughUi(
+  page: Page,
+  image: Buffer,
+  fileName: string,
+  sources: Array<{ source: string; option: RegExp }>,
+) {
+  await page.goto('/data/import?tab=wizard');
+  await page.getByText('PDF / Word / 图片', { exact: true }).click();
+  await page.getByRole('button', { name: '下一步' }).click();
+  await page.locator('.ant-upload input[type="file"]').setInputFiles({ name: fileName, mimeType: 'image/png', buffer: image });
+  await expect(page.getByText(fileName)).toBeVisible({ timeout: 30_000 });
+
+  const typeSelect = page.locator('.ant-table-tbody').getByRole('combobox').first();
+  await typeSelect.click();
+  await page.locator('.ant-select-dropdown:visible').getByText('物料主数据 · 主数据', { exact: true }).click();
+  await page.getByRole('button', { name: '下一步' }).click();
+  await expect(page.getByRole('table', { name: `${fileName} 字段映射` })).toBeVisible({ timeout: 45_000 });
+
+  for (const field of sources) {
+    const target = page.getByRole('combobox', { name: `${field.source} 目标字段` });
+    await expect(target).toBeVisible();
+    const selectedText = await target.evaluate((element) => element.closest('.ant-select')?.textContent || '');
+    expect(selectedText).toMatch(field.option);
+  }
+  await page.getByRole('checkbox', { name: /已核对原文、类型和关键字段/ }).click();
+  await page.getByRole('button', { name: '确认并执行' }).click();
+
+  await expect(page.getByText('导入批次执行完成')).toBeVisible({ timeout: 45_000 });
+  const resultRow = page.locator('.ant-table-tbody > .ant-table-row').first();
+  await expect(resultRow.locator('td').nth(2)).toContainText('succeeded');
+  await expect(resultRow.locator('td').nth(3)).toHaveText('1');
+  await expect(resultRow.locator('td').nth(4)).toHaveText('0');
+}
+
+test('OCR 中文别名字段映射 UI 闭环与英文标准字段回归', async ({ page }) => {
+  const suffix = String(Date.now()).slice(-8);
+  const tenant = await registerTenant(page, `137${suffix}`, `OCR界面验收-${suffix}`);
+  await useAccessToken(page, tenant.token);
+  const chineseId = `MAT-OCR-CN-${suffix}`;
+  const englishId = `MAT-OCR-EN-${suffix}`;
+
+  const chineseImage = await renderOcrImage(page, '物料编码,物料名称,成本', `${chineseId},中文界面芯片,12.50`);
+  await importOcrMaterialThroughUi(page, chineseImage, `ocr-cn-${suffix}.png`, [
+    { source: '物料编码', option: /物料编号.*material_id/ },
+    { source: '物料名称', option: /物料名称.*material_name/ },
+    { source: '成本', option: /单位成本.*standard_cost/ },
+  ]);
+
+  await page.goto('/data/material');
+  const chineseRow = page.locator('.ant-table-row').filter({ hasText: chineseId });
+  await expect(chineseRow).toContainText('中文界面芯片');
+  await expect(chineseRow).toContainText('12.5');
+
+  const englishImage = await renderOcrImage(page, 'material_id,material_name,standard_cost', `${englishId},English OCR Material,23.75`);
+  await importOcrMaterialThroughUi(page, englishImage, `ocr-en-${suffix}.png`, [
+    { source: 'material_id', option: /物料编号.*material_id/ },
+    { source: 'material_name', option: /物料名称.*material_name/ },
+    { source: 'standard_cost', option: /单位成本.*standard_cost/ },
+  ]);
+
+  await page.goto('/data/material');
+  const englishRow = page.locator('.ant-table-row').filter({ hasText: englishId });
+  await expect(englishRow).toContainText('English OCR Material');
+  await expect(englishRow).toContainText('23.75');
+});
+
 test('C2 真实 API 产品界面收尾验收', async ({ page }) => {
   mkdirSync(evidenceDir, { recursive: true });
   const pageErrors: string[] = [];
@@ -177,6 +249,10 @@ test('真实上传闭环、部分拒绝、重复签名与租户隔离', async ({
   const resultReport = page.getByRole('table', { name: `${jobId} 逐表导入报告` });
   await expect(resultReport).toBeVisible();
   await expect(resultReport.getByRole('row', { name: /materials\s+2\s+1\s+1/ })).toBeVisible();
+  const rejectionDetails = page.getByRole('table', { name: `${jobId} 逐行拒绝明细` });
+  await expect(rejectionDetails).toBeVisible();
+  await expect(rejectionDetails).toContainText('缺业务主键/必填字段');
+  await expect(rejectionDetails).toContainText('修正字段映射后重新导入');
 
   await page.getByRole('tab', { name: '导入历史' }).click();
   const historyRow = page.locator('.ant-tabs-tabpane-active .ant-table-row').filter({ hasText: jobId! });
@@ -193,7 +269,7 @@ test('真实上传闭环、部分拒绝、重复签名与租户隔离', async ({
   await page.locator('input[type="file"][multiple][accept*=".csv"]').first().setInputFiles({ name: 'materials.csv', mimeType: 'text/csv', buffer: materialCsv });
   await page.getByRole('button', { name: '下一步' }).click();
   await page.getByRole('button', { name: '确认并执行' }).click();
-  await expect(page.getByText(/D04：相同签名文件已导入/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/D04：相同签名文件已导入/).first()).toBeVisible({ timeout: 20_000 });
 
   const tenantB = await registerTenant(page, `138${suffix}`, `Playwright租户B-${suffix}`);
   const tenantBHeaders = { Authorization: `Bearer ${tenantB.token}` };

@@ -162,6 +162,7 @@ def import_entity_rows(
     started = time.perf_counter()
     source_rows = inserted = updated = rejected_rows = 0
     batch: list[dict[str, Any]] = []
+    rejections: list[dict[str, Any]] = []
 
     def consume(current: list[dict[str, Any]], first_row: int) -> None:
         nonlocal source_rows, inserted, updated, rejected_rows
@@ -171,10 +172,16 @@ def import_entity_rows(
         updated += int(result["updated"])
         rejected_rows += len(result["rejected"])
         for rejection in result["rejected"]:
+            row_number = first_row + int(rejection["row"])
+            rejections.append({
+                "row": row_number,
+                "reason": str(rejection["reason"]),
+                "source": dict(rejection["source"]),
+            })
             persist_rejection(
                 db, tenant_id, resource_type, source_table, str(rejection["reason"]),
                 dict(rejection["source"]), import_job_id=import_job_id,
-                row_number=first_row + int(rejection["row"]),
+                row_number=row_number,
             )
         source_rows += len(current)
 
@@ -195,6 +202,7 @@ def import_entity_rows(
         "updated": updated,
         "entityRows": _entity_count(db, tenant_id, resource_type),
         "elapsedSeconds": round(time.perf_counter() - started, 6),
+        "rejections": rejections,
     }
 
 
