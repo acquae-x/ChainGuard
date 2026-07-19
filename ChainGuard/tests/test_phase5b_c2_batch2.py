@@ -137,6 +137,20 @@ def test_field_mapping_is_applied_before_shared_entity_adapter(c2_session: Sessi
     assert entity is not None and entity.material_name == "映射物料" and entity.unit_cost == 12.5
 
 
+def test_entity_import_result_exposes_row_level_rejection_details(c2_session: Session):
+    result = import_entity_rows(
+        c2_session, "tenant-a", "job-rejection-details",
+        [{"material_name": "缺少编号的物料", "standard_cost": "12.5"}],
+        "material",
+    )
+    assert result["successRows"] == 0 and result["rejectedRows"] == 1
+    assert result["rejections"] == [{
+        "row": 1,
+        "reason": "缺业务主键/必填字段: ['material_id']",
+        "source": {"material_name": "缺少编号的物料", "standard_cost": "12.5"},
+    }]
+
+
 def test_ocr_confirm_requires_manual_confirmation_and_confirmed_type(c2_session: Session):
     context = AuthContext("u-a", "tenant-a", "A", "scm_lead", ("data:import",))
     item = ImportJob(

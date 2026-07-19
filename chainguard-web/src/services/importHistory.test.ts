@@ -22,4 +22,19 @@ describe('导入历史公共字段兼容', () => {
     expect(stream).toMatchObject({ total: 3, success: 2, failed: 1 });
     expect(stream.reports).toEqual([expect.objectContaining({ table: 'materials', sourceRows: 3, successRows: 2, rejectedRows: 1 })]);
   });
+
+  it('归一化逐行拒绝原因并给出可读修复建议', () => {
+    const row = normalizeImportHistoryJob({
+      id: 'rejected', status: 'succeeded',
+      result: { streaming: { sourceRows: 1, successRows: 0, rejectedRows: 1, rejections: [
+        { row: 2, reason: "缺业务主键/必填字段: ['material_id']", source: { 物料名称: '无编号物料' } },
+      ] } },
+    });
+    expect(row.rejections).toEqual([expect.objectContaining({
+      row: 2,
+      reason: expect.stringContaining('缺业务主键'),
+      suggestion: expect.stringContaining('修正字段映射'),
+      source: { 物料名称: '无编号物料' },
+    })]);
+  });
 });

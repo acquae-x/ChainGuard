@@ -17,6 +17,7 @@ export type ImportType = 'material' | 'supplier' | 'customer' | 'order' | 'inven
 export type ImportFieldType = 'string' | 'number' | 'date' | 'enum';
 export type ImportField = {
   key: string;
+  apiKey?: string;
   label: string;
   aliases: string[];
   type: ImportFieldType;
@@ -75,12 +76,12 @@ const importDefinitions: Record<ImportType, { label: string; sheetName: string; 
     label: '物料',
     sheetName: '物料模板',
     fields: [
-      { key: 'id', label: '物料编号', aliases: ['物料编码', '编码', 'sku', 'materialcode'], type: 'string', required: true, unique: true },
-      { key: 'name', label: '物料名称', aliases: ['名称', '品名', 'materialname'], type: 'string', required: true },
+      { key: 'id', apiKey: 'material_id', label: '物料编号', aliases: ['物料编码', '编码', 'sku', 'materialcode'], type: 'string', required: true, unique: true },
+      { key: 'name', apiKey: 'material_name', label: '物料名称', aliases: ['名称', '品名', 'materialname'], type: 'string', required: true },
       { key: 'category', label: '分类', aliases: ['物料分类', '类别', 'category'], type: 'string', required: true },
       { key: 'stock', label: '库存数量', aliases: ['库存', '现有库存', 'stock'], type: 'number' },
       { key: 'safety', label: '安全库存', aliases: ['安全库存数量', 'safetystock'], type: 'number' },
-      { key: 'cost', label: '单位成本', aliases: ['成本', '单价', 'cost'], type: 'number' }
+      { key: 'cost', apiKey: 'standard_cost', label: '单位成本', aliases: ['成本', '单价', 'cost'], type: 'number' }
     ],
     sample: { 物料编号: 'MAT-001', 物料名称: 'MCU-A9', 分类: '芯片', 库存数量: 1200, 安全库存: 3000, 单位成本: 18.5 }
   },
@@ -228,7 +229,7 @@ export async function getFieldMapping(type: ImportType, headers: string[] = []) 
       .filter((field) => !used.has(field.key))
       .map((field) => ({
         field,
-        score: Math.max(...[field.label, field.key, ...field.aliases].map((name) => similarity(sourceName, normalize(name))))
+        score: Math.max(...[field.label, field.key, field.apiKey, ...field.aliases].filter(Boolean).map((name) => similarity(sourceName, normalize(name))))
       }))
       .sort((a, b) => b.score - a.score);
     const best = ranked[0];
@@ -236,6 +237,37 @@ export async function getFieldMapping(type: ImportType, headers: string[] = []) 
     return { source, target: best?.score >= 0.45 ? best.field.key : undefined, confidence: best?.score || 0 };
   });
   return { type, fields: definition.fields, matches };
+}
+
+const enterpriseRequiredTargets: Partial<Record<ImportType, string[]>> = {
+  material: ['material_id'],
+};
+
+/**
+ * Enterprise OCR/Word/PDF review reuses the same aliases and fuzzy matcher as
+ * the spreadsheet wizard, while returning the canonical keys expected by the
+ * existing confirm API's fieldMapping contract.
+ */
+export async function getEnterpriseFieldMapping(type: string, headers: string[] = []) {
+  if (type !== 'material') return { type, fields: [] as ImportField[], matches: [] as FieldMatch[] };
+  const importType = type as ImportType;
+  const result = await getFieldMapping(importType, headers);
+  const definition = importDefinitions[importType];
+  const supportedTargets = new Set(['material_id', 'material_name', 'category', 'standard_cost']);
+  const mappingFields = definition.fields.filter((field) => supportedTargets.has(field.apiKey || field.key));
+  const targetByUiKey = new Map(mappingFields.map((field) => [field.key, field.apiKey || field.key]));
+  const required = new Set(enterpriseRequiredTargets[importType] || []);
+  return {
+    type,
+    fields: mappingFields.map((field) => {
+      const key = field.apiKey || field.key;
+      return { ...field, key, required: required.has(key) };
+    }),
+    matches: result.matches.map((match) => ({
+      ...match,
+      target: match.target ? targetByUiKey.get(match.target) : undefined,
+    })),
+  };
 }
 
 export async function getImportTemplate(type: ImportType) {

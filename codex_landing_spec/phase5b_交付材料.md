@@ -325,3 +325,287 @@ DATA_MODE=api 生产构建：通过
   失败重试和错误脱敏。本轮的 111,460 行验收使用真实本地 HTTP 与 `RestErpConnector`，
   不冒充第三方生产 ERP 验收。
 - 验收所用隔离服务、数据库和临时目录均已清理；默认数据库未使用、未污染。
+
+## Phase 5B 本地真实图片 OCR 闭环（2026-07-19）
+
+本节覆盖此前“真实 PNG/JPG 扫描件 OCR 尚未完成”的唯一欠项，并取代本文前面关于
+“当前环境无 OCR 引擎”的旧状态描述。既有 PDF 文本层、Word、CSV、ERP 路径和不可识别时
+`manual_required` 的安全闸门均保留。
+
+### 引擎选择与部署
+
+- 采用 `rapidocr==3.9.1` + `onnxruntime==1.27.0`（仓库约束为
+  `rapidocr>=3.4,<4`、`onnxruntime>=1.20,<2`）。RapidOCR 使用 Apache-2.0 许可，默认
+  PP-OCRv6 检测/识别模型支持中文和英文，ONNX Runtime 在当前 Windows x86-64 / Python
+  3.13.5 有预编译 wheel；不需要管理员安装 Tesseract，也不需要 API 密钥或本机绝对模型路径。
+- 未采用旧包 `rapidocr-onnxruntime`：该包声明 Python `<3.13`，不适合当前 Python 3.13.5。
+- 安装方式仍为 `python -m pip install -r requirements.txt`。RapidOCR wheel 内已核对包含
+  `PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx`、
+  `ch_ppocr_mobile_v2.0_cls_mobile.onnx` 三个模型；正常安装不需要运行时另配模型目录。
+- `.env.example` 新增以下非敏感配置：
+  `CHAINGUARD_OCR_ENABLED=true`、`CHAINGUARD_OCR_TIMEOUT_SECONDS=20`、
+  `CHAINGUARD_OCR_MIN_CONFIDENCE=0.75`、`CHAINGUARD_OCR_MAX_PIXELS=25000000`。
+  仓库未写入密钥、真实环境变量值或本机绝对路径。
+
+### 真实调用链与安全边界
+
+1. `/api/v1/imports/upload?mode=ocr` 将原图保存到租户和 job 双重隔离的工作目录；响应不暴露
+   服务端路径。
+2. `/imports/{id}/preflight` 调用 `src.ingestion_agent.ingest_files`。PDF/DOCX 先走已有文本层；
+   PNG/JPG 再按需探测本地 RapidOCR，最后才考虑可选远程视觉后端。
+3. OCR 引擎只在图片预检时于独立子进程导入并初始化；超时会终止子进程。实测仅导入 FastAPI
+   用时约 `0.765s`，主 API 进程中 `rapidocr_loaded=False`、`onnxruntime_loaded=False`。
+4. 成功结果按行形成 `normalized.csv`，回传引擎名、最低文本置信度、行数和耗时，进入已有
+   类型识别、预检和人工复核；必须提交 `manualConfirmed=true`，可同时提交 `fieldMapping`。
+5. `/execute` 先做租户内签名占用，再由后台 job 将归一化 CSV 送入 C2 共享 YAML adapter，
+   写实体表、源行审计和拒绝记录；job 成功后可由 `/data/material` 等资料页查询。
+6. 缺引擎、显式禁用、图片损坏、空白、超过像素限制、引擎异常、超时和最低文本置信度低于
+   阈值分别给出稳定错误码，全部停在 `manual_required`，不生成可执行 CSV，也不能强制确认
+   或静默落库。
+
+### 隔离数据库真实 API 端到端验收
+
+验收使用 pytest 进程启动前生成的 GUID SQLite `DATABASE_URL` 和测试模块自有 GUID 临时目录；
+没有使用默认 `chainguard.db`，也没有读取/覆盖既有 `data/`、`ChainGuard/output/` 或根 `output/`
+生成物。图片由 Pillow 真实渲染，RapidOCR/ONNX Runtime 真实推理；未 mock OCR 输出、预检、
+字段映射、后台 job 或资料查询。
+
+闭环如下：
+
+```text
+PNG 上传（中文字段：物料编码/物料名称/成本）
+→ RapidOCR 本地推理
+→ manual_review 预检（canProceed=true，预览行可见）
+→ 人工确认 + 中文字段映射
+→ execute 202
+→ job 轮询 succeeded（sourceRows=1, successRows=1, rejectedRows=0）
+→ 物料资料页可见“中英文OCR芯片”且成本为 12.50
+→ 新注册第二租户资料页不可见该物料
+```
+
+一次留痕运行中，图片预检 OCR 耗时 `4.666s`，完整单用例（含应用/种子、上传、OCR、预检、
+确认、异步执行、轮询、资料页及数据库隔离断言）耗时 `6.73s`。此前直接引擎探针的模型推理
+耗时约 `2.063s`；API 路径较长是因为每次使用可强制终止的独立子进程冷启动，属于安全超时与
+吞吐之间的明确取舍。
+
+### 测试与实际执行结果
+
+- 新增 `tests/test_phase5b_ocr.py`：真实 PNG/JPG 中英文识别；OCR→预检→中文字段映射；
+  人工确认→执行→job 轮询→实体/资料页；第二租户不可见；缺引擎、空白、损坏、低置信度、
+  超时安全降级；CSV 直读和 PDF 文本层不调用 OCR。
+- OCR/C2/预检定向回归：`38 passed, 2 warnings in 34.04s`，退出码 0。
+- 后端全量回归：`567 passed, 4 skipped, 11 warnings in 147.61s`，退出码 0。4 个 skip 仍为
+  未显式提供外部 PostgreSQL URL 的专项用例；warning 为既有 FastAPI `on_event` 弃用、
+  sklearn SVC 参数弃用及缺少可选 cryptography 的降级提示。
+- `python -m ruff check src\ingestion_agent.py tests\test_phase5b_ocr.py`：通过。整个既有
+  `imports_settings.py` 单独做 Ruff 扫描仍有 57 个历史单行语句格式告警，本轮没有借 OCR
+  改动大规模重排无关路由。
+- 首次在受限沙箱运行仍出现 `test_tmp/pytest` / GUID basetemp 的 Windows ACL setup error，
+  与本文此前记录一致；改用全新隔离 basetemp 并在正常本机权限运行后取得上述结果。
+  第一轮真实 API 用例曾因成功预检响应未回传 extraction 元数据而 `17 passed, 1 failed`；
+  已补齐响应中的引擎/置信度/耗时元数据，随后单用例、定向和全量回归均通过。
+
+### 已知限制与验收结论
+
+- 本轮完成的是 PNG/JPG（同时兼容代码中已有 BMP/TIF 后缀）的本地真实 OCR。扫描型 PDF
+  尚未实现逐页栅格化；PDF 有文本层时继续真实提取，无文本层且无可用远程视觉服务时仍安全
+  进入 `manual_required`。
+- 归一化按 OCR 文本行及逗号/制表符重建字段；复杂表格、跨行合并单元格、手写体、严重倾斜、
+  低分辨率或强噪声扫描件仍需要人工校对字段映射。置信度是识别文本框最低分，默认阈值
+  `0.75`，生产方应结合自有单据样本校准，不能通过降低阈值绕过人工确认。
+- 当前为 CPU 冷启动、单图片独立子进程方案，单张规范表格约 4–5 秒；高并发或多页批量场景
+  应增加受控 OCR worker 队列/并发上限，而不是取消超时。默认 20 秒和 2,500 万像素是资源
+  安全边界。
+- 结论：**达到本轮 Phase 5B PNG/JPG 真实 OCR 验收标准**。真实识别、预检、人工确认/字段
+  映射、异步落实体、job 轮询、资料页可见、租户隔离和全套安全降级均已实测；扫描 PDF
+  栅格 OCR 和生产高并发优化属于已明确记录的后续增强，不冒充已完成。
+
+## Phase 5B OCR 产品界面闭环（2026-07-19）
+
+本轮只补齐数据导入向导的产品闭环，不重写 RapidOCR、本地图片提取、预检、confirm
+`fieldMapping` 或“OCR 必须人工确认”的安全策略。
+
+### 人工确认与字段映射
+
+- OCR/Word/PDF 预检完成后，人工确认页从现有 `normalized.previewRows` 展示识别到的源字段和
+  样例值，并提供目标字段选择；同一目标字段不能被重复选择。
+- 默认建议复用表格导入已有的字段别名和相似度匹配逻辑，再转换为 confirm API 使用的规范键，
+  不是只对三条中文文案写死判断。物料类型已实测支持：`物料编码 → material_id`、
+  `物料名称 → material_name`、`成本 → standard_cost`；英文标准字段保持同名映射。
+- 必填目标字段未完成映射时会在文件级显示错误，并阻止执行。用户确认后的映射随
+  `fieldMapping` 发送给现有 confirm API；未选择的源字段不提交。
+- OCR/文档仍必须勾选“已核对原文、类型和关键字段”才能执行；没有增加 force 或自动确认旁路。
+
+### 行级拒绝结果
+
+- 共享实体导入结果最小化补充 `rejections` 明细透传（源行号、后端原始拒绝原因、源数据），
+  不改 OCR/映射/落库规则；向导结果页在批次展开区显示逐行拒绝明细。
+- 前端根据后端原因展示可读修复建议，覆盖缺业务键/必填字段、类型格式、非法外键、敏感或
+  禁止字段、未声明列，并为未知原因提供通用核对建议。
+
+### 实际验收
+
+使用 GUID 隔离 SQLite、`DATA_MODE=api`、真实本地 API、真实 Chromium 和真实 RapidOCR；
+测试图片由 Chromium 以清晰中英文文本渲染为 PNG，未 mock OCR、预检、confirm、execute、
+job 轮询或资料页查询。
+
+```text
+中文 PNG：物料编码,物料名称,成本
+→ UI 选择物料主数据
+→ RapidOCR 成功（2 行，最低置信度约 0.9989）
+→ UI 核对三字段规范映射
+→ 勾选人工确认
+→ confirm/execute/job 轮询 succeeded
+→ 结果成功 1、拒绝 0
+→ 物料页可见编号、中文名称、成本 12.50
+
+英文 PNG：material_id,material_name,standard_cost
+→ 同一 UI 流程 succeeded
+→ 结果成功 1、拒绝 0
+→ 物料页可见编号、英文名称、成本 23.75
+```
+
+另用两行真实 CSV（1 行有效、1 行缺业务主键）复验结果页：批次成功 1、拒绝 1，展开后可见
+拒绝源行、`缺业务主键/必填字段` 原因、源数据和“补齐必填字段/修正字段映射”的修复建议；
+既有重复签名和租户隔离断言继续通过。
+
+本轮实际执行结果：
+
+```text
+TypeScript：npx tsc --noEmit，exit code 0
+Vitest 全量：11 个文件、24 个测试通过
+DATA_MODE=api 生产构建：Webpack 编译与 route access map 生成通过
+后端定向：tests/test_phase5b_c2_batch2.py，15 passed
+Playwright API 模式 OCR UI：1 passed（中文别名闭环 + 英文标准字段回归）
+Playwright API 模式部分拒绝：1 passed（含逐行原因/建议、重复签名、租户隔离）
+```
+
+隔离验收数据库位于 `.workspace`，不使用或污染默认数据库；提交与推送状态以 Git 历史为准。
+
+## Phase 5B/C1 真实租户上下文决策链（2026-07-19）
+
+本节仅覆盖 C1：实体表到决策引擎的真实上下文适配、租户配置解析、新编排入口和 Web
+后台作业闭环。未提前实现校准治理 UI、E-3 经验闭环、C3 初始化向导或账户完善。
+`DecisionOrchestrator.run_demo()` 的入口和固定演示行为保留；既有演示断言未降低。
+
+### 实际实现范围
+
+- `src/webapi/context_builder.py`：新增正式 Pydantic 契约 `EngineContext` 及 inventory、orders、
+  suppliers、transport_options、events、data_quality 子模型；新增 `TenantContextBuilder`、
+  `build_incident_context` 和结构化 `ContextBuildError`。所有实体、风险、事件、配置查询和 join
+  均显式带 `tenant_id`。
+- builder 从 materials、inventory、supplier_materials/suppliers、sales_order_lines/sales_orders/
+  customers 构建引擎五段 context；订单需求在 SQL 按订单头聚合，订单头财务值只计一次；
+  时间统一为 UTC、引擎时长统一为小时、数量为件、金额为 CNY。
+- `derived_metrics` 新增库存支撑时长、可用库存、库存缺口、在途量、最近计划/预计到货 UTC、
+  到货延误、关键订单金额/罚金/毛利暴露、供应商可替代数量/可供量/最优交期及单位说明。
+- 阻断规则落地：CG-2510 事件/作业不存在或跨租户、CG-2511 无有效物料、CG-2512 消耗量
+  缺失或不大于 0、CG-2513 无库存记录、CG-2514 高风险事件无预计延误。无订单、无供应商、
+  无到货信息、中低风险无延误、财务字段估算、可靠性缺失及安全库存缺失均返回结构化
+  `data_quality` 降级，不读取 demo 数据。
+- `tenant_configs` 只采用当前租户 `is_active=true` 且 `approved_by/approved_at` 完整的版本；
+  thresholds、risk_weights、transport_options、estimation_coefficients 分别返回 source、version、
+  ignored_version/fallback_reason。无有效配置回退专家 YAML 默认值，并在
+  `context.configuration.fallback_reasons` 留痕。未批准或未激活版本不生效。
+- `DecisionOrchestrator.run_tenant_scenario(...)` 新增租户入口，复用既有 `_run_context` 流水线；
+  Web 租户路径显式禁用文件态演示经验检索、经验卡写入和 JSONL 审计追加，只由现有 DB 表
+  持久化租户决策明细和审计。`run_demo()` 仍使用原默认文件态行为。
+- tenant adapter 将真实 supplier_price、应急数量/倍率、供应商交期、运输倍率及订单罚金暴露
+  物化为方案 `total_cost`、`lead_time_impact` 和 `economic_basis`；因此实体报价、交期、订单金额
+  与库存变化会实际改变风险、成本、交期或供应商选择，不是“先查表后返回 demo”。
+- `src/webapi/jobs.py` 已从 `run_demo()` 切换到 `_execute_tenant_decision` →
+  `run_tenant_scenario()`。decision executor worker 内部自行创建和关闭 `SessionLocal`；请求 Session
+  与外层 job worker Session 均不跨线程传递。job/incident/proposal/detail/audit 的读取和写入再次按
+  job tenant 校验。异常日志只记录 job id 和异常类型，不输出 DB URL、驱动异常正文或业务字段。
+- Web sensitivity 改为当前租户 context、风险权重与阈值，并以当前库存的 0.5x/1x/1.5x 计算，
+  不再在 Web 决策明细中混入固定 demo sensitivity。新增
+  `GET /api/v1/incidents/{id}/decision-readiness`，与 builder 共用同一套阻断/降级事实源。
+
+### 本轮 C1 变更文件
+
+- 新增：`ChainGuard/src/webapi/context_builder.py`
+- 修改：`ChainGuard/src/orchestrator.py`
+- 修改：`ChainGuard/src/sensitivity.py`
+- 修改：`ChainGuard/src/webapi/jobs.py`
+- 修改：`ChainGuard/src/webapi/proposal_mapper.py`
+- 修改：`ChainGuard/src/webapi/routers/business.py`
+- 新增：`ChainGuard/tests/test_phase5b_c1_tenant_decision.py`
+- 修改：`ChainGuard/tests/test_webapi.py`（仅将两个作业单元测试的 patch 点从已移除的
+  `run_demo` 调用改到新的 worker 边界；原并发/归档断言保留）
+- 修改：`codex_landing_spec/phase5b_交付材料.md`（本节）
+
+接手时已经存在的 OCR/C2 修改、`.env.example`、requirements、ingestion/import router、
+`test_phase5b_ocr.py`、data JSON/JSONL、output 目录及后续出现的 git 属性/忽略文件变动均未清理、
+覆盖或纳入上述 C1 实现清单。
+
+### GUID 隔离库真实闭环与前后变化证据
+
+验收使用 `tests/conftest.py` 在进程导入前生成的 GUID SQLite `DATABASE_URL` 和独立 GUID
+pytest basetemp；没有使用默认 `chainguard.db`，也没有读取/覆盖现有 data/output 作为租户输入。
+最小企业数据通过 C2 共享 `erp_mapping.yaml` adapter 真实导入：1 物料、1 合格供应商及报价、
+1 库存（含在途和到货时间）、1 A 级客户、1 订单头和 1 订单行。随后通过真实 API 发起决策、
+轮询 job、读取方案和 decision-detail；未 mock builder、orchestrator 或持久化结果。
+
+第一次作业后，将同租户库存从 25 件改为 260 件、供应商报价改为 29 元/件、交期从 30 小时
+改为 72 小时，再次通过 API 生成。原始机器可读摘要：
+
+```text
+{"c1Acceptance":{"firstRiskIndex":76.51,"changedRiskIndex":54.52,
+"firstProcurementCostCny":5712.0,"changedProcurementCostCny":9744.0,
+"firstLeadDays":1.25,"changedLeadDays":3.0,"supplierPriceCny":29.0,
+"elapsedMs":4277.49}}
+```
+
+风险随库存增加下降；成本使用修改后的真实报价上升；采购交期随供应商交期从 30h 增至 72h
+而上升。另一租户读取第一租户 job 和 incident 均为 HTTP 404；同业务键双租户夹具还断言库存、
+报价、订单金额和 context 完全分离。Session 追踪回归观察到外层 job 与 decision worker 至少两个
+不同线程各自获取 Session。
+
+### 测试原始摘要
+
+C1 真实定向验收（含 `-s --durations=10`）：
+
+```text
+9 passed, 2 warnings in 10.93s（生成机器可读前后对比的留痕运行）
+slowest: Web 导入→两次决策→隔离/Session 闭环 4.28s
+```
+
+补入 Web 阻断 job 结构化失败回归及去除租户入口 `demo_source()` 表面依赖后的最终定向结果：
+
+```text
+23 passed, 2 warnings in 28.49s
+（C1 10 项 + test_orchestrator/test_orchestrator_data_source 13 项）
+Ruff: All checks passed!
+```
+
+C1 + 固定 run_demo + 既有 Web API 组合回归：
+
+```text
+61 passed, 2 warnings in 36.48s
+```
+
+后端全量（`python -m pytest tests/ -q`，使用独立 GUID basetemp）：
+
+```text
+577 passed, 4 skipped, 11 warnings in 153.69s (0:02:33)
+```
+
+4 个 skip 是显式要求 `CHAINGUARD_TEST_POSTGRES_URL` 的 PostgreSQL 专项；warning 仍为既有
+FastAPI `on_event` 弃用、sklearn SVC 参数弃用和缺可选 cryptography 的安全降级提示。
+新增/独立 C1 文件及触及的非遗留风格文件 Ruff 检查通过。`jobs.py`、`business.py`、
+`test_webapi.py` 整文件仍有既有单行语句 Ruff 告警，本轮未借 C1 大规模格式化无关代码。
+
+### PostgreSQL/迁移与已知限制
+
+- SQLite migration、upgrade/down/up、复合外键和实体/配置专项均已包含在上述全量回归并通过。
+- 本机 Docker CLI 为 29.6.1，但本轮检查时 Docker Desktop Linux daemon 未运行，且
+  `CHAINGUARD_TEST_POSTGRES_URL` 未设置，因此未启动外部服务、未连接默认/既有数据库，也不把
+  本轮记录为 C1 PostgreSQL 通过。C2 已有一次性 PostgreSQL 16 的 4 passed 证据；C1 的 SQL
+  使用标准 SQLAlchemy 聚合及 tenant-aware join，仍应在提供一次性 URL 时补跑同一 C1 套件。
+- 本次 4.28s 是最小真实 API 双决策闭环耗时，不替代前置规格规定的 1 万/5 万库存、4 并发、
+  p50/p95/峰值 RSS 正式容量基准；该 benchmark 仍是 C1 后的独立压测批次，未虚构为已完成。
+- 安全库存全为 0 时，既有库存 scorer 需要正分母；builder 使用“1 天日耗量”专家估计并明确写入
+  `missing_safety_stock` 与 `estimated_fields=inventory.safety_stock`。这不是 demo 数值，后续校准
+  治理面板可让租户审核替换。
+- C1 只关闭真实上下文与决策链。租户 DB 经验卡检索/写入属于后续 E-3；在其实现前 Web 租户
+  决策的 experience reference 固定为空，绝不会回退全局演示经验文件。

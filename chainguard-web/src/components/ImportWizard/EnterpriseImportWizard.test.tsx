@@ -3,8 +3,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getCatalog, testErpConnection, previewErp, syncErp } = vi.hoisted(() => ({
+const { getCatalog, uploadForRecognition, preflightRecognizedJob, confirmAndExecuteRecognizedJob, testErpConnection, previewErp, syncErp } = vi.hoisted(() => ({
   getCatalog: vi.fn(),
+  uploadForRecognition: vi.fn(),
+  preflightRecognizedJob: vi.fn(),
+  confirmAndExecuteRecognizedJob: vi.fn(),
   testErpConnection: vi.fn(),
   previewErp: vi.fn(),
   syncErp: vi.fn(),
@@ -16,10 +19,10 @@ vi.mock('@umijs/max', () => ({
 
 vi.mock('@/services/enterpriseImport', () => ({
   getEnterpriseImportCatalog: () => getCatalog(),
-  uploadForRecognition: vi.fn(),
+  uploadForRecognition,
   uploadBatchForRecognition: vi.fn(),
-  preflightRecognizedJob: vi.fn(),
-  confirmAndExecuteRecognizedJob: vi.fn(),
+  preflightRecognizedJob,
+  confirmAndExecuteRecognizedJob,
   testErpConnection,
   previewErp,
   syncErp,
@@ -32,6 +35,9 @@ describe('EnterpriseImportWizard 数据来源与识别优先流程', () => {
     testErpConnection.mockReset();
     previewErp.mockReset();
     syncErp.mockReset();
+    uploadForRecognition.mockReset();
+    preflightRecognizedJob.mockReset();
+    confirmAndExecuteRecognizedJob.mockReset();
     getCatalog.mockResolvedValue({
       modes: [],
       types: Array.from({ length: 18 }, (_, index) => ({
@@ -43,6 +49,43 @@ describe('EnterpriseImportWizard 数据来源与识别优先流程', () => {
         entity: index < 7,
       })),
     });
+  });
+
+  it('OCR 人工确认页展示源字段、别名建议并提交 fieldMapping', async () => {
+    const user = userEvent.setup();
+    getCatalog.mockResolvedValue({ modes: [], types: [{
+      value: 'material', label: '物料主数据', group: '主数据', source_table: 'materials', erp_resource: 'materials', entity: true,
+    }] });
+    uploadForRecognition.mockResolvedValue({
+      jobId: 'ocr-1', fileName: '中文物料.png', mode: 'ocr', selectedType: 'material',
+      recognition: { recognizedType: 'material', label: '物料主数据', confidence: 0.98, requiresConfirmation: true, reasons: [], candidates: [] },
+    });
+    preflightRecognizedJob.mockResolvedValue({ id: 'ocr-1', status: 'manual_review', result: {
+      canProceed: true, normalized: { previewRows: [{ 物料编码: 'MAT-CN-1', 物料名称: '中文芯片', 成本: '12.5' }] },
+      manualReview: { confirmationLevel: 'full' },
+    } });
+    confirmAndExecuteRecognizedJob.mockResolvedValue({ id: 'ocr-1', status: 'succeeded', result: { successRows: 1, rejectedRows: 0 } });
+
+    const { container } = render(<App><EnterpriseImportWizard /></App>);
+    await user.click(screen.getByText('PDF / Word / 图片'));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    const input = container.querySelector('.ant-upload input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(['png'], '中文物料.png', { type: 'image/png' }));
+    await screen.findByText('中文物料.png');
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    await screen.findByRole('table', { name: '中文物料.png 字段映射' });
+    expect(screen.getByRole('combobox', { name: '物料编码 目标字段' }).closest('.ant-select')).toHaveTextContent('物料编号');
+    expect(screen.getByRole('combobox', { name: '物料名称 目标字段' }).closest('.ant-select')).toHaveTextContent('物料名称');
+    expect(screen.getByRole('combobox', { name: '成本 目标字段' }).closest('.ant-select')).toHaveTextContent('单位成本');
+    await user.click(screen.getByRole('checkbox', { name: /已核对原文、类型和关键字段/ }));
+    await user.click(screen.getByRole('button', { name: '确认并执行' }));
+
+    await waitFor(() => expect(confirmAndExecuteRecognizedJob).toHaveBeenCalledWith(expect.objectContaining({
+      manualConfirmed: true,
+      fieldMapping: { 物料编码: 'material_id', 物料名称: 'material_name', 成本: 'standard_cost' },
+    })));
+    expect(await screen.findByText('导入批次执行完成')).toBeInTheDocument();
   });
 
   it('ERP 确认步骤沿用已预览的连接信息执行全量同步', async () => {

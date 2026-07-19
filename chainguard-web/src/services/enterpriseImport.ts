@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from '../utils/request';
+import type { ImportField } from './data';
 
 export type ImportMode = 'mixed' | 'structured' | 'ocr' | 'erp';
 
@@ -34,6 +35,8 @@ export type ClassifiedFile = {
   selectedType?: string;
   preflight?: EnterpriseImportResult;
   manualConfirmed?: boolean;
+  fieldMapping?: Record<string, string | undefined>;
+  mappingFields?: ImportField[];
 };
 
 export type EnterpriseImportJob = {
@@ -82,6 +85,7 @@ export async function confirmAndExecuteRecognizedJob(file: ClassifiedFile): Prom
     values: {
       confirmedType: file.selectedType,
       manualConfirmed: file.mode === 'ocr' ? !!file.manualConfirmed : false,
+      fieldMapping: Object.fromEntries(Object.entries(file.fieldMapping || {}).filter((entry): entry is [string, string] => !!entry[1])),
       duplicatePolicy: 'merge',
       onlyValidRows: true,
     },

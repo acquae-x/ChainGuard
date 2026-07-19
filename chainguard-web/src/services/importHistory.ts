@@ -11,6 +11,13 @@ export type ImportTableReport = {
   entityRows: number;
 };
 
+export type ImportRowRejection = {
+  row: number | null;
+  reason: string;
+  source: UnknownRecord;
+  suggestion: string;
+};
+
 export type NormalizedImportHistoryJob = {
   id: string;
   type: string;
@@ -21,6 +28,7 @@ export type NormalizedImportHistoryJob = {
   failed: number;
   rejectedRows: number;
   reports: ImportTableReport[];
+  rejections: ImportRowRejection[];
   operator: string;
   time: string;
   createdAt?: string;
@@ -83,6 +91,30 @@ function normalizeReports(job: UnknownRecord, result: UnknownRecord, streaming: 
   return values.map(normalizeReport).filter((report): report is ImportTableReport => report !== null);
 }
 
+function repairSuggestion(reason: string): string {
+  if (reason.includes('缺业务主键') || reason.includes('必填字段') || reason.includes('业务键为空')) return '补齐必填字段，或返回人工确认步骤修正字段映射后重新导入。';
+  if (reason.includes('类型/格式非法')) return '按目标字段格式修正该值（例如成本使用纯数字），再重新导入。';
+  if (reason.includes('非法外键')) return '先导入或选择租户内已存在的关联主数据，再重新导入该行。';
+  if (reason.includes('敏感列') || reason.includes('不允许')) return '移除不允许导入的字段后重新上传，敏感数据不要写入导入文件。';
+  if (reason.includes('未声明列')) return '将源字段映射到正确的目标字段，或从文件中移除无关列。';
+  return '核对该行原文、字段映射和目标字段格式，修正后重新导入。';
+}
+
+function normalizeRejections(result: UnknownRecord, streaming: UnknownRecord): ImportRowRejection[] {
+  const candidate = Array.isArray(streaming.rejections) ? streaming.rejections : Array.isArray(result.rejections) ? result.rejections : [];
+  return candidate.map((value) => {
+    const item = asRecord(value);
+    const reason = firstString([item], ['reason'], '该行未通过导入校验');
+    const rowValue = Number(item.row ?? item.rowNumber);
+    return {
+      row: Number.isFinite(rowValue) ? rowValue : null,
+      reason,
+      source: asRecord(item.source ?? item.payload),
+      suggestion: repairSuggestion(reason),
+    };
+  });
+}
+
 export function normalizeImportHistoryJob(value: unknown): NormalizedImportHistoryJob {
   const job = asRecord(value);
   const result = asRecord(job.result);
@@ -102,6 +134,7 @@ export function normalizeImportHistoryJob(value: unknown): NormalizedImportHisto
     failed,
     rejectedRows: failed,
     reports: normalizeReports(job, result, streaming),
+    rejections: normalizeRejections(result, streaming),
     operator: firstString([job, options], ['operator']),
     time: firstString([job], ['updatedAt', 'createdAt']),
     createdAt: typeof job.createdAt === 'string' ? job.createdAt : undefined,
