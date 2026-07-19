@@ -10,6 +10,7 @@ from src.observability import Metrics, log_event
 from src.orchestrator import DecisionOrchestrator
 
 from .auth import AuthContext
+from .context_builder import ContextBuildError, TenantContextBuilder
 from .database import SessionLocal
 from .models import Approval, DecisionAudit, DecisionDetail, ImportJob, Incident, Job, Proposal
 from .notifications import ensure_rules, notify_event
@@ -36,7 +37,7 @@ def build_game_analysis(payload: dict) -> dict:
     from src.game_model import PayoffModel
 
     context = payload.get("context") or {}
-    model = PayoffModel()
+    model = PayoffModel(payoff_weights=(payload.get("risk_weights") or {}).get("payoff_weights"))
     payoffs = {
         "procurement": model.evaluate_procurement(context),
         "logistics": model.evaluate_logistics(context),
@@ -62,7 +63,9 @@ def enqueue_decision_job(db, ctx: AuthContext, incident_id: str) -> Job:
     if existing:
         return existing
     job = Job(id=f"job-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, kind="decision", resource_id=incident_id, idempotency_key=f"decision:{incident_id}", status="pending", progress=0, result={})
-    incident = db.get(Incident, incident_id)
+    incident = db.scalar(select(Incident).where(Incident.id == incident_id, Incident.tenant_id == ctx.tenant_id))
+    if incident is None:
+        raise ContextBuildError("CG-2510", "事件不存在", status_code=404)
     if incident.status == "pending": incident.status = "planning"
     db.add(job); db.commit(); sync_jobs_pending_metric(db)
     job_executor.submit(_run_decision_job, job.id, ctx)
@@ -71,21 +74,34 @@ def enqueue_decision_job(db, ctx: AuthContext, incident_id: str) -> Job:
 
 def _run_decision_job(job_id: str, ctx: AuthContext) -> None:
     with SessionLocal() as db:
-        job = db.get(Job, job_id)
+        job = db.scalar(select(Job).where(Job.id == job_id, Job.tenant_id == ctx.tenant_id, Job.kind == "decision"))
         if not job: return
         job.status, job.progress = "running", 10; db.commit(); sync_jobs_pending_metric(db)
-    # 当前 MVP 的 Incident 尚未具备可直接喂给决策引擎的完整物料上下文，
-    # 因此仍调用 run_demo；作业与事件只通过 tenant/id、状态及方案持久化关联。
-    future = decision_executor.submit(DecisionOrchestrator().run_demo)
+    # decision_executor 的 worker 自己创建 Session；请求 Session 和 job worker Session
+    # 都不会跨线程传递到真正执行决策的线程。
+    future = decision_executor.submit(_execute_tenant_decision, job_id, ctx.tenant_id)
     try:
         result = future.result(timeout=60)
         mapped = map_decision_result(result, job.resource_id)
         detail_payload = result.to_dict() if hasattr(result, "to_dict") else dict(result)
         from src.sensitivity import run_sensitivity
-        detail_payload["sensitivity"] = run_sensitivity("current_stock", [360, 720, 1080])
+        current_stock = float((detail_payload.get("context") or {}).get("inventory", {}).get("current_stock") or 0)
+        sensitivity_values = sorted({max(current_stock * ratio, 0.0) for ratio in (0.5, 1.0, 1.5)})
+        detail_payload["sensitivity"] = run_sensitivity(
+            "current_stock",
+            sensitivity_values,
+            baseline_context=detail_payload["context"],
+            risk_weights=detail_payload["risk_weights"],
+            thresholds=detail_payload["thresholds"],
+        )
         detail_payload["game_analysis"] = build_game_analysis(detail_payload)
         with SessionLocal() as db:
-            job = db.get(Job, job_id); incident = db.get(Incident, job.resource_id)
+            job = db.scalar(select(Job).where(Job.id == job_id, Job.tenant_id == ctx.tenant_id, Job.kind == "decision"))
+            if job is None:
+                return
+            incident = db.scalar(select(Incident).where(Incident.id == job.resource_id, Incident.tenant_id == ctx.tenant_id))
+            if incident is None:
+                raise ContextBuildError("CG-2510", "事件不存在", status_code=404)
             existing = list(db.scalars(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == incident.id)).all())
             # P1-10：已进入审批流的 Proposal 是审计追溯的一部分，必须永久保留；
             # 重新推演只替换未被任何审批单引用的候选方案，被引用的归档（archived）不再进入方案列表。
@@ -105,21 +121,64 @@ def _run_decision_job(job_id: str, ctx: AuthContext) -> None:
             ensure_rules(db, ctx.tenant_id)
             notify_event(db, ctx.tenant_id, "decision_succeeded", {"trigger_user_id": ctx.user_id, "title": f"{incident.title}方案生成完成", "target": f"/decision/generate/{incident.id}?readonly=1"})
             incident.status = "deciding"
-            job.status, job.progress, job.result = "succeeded", 100, {"proposalIds": ids, "count": len(ids)}
+            job.status, job.progress, job.result = "succeeded", 100, {
+                "proposalIds": ids,
+                "count": len(ids),
+                "dataQuality": detail_payload.get("context", {}).get("data_quality", {}),
+                "configuration": detail_payload.get("context", {}).get("configuration", {}),
+                "inventoryRiskIndex": detail_payload.get("inventory_risk", {}).get("inventory_risk_index"),
+            }
             add_audit(db, ctx, "生成方案", "incident", incident.id, incident.title, {"proposalCount": len(ids)})
             db.commit(); sync_jobs_pending_metric(db)
     except TimeoutError:
         future.cancel(); _fail_job(job_id, "CG-2501", "决策生成超时", ctx)
+    except ContextBuildError as error:
+        _fail_job(
+            job_id,
+            error.code,
+            error.message,
+            ctx,
+            detail={"level": "blocked", "blocking": [{"code": error.code, "message": error.message}]},
+        )
     except Exception as error:
-        log_event("decision_job_failed", job_id=job_id, exception=type(error).__name__, message=str(error))
+        # Do not echo exception messages here: DB drivers may include connection URLs
+        # and input validation errors may contain business-sensitive field values.
+        log_event("decision_job_failed", job_id=job_id, exception=type(error).__name__)
         _fail_job(job_id, "CG-2502", "决策生成失败", ctx)
 
 
-def _fail_job(job_id: str, code: str, message: str, ctx: AuthContext | None = None) -> None:
+def _execute_tenant_decision(job_id: str, tenant_id: str):
+    """Decision-worker boundary: create and close a dedicated DB Session here."""
     with SessionLocal() as db:
-        job = db.get(Job, job_id)
+        job = db.scalar(select(Job).where(Job.id == job_id, Job.tenant_id == tenant_id, Job.kind == "decision"))
+        if job is None:
+            raise ContextBuildError("CG-2510", "决策作业不存在", status_code=404)
+        built = TenantContextBuilder(db, tenant_id).build(job.resource_id)
+    return DecisionOrchestrator().run_tenant_scenario(
+        built.context,
+        risk_weights=built.risk_weights,
+        thresholds=built.thresholds,
+    )
+
+
+def _fail_job(
+    job_id: str,
+    code: str,
+    message: str,
+    ctx: AuthContext | None = None,
+    *,
+    detail: dict | None = None,
+) -> None:
+    with SessionLocal() as db:
+        query = select(Job).where(Job.id == job_id)
+        if ctx is not None:
+            query = query.where(Job.tenant_id == ctx.tenant_id)
+        job = db.scalar(query)
         if job:
-            job.status, job.progress, job.error_code, job.result = "failed", 100, code, {"message": message}
+            job.status, job.progress, job.error_code, job.result = "failed", 100, code, {
+                "message": message,
+                **({"dataQuality": detail} if detail else {}),
+            }
             ensure_rules(db, job.tenant_id)
             notify_event(db, job.tenant_id, "decision_failed", {"trigger_user_id": ctx.user_id if ctx else None, "title": "决策方案生成失败", "target": f"/decision/generate/{job.resource_id}"})
             db.commit(); sync_jobs_pending_metric(db)

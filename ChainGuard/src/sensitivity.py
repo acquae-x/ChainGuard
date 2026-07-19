@@ -14,6 +14,8 @@ def run_sensitivity(
     values: list[float | int],
     *,
     baseline_context: dict[str, Any] | None = None,
+    risk_weights: dict[str, Any] | None = None,
+    thresholds: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if param not in SUPPORTED_PARAMS:
         raise ValueError(f"Unsupported param: {param!r}")
@@ -21,8 +23,8 @@ def run_sensitivity(
         return []
 
     context = baseline_context if baseline_context is not None else load_demo_context()
-    risk_weights = load_risk_weights()
-    thresholds = load_thresholds()
+    risk_weights = risk_weights or load_risk_weights()
+    thresholds = thresholds or load_thresholds()
     results: list[dict[str, Any]] = []
 
     for value in values:

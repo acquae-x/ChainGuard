@@ -18,5 +18,8 @@ reportlab>=4.0
 openpyxl>=3.1
 # 文档导入：DOCX 文本与表格提取；旧版 .doc 无可靠解析器时进入人工处理。
 python-docx>=1.1
+# Phase 5B 图片 OCR：纯本地 CPU 推理，默认模型支持中英文；仅在图片预检时按需加载。
+rapidocr>=3.4,<4
+onnxruntime>=1.20,<2
 psutil  # optional - memory detection, degrades gracefully if absent
 PyYAML>=6,<7  # 5B C2：erp_mapping.yaml 单一映射源解析

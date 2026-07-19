@@ -211,6 +211,7 @@ def test_notification_read_state_is_persisted_and_user_scoped():
 
 
 def test_four_concurrent_decision_jobs_do_not_deadlock():
+    from src.orchestrator import DecisionOrchestrator
     assert jobs.job_executor is not jobs.decision_executor
     ctx = AuthContext("u-scm_lead", "tenant-demo", "供应链负责人", "scm_lead", ())
     job_ids = []
@@ -223,7 +224,9 @@ def test_four_concurrent_decision_jobs_do_not_deadlock():
             job_ids.append(job_id)
         db.commit()
 
-    with patch("src.webapi.jobs.DecisionOrchestrator.run_demo", return_value={"proposals": []}):
+    # C1 Web jobs no longer call run_demo; patch the worker boundary so this
+    # regression remains focused on executor separation/deadlock behavior.
+    with patch("src.webapi.jobs._execute_tenant_decision", return_value=DecisionOrchestrator().run_demo()):
         futures = [jobs.job_executor.submit(jobs._run_decision_job, job_id, ctx) for job_id in job_ids]
         for future in futures:
             future.result(timeout=5)
@@ -533,7 +536,8 @@ def test_regeneration_archives_referenced_proposal_and_keeps_approval_detail_ali
         db.add(Approval(id=approval_id, tenant_id="tenant-demo", proposal_id=kept_id, incident_id=incident_id, status="approved", risk_level="high", summary="被引用方案", cost_impact=100, submitter="供应链负责人", waiting_hours=0, cc_role_codes=["finance"], history=[]))
         db.add(Job(id=job_id, tenant_id="tenant-demo", kind="decision", resource_id=incident_id, idempotency_key=f"decision:{incident_id}", status="pending", progress=0, result={}))
         db.commit()
-    with patch("src.webapi.jobs.DecisionOrchestrator.run_demo", return_value={"proposals": []}):
+    from src.orchestrator import DecisionOrchestrator
+    with patch("src.webapi.jobs._execute_tenant_decision", return_value=DecisionOrchestrator().run_demo()):
         jobs._run_decision_job(job_id, ctx)
     with SessionLocal() as db:
         assert db.get(Job, job_id).status == "succeeded"

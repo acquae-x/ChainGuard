@@ -1,0 +1,21 @@
+# 归一化行尾，杜绝 Windows CRLF 噪音 diff
+* text=auto
+
+# 文本源码强制 LF
+*.py   text eol=lf
+*.json text eol=lf
+*.csv  text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.http text eol=lf
+
+# 二进制文件，git 不做行尾处理
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pdf  binary
+*.xlsx binary
+*.db   binary
+*.onnx binary

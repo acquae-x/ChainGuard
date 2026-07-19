@@ -441,6 +441,9 @@ def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissi
         "recognition": item.options.get("recognition"),
     }
     if mode == "ocr":
+        # Successful OCR must expose auditable engine/confidence/timing metadata
+        # to the review UI; the server path remains private in job options.
+        item.result["extraction"] = item.options.get("extraction")
         item.result["manualReview"] = {
             "required": True, "firstImport": seen_count == 0, "seenCount": seen_count,
             "familiarity": "novel" if seen_count == 0 else "familiar",
