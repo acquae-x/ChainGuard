@@ -14,7 +14,7 @@ from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
 from ..context_builder import TenantContextBuilder
-from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, ExperienceCard, Incident, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, ExperienceCard, ImportJob, Incident, InventoryEntity, Job, NotificationMessage, Proposal, Risk, Task, User
 from ..experience import mark_incident_experience_completed, mark_incident_experience_confirmed
 from ..decision_detail import mask_for_requester, render_pdf
 from ..impact_scope import incident_impact_scope, risk_impact_scope
@@ -559,6 +559,67 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
     incidents = list_tenant_records(db, Incident, ctx.tenant_id, ctx)
     all_tasks = list_tenant_records(db, Task, ctx.tenant_id, ctx)
     mine = all_tasks if _can_manage_all_tasks(ctx) else [t for t in all_tasks if t.assignee == ctx.user_id]
+    # 管理员工作台的四个 KPI 此前只有前端写死的演示字面量（成员数 9、未完成初始化项 2、
+    # 本周导入批次 3、失败任务 0），既不随租户变化也和 /onboarding/status 互相矛盾。
+    # 统一在这里按真实数据算，前端不再保留任何兜底数值。
+    from ..onboarding import DECISION_REQUIRED, entity_summary
+
+    def _as_utc(value: datetime | None) -> datetime | None:
+        # SQLite 取回的 DateTime 可能是 naive 的，直接和 aware 值比较会 TypeError。
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+    summary = entity_summary(db, ctx.tenant_id)
+    real_counts = summary["realCounts"]
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    import_jobs = list_tenant_records(db, ImportJob, ctx.tenant_id)
+
+    # 采购视角的"待到货延误"：预计到货晚于计划到货的库存行。此前是前端写死的 0。
+    arrival_delays = len([
+        row for row in list_tenant_records(db, InventoryEntity, ctx.tenant_id)
+        if row.planned_arrival_at and row.estimated_arrival_at
+        and _as_utc(row.estimated_arrival_at) > _as_utc(row.planned_arrival_at)
+    ])
+
+    # 金额口径直接复用经营看板（reports.executive_report）的定义，不另立一套：
+    # 避免损失 = Σ incident.loss，应急成本 = Σ incident.cost，净收益 = 两者之差。
+    # 无事件时为 None（前端显示"数据缺失"），绝不用 0 冒充。
+    # 只发给有对应字段权限的角色——KPI 接口过去只返回计数，加金额后必须自己做字段级门控，
+    # 否则等于绕开 SensitiveField 把成本/利润泄漏给无 field:cost:view 的角色。
+    permissions = set(ctx.permissions)
+    can_cost = bool(permissions & {"*", "field:cost:view"})
+    can_profit = bool(permissions & {"*", "field:profit:view"})
+    avoided_loss = sum(float(i.loss or 0) for i in incidents) if incidents else None
+    emergency_cost = sum(float(i.cost or 0) for i in incidents) if incidents else None
+    net_benefit = round(avoided_loss - emergency_cost, 2) if incidents else None
+
+    # 工作台的两张趋势图此前是写死的数组（['2月'..'7月'] 配 [12,14,9,18,16,12.8]），
+    # 与租户无关。这里按真实事件/审批按月聚合；没有数据就返回空数组，前端画空态。
+    cost_buckets: dict[str, dict[str, float]] = {}
+    for item in incidents:
+        moment = _as_utc(item.created_at)
+        if moment is None:
+            continue
+        bucket = cost_buckets.setdefault(f"{moment.year}-{moment.month:02d}", {"avoidedLoss": 0.0, "emergencyCost": 0.0})
+        bucket["avoidedLoss"] += float(item.loss or 0)
+        bucket["emergencyCost"] += float(item.cost or 0)
+    monthly_series = [
+        {"month": key, "avoidedLoss": round(value["avoidedLoss"], 2), "emergencyCost": round(value["emergencyCost"], 2)}
+        for key, value in sorted(cost_buckets.items())
+    ]
+
+    response_buckets: dict[str, list[float]] = {}
+    for item in approvals:
+        moment = _as_utc(item.created_at)
+        if moment is None or item.status not in {"approved", "rejected"} or item.waiting_hours is None:
+            continue
+        response_buckets.setdefault(f"{moment.year}-{moment.month:02d}", []).append(float(item.waiting_hours))
+    response_series = [
+        {"month": key, "avgResponseHours": round(sum(values) / len(values), 2)}
+        for key, values in sorted(response_buckets.items()) if values
+    ]
+
     return {
         "riskCount": len(risks),
         "highRiskCount": len([r for r in risks if r.level == "high"]),
@@ -567,6 +628,17 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
         "myTasks": len(mine),
         "overdueTasks": len([t for t in mine if t.status == "overdue"]),
         "incidentCount": len([i for i in incidents if i.status != "closed"]),
+        "memberCount": len(list_tenant_records(db, User, ctx.tenant_id)),
+        # 决策链路必需但本租户还没有真实数据的资料类型数；与 /onboarding/status 同源。
+        "onboardingPending": len([name for name in DECISION_REQUIRED if not real_counts.get(name)]),
+        "weeklyImports": len([j for j in import_jobs if _as_utc(j.created_at) and _as_utc(j.created_at) >= week_ago]),
+        "failedImports": len([j for j in import_jobs if j.status == "failed"]),
+        "arrivalDelays": arrival_delays,
+        "avoidedLoss": round(avoided_loss, 2) if can_cost and avoided_loss is not None else None,
+        "emergencyCost": round(emergency_cost, 2) if can_cost and emergency_cost is not None else None,
+        "netBenefit": net_benefit if can_profit else None,
+        "monthlySeries": monthly_series if can_cost else [],
+        "responseSeries": response_series,
     }
 
 
