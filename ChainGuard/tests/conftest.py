@@ -14,6 +14,8 @@ from pathlib import Path
 
 os.environ.setdefault("JWT_SECRET", "test-only-signing-key-not-for-deployment")
 os.environ.setdefault("SEED_DEMO_PASSWORD", "test-runtime-password")
+# SSO client_secret 与 ERP 凭证同款 Fernet 加密；不给密钥则保存路径按设计直接 503。
+os.environ.setdefault("CHAINGUARD_ENCRYPTION_KEY", "test-only-encryption-key-not-for-deployment")
 
 if "DATABASE_URL" not in os.environ:
     # Keep both the database and pytest's own temporary files under a stable,

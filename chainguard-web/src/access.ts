@@ -57,6 +57,11 @@ export default function access(initialState: { currentUser?: API.User } | undefi
     canExportAudit: has(permissions, 'audit:export'),
     canCase: has(permissions, 'case:view'),
     canReport: any(permissions, REPORT_VIEW),
+    // 三张报表各有独立后端权限（report:executive / report:operation / report:view），
+    // 菜单必须逐页收敛，否则用户会看到点进去就 403 的入口。settings:manage 在后端可越权查看，这里对齐。
+    canReportExecutive: any(permissions, ['report:executive', 'settings:manage']),
+    canReportOperation: any(permissions, ['report:operation', 'settings:manage']),
+    canReportResponse: any(permissions, REPORT_VIEW),
     // 系统设置菜单：具备系统配置 / 审批流配置 / 审计查看任一即可见
     canSettings: any(permissions, ['settings:manage', 'settings:approval', 'audit:view']),
     canSettingsAdmin: has(permissions, 'settings:manage'),
