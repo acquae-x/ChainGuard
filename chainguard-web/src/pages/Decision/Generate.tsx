@@ -8,6 +8,25 @@ import { generateProposals, getDecisionReadiness, getDraft, getProposalsForIncid
 import { getIncident } from '@/services/incident';
 import { customerLabel, daysLabel, isMissing, moneyLabel, riskLabel, MISSING_TEXT } from '@/utils/proposalMetrics';
 
+// 后端 serialize() 只把列名转驼峰，explanation 里的 JSON 键保持推演产物的原样
+// （arbitration_summary / debate_narrative / ...），这里两种写法都认。
+const pick = (source: any, ...names: string[]) => {
+  for (const name of names) {
+    if (source && source[name]) return source[name];
+  }
+  return undefined;
+};
+
+/** 关键因素来自本方案的推演产物：规则仲裁、多智能体博弈、约束求解各出一句。 */
+const explanationLines = (proposal: API.Proposal): string[] => {
+  const explanation = (proposal as any).explanation || {};
+  return [
+    pick(explanation, 'arbitration_summary', 'arbitrationSummary'),
+    pick(explanation, 'debate_narrative', 'debateNarrative'),
+    pick(explanation, 'constraint_narrative', 'constraintNarrative'),
+  ].filter(Boolean) as string[];
+};
+
 export default function DecisionGenerate() {
   const { incidentId = 'inc-supplier-shutdown' } = useParams<{ incidentId: string }>();
   const access = useAccess();
@@ -89,7 +108,17 @@ export default function DecisionGenerate() {
           {!proposal.historyExperience?.matched && <Typography.Text type="secondary" style={{ display: 'block', marginTop: 16 }}>历史经验：暂无同租户相似经验，本次按当前真实数据独立推演。</Typography.Text>}
           <Collapse ghost style={{ marginTop: 16 }} items={[
             { key: 'views', label: '五视角明细', children: Object.entries(proposal.views).map(([name, value]) => <Descriptions key={name} size="small" column={1} items={[{ key: name, label: name, children: value }]} />) },
-            { key: 'ai', label: 'AI 解释：结论 → 关键因素 → 证据链', children: <><Typography.Paragraph>{proposal.reason}</Typography.Paragraph><Typography.Text type="secondary">关键因素：成本、交期、客户影响与约束冲突</Typography.Text><br/><Space><Tag>EXP-019</Tag><Tag>高等级客户交付约束</Tag></Space></> }
+            // 证据链必须来自本方案自身的推演产物。此前这里写死了 <Tag>EXP-019</Tag>，
+            // 那是演示租户 seed 出来的一张经验卡，对任何租户的任何方案都照样显示——
+            // 与「任何数字可复算/可追溯」的承诺直接冲突。
+            { key: 'ai', label: 'AI 解释：结论 → 关键因素 → 证据链', children: <Space direction="vertical" size={4} style={{ display: 'flex' }}>
+              <Typography.Paragraph style={{ marginBottom: 0 }}>{proposal.reason}</Typography.Paragraph>
+              {explanationLines(proposal).map((line) => <Typography.Text key={line} type="secondary">{line}</Typography.Text>)}
+              <Space wrap>
+                {(pick((proposal as any).explanation, 'dataMissing', 'data_missing') || []).map((item: string) => <Tag key={item} color="orange">降级项：{item}</Tag>)}
+                <Tag>{pick((proposal as any).explanation, 'llm_used', 'llmUsed') ? `LLM 生成（${pick((proposal as any).explanation, 'model_name', 'modelName') || '未标注模型'}）` : '规则模板生成，未调用 LLM'}</Tag>
+              </Space>
+            </Space> }
           ]} />
           {invalid && <Alert type="error" showIcon message="违反硬约束" description={proposal.reason} />}
         </Card>
