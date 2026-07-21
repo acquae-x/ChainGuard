@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.connectors.rest_connector import ErpConnectorError, RestErpConnector
-from src.security.encryption import decrypt_bytes, encrypt_bytes, encryption_status
+from src.security.encryption import EncryptionUnavailable, decrypt_bytes, encrypt_bytes, needs_rewrap
 
 from .errors import ApiError
 from .models import ErpIntegrationConfig
@@ -42,12 +42,12 @@ def _credential(values: dict[str, Any]) -> str | None:
 
 
 def _encrypt_credential(value: str) -> str:
-    status = encryption_status()
-    if not status["active"]:
-        raise ApiError(503, "CG-2802", "凭证加密未启用，不能保存 ERP 凭证")
-    encrypted = encrypt_bytes(value.encode("utf-8"))
-    if encrypted == value.encode("utf-8"):
-        raise ApiError(503, "CG-2802", "凭证加密不可用，不能保存 ERP 凭证")
+    # encrypt_bytes 现在 fail-closed，加密不可用直接抛 EncryptionUnavailable，
+    # 不再需要"密文 == 明文"这种等值比较来兜底识别降级。
+    try:
+        encrypted = encrypt_bytes(value.encode("utf-8"))
+    except EncryptionUnavailable as error:
+        raise ApiError(503, "CG-2802", "凭证加密未启用，不能保存 ERP 凭证") from error
     return base64.urlsafe_b64encode(encrypted).decode("ascii")
 
 
@@ -59,6 +59,16 @@ def _decrypt_credential(item: ErpIntegrationConfig) -> str:
         return decrypt_bytes(encrypted).decode("utf-8")
     except Exception as error:
         raise ApiError(503, "CG-2802", "ERP 凭证不可用，请重新配置") from error
+
+
+def credential_needs_rewrap(item: ErpIntegrationConfig) -> bool:
+    """存量密文是否仍是 v1（裸 sha256）派生，需在下次保存时升级为 v2。"""
+    if not item.credential_ciphertext:
+        return False
+    try:
+        return needs_rewrap(base64.urlsafe_b64decode(item.credential_ciphertext.encode("ascii")))
+    except Exception:
+        return False
 
 
 def get_config(db: Session, tenant_id: str) -> ErpIntegrationConfig | None:
@@ -77,6 +87,8 @@ def public_config(item: ErpIntegrationConfig | None) -> dict[str, Any]:
         "baseUrl": item.base_url,
         "credentialConfigured": bool(item.credential_ciphertext),
         "credentialMasked": "已配置" if item.credential_ciphertext else "未配置",
+        # 该凭证是否仍用已淘汰的 v1（裸 sha256）派生。重新保存一次即升级为 v2。
+        "credentialNeedsRewrap": credential_needs_rewrap(item),
         "connectionParams": dict(item.connection_params or {}),
         "lastTestStatus": item.last_test_status,
         "lastTestAt": item.last_test_at.isoformat() if item.last_test_at else None,

@@ -9,6 +9,9 @@ SQLAlchemy>=2.0,<3
 alembic>=1.13,<2
 PyJWT>=2.8,<3
 bcrypt>=4.1,<5
+# 凭证静态加密（Fernet/MultiFernet）。此前它只经 pdfplumber → pdfminer.six 传递安装，
+# 未显式声明——上游哪天不再依赖它，src/security/encryption.py 就会整条不可用。
+cryptography>=42,<50
 slowapi>=0.1.9,<1
 # PostgreSQL 生产环境驱动；SQLite 开发模式不会建立 PostgreSQL 连接。
 psycopg[binary]>=3.1,<4

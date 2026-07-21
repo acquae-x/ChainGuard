@@ -24,7 +24,7 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.security.encryption import decrypt_bytes, encrypt_bytes, encryption_status
+from src.security.encryption import EncryptionUnavailable, decrypt_bytes, encrypt_bytes
 
 from .auth import AuthContext
 from .config import settings
@@ -41,11 +41,11 @@ def _now() -> datetime:
 
 
 def _encrypt_secret(value: str) -> str:
-    if not encryption_status()["active"]:
-        raise ApiError(503, "CG-1014", "凭证加密未启用，不能保存 SSO 客户端密钥")
-    encrypted = encrypt_bytes(value.encode("utf-8"))
-    if encrypted == value.encode("utf-8"):
-        raise ApiError(503, "CG-1014", "凭证加密不可用，不能保存 SSO 客户端密钥")
+    # 同 erp_integration._encrypt_credential：fail-closed 后无需等值比较兜底。
+    try:
+        encrypted = encrypt_bytes(value.encode("utf-8"))
+    except EncryptionUnavailable as error:
+        raise ApiError(503, "CG-1014", "凭证加密未启用，不能保存 SSO 客户端密钥") from error
     return base64.urlsafe_b64encode(encrypted).decode("ascii")
 
 
