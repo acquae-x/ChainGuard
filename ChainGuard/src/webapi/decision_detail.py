@@ -14,6 +14,11 @@ MASK_PLACEHOLDER = "***"
 # 而不是逐个样例打补丁。
 FINANCIAL_TOKENS = ("cost", "amount", "price", "profit", "benefit", "savings", "penalty")
 
+# 客户等级字段名：值常常就是裸的 "A"/"B"/"C"，既不带"类"也不带"等级为"，
+# 因此下面的 _TIER / _TIER_LEVEL 正则一个都命中不了。按键名兜住这一类，
+# 否则 field:customerLevel:view 只对写在句子里的等级生效，对结构化字段形同虚设。
+TIER_KEYS = ("customer_level", "customer_tier", "customer_grade")
+
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 # 自然语言里内嵌的敏感数字/客户等级：仅按键名脱敏无法覆盖（键是 reasoning/explanation/
@@ -44,6 +49,12 @@ def is_financial_key(key: str) -> bool:
     """字段名(规范化后)是否命中财务词根。"""
     normalized = _normalize_key(str(key))
     return any(token in normalized for token in FINANCIAL_TOKENS)
+
+
+def is_tier_key(key: str) -> bool:
+    """字段名(规范化后)是否是客户等级字段。"""
+    normalized = _normalize_key(str(key))
+    return any(token in normalized for token in TIER_KEYS)
 
 
 def _scrub_text(text: str, mask_financial: bool, mask_tier: bool) -> str:
@@ -84,6 +95,8 @@ def _deep_mask(value: Any, mask_financial: bool, mask_tier: bool) -> Any:
     if isinstance(value, dict):
         for key, item in value.items():
             if mask_financial and is_financial_key(key):
+                value[key] = MASK_PLACEHOLDER
+            elif mask_tier and is_tier_key(key):
                 value[key] = MASK_PLACEHOLDER
             else:
                 value[key] = _deep_mask(item, mask_financial, mask_tier)

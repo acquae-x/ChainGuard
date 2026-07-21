@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import AuthContext
+from ..data_scope import apply_scope, is_visible
 from ..errors import ApiError
 from ..models import AuditLog
 
@@ -16,13 +17,28 @@ from ..models import AuditLog
 T = TypeVar("T")
 
 
-def list_tenant_records(db: Session, model: type[T], tenant_id: str) -> list[T]:
-    return list(db.scalars(select(model).where(model.tenant_id == tenant_id)).all())
+def list_tenant_records(db: Session, model: type[T], tenant_id: str, ctx: AuthContext | None = None) -> list[T]:
+    """租户内列表查询。
+
+    传入 ctx 时额外施加行级数据范围（部门/本人）。不传表示系统内部调用
+    （调度扫描、作业执行、通知派发等），这些路径本就不代表某个用户的视角。
+    """
+    stmt = select(model).where(model.tenant_id == tenant_id)
+    if ctx is not None:
+        stmt = apply_scope(db, ctx, model, stmt)
+    return list(db.scalars(stmt).all())
 
 
-def get_tenant_record(db: Session, model: type[T], item_id: str, tenant_id: str) -> T:
+def get_tenant_record(db: Session, model: type[T], item_id: str, tenant_id: str, ctx: AuthContext | None = None) -> T:
+    """租户内单条读取。
+
+    越出数据范围的记录一律按 404 处理，与跨租户访问口径一致——
+    返回 403 会暴露"这条记录确实存在"，等于泄漏了本不该可见的信息。
+    """
     item = db.scalar(select(model).where(model.id == item_id, model.tenant_id == tenant_id))
     if item is None:
+        raise ApiError(404, "CG-2001", "资源不存在")
+    if ctx is not None and not is_visible(db, ctx, item):
         raise ApiError(404, "CG-2001", "资源不存在")
     return item
 

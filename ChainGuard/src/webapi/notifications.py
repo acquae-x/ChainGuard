@@ -17,6 +17,10 @@ FIXED_RULES: dict[str, list[str]] = {
     "countersign_ratified": ["boss", "submitter"],
     "task_assigned": ["assignee"], "task_urged": ["assignee"], "task_overdue": ["assignee", "scm_lead"],
     "import_succeeded": ["trigger"], "import_failed": ["trigger"], "risk_high": ["scm_lead", "boss"],
+    "drift_detected": ["admin"],
+    # 账户完善：通道未配置时的重置申请与账号锁定都必须让管理员看得见，否则兜底无从发起。
+    "password_reset_requested": ["admin"],
+    "account_locked": ["admin"],
 }
 
 

@@ -5,17 +5,33 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { DegradeBanner } from '@/components';
 import { login } from '@/services/user';
+import { startSsoLogin } from '@/services/account';
 import { isApiMode } from '@/services/dataMode';
 
 export default function LoginPage() {
   const { setInitialState } = useModel('@@initialState');
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(0);
+  // 后端 423 = 账号级锁定；与 429（IP 限流）是两回事，提示也必须分开
+  const [lockNotice, setLockNotice] = useState('');
+  const [form] = Form.useForm();
   const screens = Grid.useBreakpoint();
   const apiMode = isApiMode();
 
+  // SSO 入口：先探测该账号所属企业是否真的配了 SSO，没配就照实说，不跳假流程。
+  const goSso = async () => {
+    const account = (form.getFieldValue('account') || '').trim();
+    try {
+      const started = await startSsoLogin({ account });
+      window.location.href = started.authorizeUrl;
+    } catch (error: any) {
+      message.info(error?.message || '该企业未配置企业单点登录（SSO）');
+    }
+  };
+
   const submit = async (values: any) => {
     setLoading(true);
+    setLockNotice('');
     try {
       const result = await login(values);
       // setInitialState 的 Promise 会在 React 真正提交状态前返回；若紧接着
@@ -32,6 +48,8 @@ export default function LoginPage() {
       history.replace(safeRequested || (result.tenant.status === 'initializing' ? '/onboarding' : '/dashboard'));
     } catch (error: any) {
       setFailed((value) => value + 1);
+      // 账号锁定（423）要常驻提示，一次性 toast 容易被忽略而让用户反复重试
+      if (error?.httpStatus === 423) setLockNotice(error.message);
       // 透传后端错误信封的真实原因（如限流"请求过于频繁"），不要一律误报成密码错误
       message.error(error?.message || '登录失败，请检查账号密码');
     } finally {
@@ -67,12 +85,14 @@ export default function LoginPage() {
               key: 'password',
               label: '账号密码',
               children: (
-                <Form layout="vertical" onFinish={submit} initialValues={apiMode ? undefined : { account: 'scm_lead@chainguard.demo', password: 'Demo@1234' }}>
+                <Form form={form} layout="vertical" onFinish={submit} initialValues={apiMode ? undefined : { account: 'scm_lead@chainguard.demo', password: 'Demo@1234' }}>
                   <Form.Item name="account" label="手机号/邮箱" rules={[{ required: true, message: '请输入手机号或邮箱' }]}><Input prefix={<UserOutlined />} /></Form.Item>
                   <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}><Input.Password prefix={<LockOutlined />} /></Form.Item>
                   {!apiMode && failed >= 5 && <Form.Item name="captcha" label="图形验证码" rules={[{ required: true, message: '请输入验证码' }]}><Input placeholder="连续失败后出现，mock 任意输入" /></Form.Item>}
                   {!apiMode && failed >= 10 && <Alert type="error" showIcon message="账号已锁定 15 分钟（mock 状态）" style={{ marginBottom: 16 }} />}
-                  {apiMode && failed >= 3 && <Alert type="info" showIcon message="登录接口限流 5 次/分钟，多次失败请等待 1 分钟再试" style={{ marginBottom: 16 }} />}
+                  {/* 账号锁定与 IP 限流是两条独立防线，提示分开呈现，避免用户误以为只要换个网络就能继续试 */}
+                  {lockNotice && <Alert type="error" showIcon message="账号已锁定" description={`${lockNotice}，也可联系企业管理员在「系统设置 → 用户管理」中立即解锁。`} style={{ marginBottom: 16 }} />}
+                  {apiMode && !lockNotice && failed >= 3 && <Alert type="info" showIcon message="登录接口限流 5 次/分钟，多次失败请等待 1 分钟再试" style={{ marginBottom: 16 }} />}
                   <Button block type="primary" htmlType="submit" loading={loading}>登录</Button>
                 </Form>
               )
@@ -95,7 +115,7 @@ export default function LoginPage() {
               <Button type="link" onClick={() => history.push('/user/register')}>免费注册</Button>
               <Button type="link" onClick={() => history.push('/user/join')}>企业邀请码入口</Button>
               <Button type="link" onClick={() => history.push('/user/reset')}>忘记密码</Button>
-              <Button type="link" onClick={() => message.info('该企业未配置 SSO')}>企业单点登录（SSO）</Button>
+              <Button type="link" onClick={goSso}>企业单点登录（SSO）</Button>
             </Space>
           </Space>
         </Card>
