@@ -1,9 +1,9 @@
 import { useAccess } from '@umijs/max';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
-import { Button, Drawer, Form, Input, Space, message } from 'antd';
+import { Alert, Button, Drawer, Form, Input, Space, message } from 'antd';
 import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';
-import { DynamicField, ObjectPeek, SensitiveField, StatusTag } from '@/components';
+import { ObjectPeek, SensitiveField, StatusTag } from '@/components';
 import { createRecord, getDataTable } from '@/services/data';
 import { formatSupportHours } from './presentation';
 
@@ -24,14 +24,21 @@ export default function TablePage({ type }: { type: DataType }) {
   const [form] = Form.useForm();
   const actionRef = useRef<any>();
   const meta = config[type];
+  // 物流在后端没有对应的资料类型（C2 实体表里没有这张表），因此没有任何真实
+  // 数据可读写。此前这里回退渲染一条 mock 的"沪深干线"，看上去和其他主数据
+  // 一样真实。改为明确声明尚未接入，并隐藏会造成误解的写操作。
+  const unavailable = type === 'logistics';
   return (
-    <PageContainer title={meta.title} extra={<Space>{access.canImport && <Button icon={<UploadOutlined />} href="/data/import">导入</Button>}{access.canExportData && <Button icon={<DownloadOutlined />}>导出</Button>}{!access.readonly && <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>新建</Button>}</Space>}>
+    <PageContainer title={meta.title} extra={unavailable ? null : <Space>{access.canImport && <Button icon={<UploadOutlined />} href="/data/import">导入</Button>}{access.canExportData && <Button icon={<DownloadOutlined />}>导出</Button>}{!access.readonly && <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>新建</Button>}</Space>}>
+      {unavailable && <Alert style={{ marginBottom: 16 }} type="info" showIcon message="物流资料尚未接入" description="当前后端没有物流资料类型，本页不展示任何数据；接入前请勿据此判断线路状态。" />}
       <ProTable<any>
         actionRef={actionRef}
         rowKey={meta.key}
         request={() => getDataTable(type)}
         pagination={{ defaultPageSize: 10, showSizeChanger: true }}
-        columns={[...meta.columns, { title: '质量评分', dataIndex: 'qualityScore', search: false, render: () => <DynamicField readonly schema={{ name: 'qualityScore', label: '质量评分', type: 'number' }} value={88} /> }, { title: '操作', valueType: 'option', render: (_: any, row: any) => <ObjectPeek type={meta.title.replace('管理', '')} name={row[meta.name]} data={row} /> }]}
+        // 原先这里还有一列"质量评分"，render 忽略行数据恒定输出 88——后端
+        // /data/{type} 压根没有 qualityScore 字段。整列删除，不做假打分。
+        columns={[...meta.columns, { title: '操作', valueType: 'option', render: (_: any, row: any) => <ObjectPeek type={meta.title.replace('管理', '')} name={row[meta.name]} data={row} /> }]}
       />
       <Drawer title={`新建${meta.title.replace('管理', '')}`} open={open} onClose={() => setOpen(false)} width={440}>
         <Form form={form} layout="vertical" onFinish={async (values) => { await createRecord(type, values); message.success('已保存并写入审计日志'); form.resetFields(); setOpen(false); actionRef.current?.reload(); }}>
