@@ -56,9 +56,9 @@ const SUITES = [
       '--output', resolve(workspace, 'data-import-c2-report.json'),
     ],
   },
-  // expectedSkips=1：漂移告警那半段是 test.fixme（见 3cfd3b7），需要一个带实体数据、
-  // 历史决策能关联真实中断事件的租户才能启用。补上主路径验收后这里必须归 0。
-  { name: 'calibration', config: 'playwright.calibration-api.config.ts', dbEnv: 'CALIBRATION_DATABASE_URL', seed: null, expectedSkips: 1 },
+  // 三条用例全部实跑：拒绝路径 + 人工确认主路径 + 漂移告警。夹具由
+  // ChainGuard/scripts/generate_calibration_e2e_fixture.py 固化在 e2e/fixtures/calibration。
+  { name: 'calibration', config: 'playwright.calibration-api.config.ts', dbEnv: 'CALIBRATION_DATABASE_URL', seed: null },
   { name: 'risk-explanation', config: 'playwright.risk-explanation-api.config.ts', dbEnv: 'RISK_EXPLAIN_DATABASE_URL', seed: 'seed_phase5b_a03_e2e.py' },
   { name: 'impact-scope', config: 'playwright.impact-scope-api.config.ts', dbEnv: 'IMPACT_SCOPE_DATABASE_URL', seed: 'seed_phase5b_a04_e2e.py' },
   { name: 'node-health', config: 'playwright.node-health-api.config.ts', dbEnv: 'NODE_HEALTH_DATABASE_URL', seed: 'seed_phase5b_c02_c03_e2e.py' },
