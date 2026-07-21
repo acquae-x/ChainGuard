@@ -9,8 +9,6 @@ from src.orchestrator import DecisionOrchestrator
 from src.sensitivity import run_sensitivity
 
 
-TOTAL_TESTS_PASSED = 196
-
 
 class _MemoryAuditLog:
     def __init__(self, entries: list[Any]) -> None:
@@ -107,7 +105,6 @@ def run_baseline() -> dict[str, Any]:
         "human_approval": audit_entry["human_approval_required"],
         "decision_status": audit_entry["decision_status"],
         "top_proposal": result.arbitration["final_decision_title"],
-        "total_tests_passed": TOTAL_TESTS_PASSED,
     }
 
 
