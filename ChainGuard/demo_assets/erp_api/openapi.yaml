@@ -21,22 +21,6 @@ paths:
       summary: 获取供应链驾驶舱摘要
       responses:
         '200': {description: 成功}
-  /api/v1/decisions:
-    get:
-      summary: Query ChainGuard decision write-backs
-      responses:
-        '200': {description: Success}
-    post:
-      summary: Receive ChainGuard decision write-back
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        '201': {description: Stored}
   /api/v1/materials:
     get:
       summary: 分页查询 materials

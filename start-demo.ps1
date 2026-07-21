@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     ChainGuard 一键演示启动（Windows / PowerShell）。
 
@@ -36,6 +36,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 中文 Windows 控制台默认 GBK，脚本本身是 UTF-8（带 BOM，否则 PS 5.1 按 ANSI 读会
+# 把中文读成乱码并连带吃掉引号导致语法错误）。这里把输出编码也统一到 UTF-8，
+# 否则提示信息在控制台里是乱码。
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch { }
+
 $RepoRoot = $PSScriptRoot
 $ApiDir = Join-Path $RepoRoot 'ChainGuard'
 $WebDir = Join-Path $RepoRoot 'chainguard-web'
@@ -43,6 +52,17 @@ $WebDir = Join-Path $RepoRoot 'chainguard-web'
 function Step($n, $text) { Write-Host "`n[$n/6] $text" -ForegroundColor Cyan }
 function Ok($text) { Write-Host "      $text" -ForegroundColor DarkGray }
 function Die($text) { Write-Host "`n启动失败：$text`n" -ForegroundColor Red; exit 1 }
+
+# 跑外部命令并按退出码判定成败。
+#
+# 不能用 `cmd 2>&1 | ...`：PowerShell 5.1 会把原生命令的 stderr 每一行包成
+# ErrorRecord 抛成 NativeCommandError，配合 $ErrorActionPreference='Stop'
+# 会在命令实际成功（exit 0）时把脚本打断——alembic / npm 都把普通 INFO 日志
+# 写到 stderr，必踩。这里只认退出码。
+function Run($what, [scriptblock]$cmd) {
+    & $cmd
+    if ($LASTEXITCODE -ne 0) { Die "$what 失败（退出码 $LASTEXITCODE）" }
+}
 
 Write-Host "ChainGuard 演示环境启动" -ForegroundColor Green
 
@@ -72,13 +92,14 @@ Ok "演示库 $DbPath"
 if (-not $SkipInstall) {
     Step 2 "安装 Python 依赖"
     Push-Location $ApiDir
-    try { python -m pip install -q -r requirements.txt } finally { Pop-Location }
+    try { Run "Python 依赖安装" { python -m pip install -q -r requirements.txt } } finally { Pop-Location }
     Ok "requirements.txt 就绪"
 
     Step 3 "安装前端依赖"
     Push-Location $WebDir
     try {
-        if (Test-Path 'package-lock.json') { npm ci --silent } else { npm install --silent }
+        if (Test-Path 'package-lock.json') { Run "npm ci" { npm ci --silent } }
+        else { Run "npm install" { npm install --silent } }
     } finally { Pop-Location }
     Ok "node_modules 就绪"
 } else {
@@ -90,11 +111,11 @@ if (-not $SkipInstall) {
 Step 4 "迁移数据库并播种演示数据"
 Push-Location $ApiDir
 try {
-    alembic upgrade head 2>&1 | Select-Object -Last 1 | ForEach-Object { Ok $_ }
+    Run "数据库迁移" { alembic upgrade head }
     # seed 可重入：已存在则跳过，重复执行不会造出第二套演示租户
-    python -m src.webapi.seed 2>&1 | Select-Object -Last 1 | ForEach-Object { Ok $_ }
+    Run "演示数据播种" { python -m src.webapi.seed }
     # 场景/监控/校准类演示依赖企业演示资产，固定 SEED 确定性生成
-    python scripts/generate_enterprise_demo_data.py 2>&1 | Select-Object -Last 1 | ForEach-Object { Ok $_ }
+    Run "企业演示资产生成" { python scripts/generate_enterprise_demo_data.py }
 } finally { Pop-Location }
 
 # ---------------------------------------------------------------- 3 前端构建
@@ -103,8 +124,8 @@ Push-Location $WebDir
 try {
     # umi dev 在默认堆上会 OOM，构建同样吃内存，这里显式抬高上限
     $env:NODE_OPTIONS = '--max-old-space-size=6144'
-    npx max setup 2>&1 | Out-Null
-    npm run build 2>&1 | Select-Object -Last 3 | ForEach-Object { Ok $_ }
+    Run "前端类型声明生成" { npx max setup }
+    Run "前端构建" { npm run build }
 } finally { Pop-Location }
 if (-not (Test-Path (Join-Path $WebDir 'dist/index.html'))) { Die "前端构建产物缺失（chainguard-web/dist/index.html）" }
 Ok "dist/index.html 就绪，将由 FastAPI 直接托管"
