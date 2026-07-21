@@ -184,8 +184,10 @@ test('API 模式 Chromium：确认后成功率跌破阈值触发漂移告警', a
   // 再导入 120 条全失败决策，复用既有 event_id（同一批事件上的新决策）。
   await importFixture(page, session.token, 'historical_decision', 'historical-decisions-drift.csv');
 
-  // 每次建快照都会往 registry 落一条记录，而漂移阈值在记录数 ≥3 时改按 2σ 计算，
-  // 所以这里只 reload 一次，避免把阈值推高到跌幅之上。
+  // 每次建快照都会往 registry 落一条记录，而漂移阈值在记录数 ≥3 时改按 2σ 计算——
+  // 即阈值数值会随页面被打开过几次浮动。但成功率只取基线 a 与漂移后 b 两个值时，
+  // σ = d·√(km)/(k+m) 在 k=m 处最大为 d/2，故 2σ ≤ d 恒成立，而判定含等号，
+  // 所以 severity=critical 与打开次数无关。下面仍按自洽形式断言阈值，不写死 0.15。
   await page.reload();
   await expect(page.getByText('漂移严重超限')).toBeVisible();
   await page.screenshot({ path: resolve(evidenceDir, '05-calibration-drift-alert.png'), fullPage: true });
