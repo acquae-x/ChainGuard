@@ -19,6 +19,18 @@ os.environ.setdefault("SEED_DEMO_PASSWORD", "test-runtime-password")
 # SSO client_secret 与 ERP 凭证同款 Fernet 加密；不给密钥则保存路径按设计直接 503。
 os.environ.setdefault("CHAINGUARD_ENCRYPTION_KEY", "test-only-encryption-key-not-for-deployment")
 
+# 测试绝不打真实大模型接口。
+#
+# 开发机上 ChainGuard/.env 里可能放着真实 DEEPSEEK_API_KEY，而 config.py 在导入时
+# 会加载 .env——于是 TextGenerator() 默认解析成 deepseek，任何没有 mock urlopen 的
+# 用例都会真的发起远程调用：测试变慢、不再自洽、还消耗真实额度。
+#
+# 用赋值而非 pop：load_env_file 只注入"环境里尚不存在"的键，pop 掉反而会被 .env
+# 重新填上。显式置空才能借"已有环境变量优先"这条规则挡住它。
+# 需要验证 deepseek 分支的用例自己传 provider/api_key，不受这里影响。
+os.environ["DEEPSEEK_API_KEY"] = ""
+os.environ["CHAINGUARD_LLM_PROVIDER"] = "ollama"
+
 if "DATABASE_URL" not in os.environ:
     # Keep both the database and pytest's own temporary files under a stable,
     # workspace-owned parent.  On Windows the system temp directory (and an

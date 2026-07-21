@@ -322,3 +322,65 @@ def test_deepseek_without_api_key_falls_back_to_template(monkeypatch):
 
     assert result["llm_used"] is False
     assert result["model_name"] == "template"
+
+
+# --------------------------------------------------------------------------
+# 数值一致性校验
+#
+# 系统对外承诺"所有数值由代码计算，LLM 绝不改数"。结构校验管不了这件事，
+# 必须由 _numbers_consistent 强制。这些用例守的就是这条承诺。
+#
+# 实测背景：deepseek-chat 在提示词只写"不得新增数字"时，8 次调用有 7 次
+# 编造阈值（"寻找成本评分不低于60的方案"），全部被本机制拦下。
+# --------------------------------------------------------------------------
+
+def test_numbers_consistent_accepts_reused_values():
+    generated = {"a": "成本分值 28，时效 92", "b": ["订单数 3"]}
+    assert TextGenerator._numbers_consistent(generated, "评分 28 与 92，订单 3 个") is True
+
+
+def test_numbers_consistent_rejects_invented_value():
+    """模型凭空写出输入里没有的阈值 60 —— 必须判失败。"""
+    generated = {"suggested_revision": "建议寻找成本评分不低于60的替代方案"}
+    assert TextGenerator._numbers_consistent(generated, "评分 28 与 92") is False
+
+
+def test_numbers_consistent_ignores_booleans():
+    """bool 是 int 的子类，但它不是业务数值，不该被当成 1/0 参与比对。"""
+    assert TextGenerator._numbers_consistent({"flag": True}, "没有任何数字") is True
+
+
+def test_numbers_consistent_handles_decimal_formatting():
+    """28 与 28.0 是同一个数，不应因写法差异误判。"""
+    assert TextGenerator._numbers_consistent({"a": "分值 28.0"}, "分值 28") is True
+
+
+def test_invented_number_falls_back_with_reason(monkeypatch):
+    """端到端：结构正确但数字是编的，必须落模板并标出原因。"""
+    payload = json.dumps(
+        {
+            # 输入里只有 30，这里冒出 60 和 88
+            "rebuttal_points": ["成本分值 30 偏低", "建议提升至 60", "目标 88 分"],
+            "suggested_revision": "提升至 60",
+            "accepted_tradeoff": "接受 88 分",
+        },
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _deepseek_response(payload)())
+
+    result = _rebuttal_via(TextGenerator(provider="deepseek", api_key="sk-test"))
+
+    assert result["llm_used"] is False
+    assert result["model_name"] == "template"
+    assert result["fallback_reason"] == "number_mismatch"
+
+
+def test_schema_mismatch_reports_its_own_reason(monkeypatch):
+    """两种拒绝原因要能区分，否则排查时无从下手。"""
+    payload = json.dumps({"rebuttal_points": "应为数组", "suggested_revision": "x",
+                          "accepted_tradeoff": "y"}, ensure_ascii=False)
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _deepseek_response(payload)())
+
+    result = _rebuttal_via(TextGenerator(provider="deepseek", api_key="sk-test"))
+
+    assert result["fallback_reason"] == "schema_mismatch"
