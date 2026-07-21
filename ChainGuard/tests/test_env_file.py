@@ -52,3 +52,15 @@ def test_parses_comments_export_and_quotes(tmp_path, monkeypatch):
     assert os.environ["PROBE_GAMMA"] == "exported"
     assert os.environ["PROBE_DELTA"] == "带 空格 的值"
     assert os.environ["PROBE_EPSILON"] == "单引号"
+
+
+def test_tests_never_default_to_remote_llm():
+    """守住测试隔离：开发机 .env 里的真实 key 不得让测试去打远程模型。
+
+    conftest 在导入应用模块前把 CHAINGUARD_LLM_PROVIDER 固定为 ollama 并把
+    DEEPSEEK_API_KEY 置空。一旦有人删掉那几行，本用例立刻失败——否则症状是
+    整套测试悄悄变慢、开始消耗真实 API 额度，且很难联想到根因。
+    """
+    from src.text_generator import TextGenerator
+
+    assert TextGenerator().provider == "ollama"
