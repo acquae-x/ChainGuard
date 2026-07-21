@@ -120,3 +120,33 @@ def test_erp_credential_refused_when_encryption_unavailable(integration_db, admi
     assert refused.value.status_code == 503 and refused.value.code == "CG-2802"
     stored = integration_db.scalar(select(ErpIntegrationConfig).where(ErpIntegrationConfig.tenant_id == "tenant-a"))
     assert stored is None or "plaintext-must-not-persist" not in str(stored.credential_ciphertext)
+
+
+def test_encryption_settings_endpoint_reports_state_without_leaking_key(admin_context, monkeypatch):
+    """管理员可读的加密状态：只回状态与派生方式，绝不回密钥材料。
+
+    此前 encryption_status() 只在 Streamlit 演示里可见，Web 端管理员看不到——
+    凭证保存被 CG-2802 拒绝时无从判断是部署没配密钥还是自己填错了。
+    """
+    monkeypatch.setenv("CHAINGUARD_ENCRYPTION_KEY", "unit-test-key-material")
+    monkeypatch.setenv("CHAINGUARD_ENCRYPTION_KEY_PREVIOUS", "older-key-1,older-key-2")
+
+    payload = imports_settings.encryption_settings(admin_context)
+
+    assert payload["active"] is True
+    assert payload["key_configured"] is True
+    assert payload["key_derivation"] == "scrypt"
+    assert payload["rotation_keys"] == 2
+    # 任何密钥材料都不得出现在响应里（含 note 这类自由文本字段）
+    serialized = json.dumps(payload, ensure_ascii=False)
+    for secret in ("unit-test-key-material", "older-key-1", "older-key-2"):
+        assert secret not in serialized
+
+
+def test_encryption_settings_endpoint_reports_inactive_without_key(admin_context, monkeypatch):
+    monkeypatch.delenv("CHAINGUARD_ENCRYPTION_KEY", raising=False)
+
+    payload = imports_settings.encryption_settings(admin_context)
+
+    assert payload["active"] is False and payload["key_configured"] is False
+    assert "fail-closed" in payload["note"]

@@ -120,6 +120,21 @@ export type ErpIntegrationConfig = {
   availableResources: Array<{ resource: string; recordCount: number }>;
 };
 
+/** 凭证静态加密的部署级状态。后端只回状态与派生方式，不含任何密钥材料。 */
+export type EncryptionStatus = {
+  library_available: boolean;
+  key_configured: boolean;
+  active: boolean;
+  algorithm: string;
+  key_derivation: 'fernet-key' | 'scrypt';
+  rotation_keys: number;
+  note: string;
+};
+
+export async function getEncryptionStatus() {
+  return apiGet<EncryptionStatus>('/settings/encryption');
+}
+
 export async function getErpIntegration() {
   return apiGet<ErpIntegrationConfig>('/settings/integrations/erp');
 }

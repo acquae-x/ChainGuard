@@ -7,6 +7,7 @@ const services = vi.hoisted(() => ({
   testSavedErpIntegration: vi.fn(), syncSavedErpIntegration: vi.fn(),
   getErpMapping: vi.fn(), validateErpMapping: vi.fn(), saveErpMapping: vi.fn(),
   resetErpMapping: vi.fn(), getErpMappingSourceFields: vi.fn(),
+  getEncryptionStatus: vi.fn(),
 }));
 const mappingView = {
   source: 'file', version: null, updatedAt: null, updatedBy: null, filePath: 'config/erp_mapping.yaml',
@@ -33,6 +34,12 @@ services.getErpIntegration.mockResolvedValue(config);
 services.getErpSyncHistory.mockResolvedValue([{ id: 'erp-a', updatedAt: '2026-07-19T10:01:00+00:00', operator: 'ERP admin', options: { types: ['material'] }, successRows: 1, rejectedRows: 0, status: 'succeeded', result: {} }]);
 services.testSavedErpIntegration.mockResolvedValue(config);
 services.getErpMapping.mockResolvedValue(mappingView);
+const encryptionActive = {
+  library_available: true, key_configured: true, active: true,
+  algorithm: 'Fernet(AES-128-CBC + HMAC)', key_derivation: 'scrypt', rotation_keys: 1,
+  note: 'Fernet 加密已启用（scrypt 派生）；可解密的历史密钥 1 个。',
+};
+services.getEncryptionStatus.mockResolvedValue(encryptionActive);
 vi.mock('@/services/settings', () => services);
 
 // 集成页在 5B「账户完善」后同时承载 SSO 配置卡；此处只关心它挂上了，SSO 行为由自己的用例覆盖。
@@ -101,5 +108,34 @@ describe('ERP integration settings', () => {
     expect(await screen.findByText('映射校验未通过（未保存）')).toBeInTheDocument();
     expect(screen.getByText("material: target_key 'material_id' is not mapped")).toBeInTheDocument();
     expect(services.saveErpMapping).not.toHaveBeenCalled();
+  });
+
+  // 加密状态此前只在 Streamlit 演示里可见，Web 端管理员看不到。凭证保存被 CG-2802
+  // 拒绝时，他们无从判断是部署没配密钥还是自己填错了。
+  it('shows the deployment-level encryption posture without leaking key material', async () => {
+    render(<App><Integration /></App>);
+    expect(await screen.findByText('凭证加密')).toBeInTheDocument();
+    expect(screen.getByText('已启用')).toBeInTheDocument();
+    expect(screen.getByText('Fernet(AES-128-CBC + HMAC)')).toBeInTheDocument();
+    expect(screen.getByText('scrypt 口令派生')).toBeInTheDocument();
+    expect(screen.getByText('1 个')).toBeInTheDocument();
+    expect(screen.queryByText(/无法保存/)).not.toBeInTheDocument();
+  });
+
+  it('explains that an unavailable encryption backend blocks both credential stores', async () => {
+    services.getEncryptionStatus.mockResolvedValueOnce({
+      ...encryptionActive, library_available: false, key_configured: false, active: false,
+      note: 'cryptography 库缺失，凭证加解密不可用（fail-closed，不降级为明文）。',
+    });
+    render(<App><Integration /></App>);
+    expect(await screen.findByText('不可用')).toBeInTheDocument();
+    expect(screen.getByText('缺失')).toBeInTheDocument();
+    expect(screen.getByText(/下方的 ERP 令牌与 SSO 客户端密钥都无法保存/)).toBeInTheDocument();
+    // 未启用时不能声称正在用某种派生方式——后端把 key_derivation 兜底成 'scrypt'，
+    // 照直渲染等于说"正在用 scrypt 派生"，而此时根本没有密钥在用。
+    expect(screen.getByText('—（未启用）')).toBeInTheDocument();
+    expect(screen.queryByText('scrypt 口令派生')).not.toBeInTheDocument();
+    // 必须说清这是部署级问题，界面上修不了，否则管理员会在页面上反复试
+    expect(screen.getByText(/CHAINGUARD_ENCRYPTION_KEY/)).toBeInTheDocument();
   });
 });

@@ -15,6 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.security.encryption import encryption_status
+
 from .. import sso as sso_service
 from ..account_lifecycle import create_invitation, list_invitations, list_password_resets, lock_state, mask_account, resolve_pending_resets, revoke_invitation, unlock_account
 from ..auth import AuthContext, can_view_data, get_current_user, require_permission
@@ -406,6 +408,21 @@ def sync_erp_import(
         notify_event(db, ctx.tenant_id, "import_failed", {"trigger_user_id": ctx.user_id, "title": "ERP 同步失败", "target": "/settings/integration"})
         db.commit()
         raise ApiError(502, "CG-2613", safe_erp_error(error)) from error
+
+
+@router.get("/settings/encryption")
+def encryption_settings(ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))]):
+    """凭证静态加密的只读状态。
+
+    加密是否可用是部署级事实（依赖库 + CHAINGUARD_ENCRYPTION_KEY），不是租户数据，
+    因此这里不查库、不带 tenant 维度。此前它只在 Streamlit 演示（app.py 经
+    src/security/posture.py）里可见，Web 端管理员看不到——凭证保存被拒时无从判断
+    是部署没配密钥还是自己填错了。
+
+    只回状态与派生方式，绝不回任何密钥材料：encryption_status() 本身就是只读探针，
+    不做加解密、不抛异常，返回值里没有密钥或密文。
+    """
+    return encryption_status()
 
 
 @router.get("/settings/integrations/erp")
