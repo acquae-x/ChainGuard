@@ -15,7 +15,7 @@ const rows = [
   ['我的任务', '/task/mine', 'canTask', task], ['全部任务', '/task/all', 'canTask', task], ['超时看板', '/task/overdue', 'canTask', task],
   ['物料', '/data/material', 'canDataMaterial', ['admin', 'scm_lead', 'planner', 'auditor']], ['供应商', '/data/supplier', 'canDataSupplier', ['admin', 'scm_lead', 'buyer', 'auditor']],
   ['客户', '/data/customer', 'canDataCustomer', ['admin', 'scm_lead', 'sales', 'auditor']], ['订单', '/data/order', 'canDataOrder', ['admin', 'scm_lead', 'sales', 'auditor']],
-  ['库存', '/data/inventory', 'canDataInventory', ['admin', 'scm_lead', 'warehouse', 'auditor']], ['物流', '/data/logistics', 'canDataLogistics', ['admin', 'scm_lead']],
+  ['库存', '/data/inventory', 'canDataInventory', ['admin', 'scm_lead', 'warehouse', 'auditor']],
   ['数据导入', '/data/import', 'canData；写操作 canImport', ['admin', 'scm_lead', 'buyer', 'warehouse', 'sales', 'planner', 'auditor']],
   ['案例库', '/case/list', 'canCase', caseReport], ['经验卡片', '/case/experience', 'canCase', caseReport],
   ['经营看板', '/report/executive', 'canReport', caseReport], ['运营看板', '/report/operation', 'canReport', caseReport], ['应急效果', '/report/response', 'canReport', caseReport],

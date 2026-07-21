@@ -2,7 +2,6 @@
 // API 模式的容量/文件可用性预检以服务端结果为准，前端仅保留字段映射交互预览。
 // api 模式：基础资料表读写走 /data/{type}；导入 commit 走后端多步流水线
 // upload → preflight → confirm → execute → 轮询进度（保留原始 File 上传，服务端解析落库）。
-// logistics（物流）后端无对应 resource_type，保留 mock。
 import * as XLSX from 'xlsx';
 import { customers, inventories, materials, orders, suppliers } from './mockData';
 import { appendAudit } from './workflowStore';
@@ -159,21 +158,18 @@ function similarity(left: string, right: string) {
   return 1 - matrix[left.length][right.length] / Math.max(left.length, right.length);
 }
 
-const logisticsRows: any[] = [{ id: 'log-1', line: '沪深干线', eta: '2026-07-11', status: 'watching' }];
-
 export async function getDataTable(type: string) {
   return pick(
     async () => {
-      // api 模式下不存在后端资源的类型（目前只有 logistics）一律返回空集。
-      // 原先回退到 mock 的"沪深干线"，界面上和真实主数据长得一模一样、
-      // 却零 API 调用，等于把演示行冒充成本租户数据。
+      // 后端没有对应 resource_type 的类型一律返回空集，不回退 mock：
+      // 演示行和真实主数据在界面上长得一模一样，回退等于把演示数据冒充成租户数据。
       if (!API_RESOURCE_TYPES.has(type)) {
         return { data: [], total: 0, success: true, unavailable: true };
       }
       return apiGet(`/data/${type}`);
     },
     async () => {
-      const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories, logistics: logisticsRows };
+      const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories };
       return { data: map[type] || [], total: (map[type] || []).length, success: true };
     },
   );
@@ -196,16 +192,19 @@ async function createRecordMock(type: string, values: { name: string; remark?: s
   const id = `${type}-${Date.now()}`;
   const name = values.name?.trim();
   if (!name) throw new Error('名称不能为空');
-  const record: Record<string, any> = (
+  const record: Record<string, any> | null = (
     type === 'material' ? { id, name, category: '未分类', stock: 0, safety: 0, cost: 0 }
     : type === 'supplier' ? { id, name, status: '正常', leadTime: 7, supplierPrice: 0 }
     : type === 'customer' ? { id, name, customerLevel: 'C', contract: values.remark || '—', owner: '销售/客服' }
     : type === 'order' ? { id, orderNo: name, customer: '—', dueAt: new Date().toISOString().slice(0, 10), amount: 0, profit: 0, status: 'pending' }
     : type === 'inventory' ? { id, warehouse: name, material: '—', quantity: 0, supportHours: 0, status: 'new' }
-    : { id, line: name, eta: new Date().toISOString().slice(0, 10), status: 'watching' }
+    // 原先这里的兜底分支是物流线路的形状（物流已下架）。未知类型不再静默套用
+    // 某一种形状，否则会凭空造出一条谁也说不清归属的记录。
+    : null
   );
-  const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories, logistics: logisticsRows };
-  (map[type] || logisticsRows).unshift(record);
+  if (!record) throw new Error(`未知的资料类型：${type}`);
+  const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories };
+  map[type].unshift(record);
   appendAudit('新建资料', type, id, name, { remark: values.remark || '' });
   return record;
 }
