@@ -1,3 +1,4 @@
+from src.config_loader import load_risk_weights
 from src.weight_manager import WeightManager
 
 
@@ -8,57 +9,41 @@ def test_no_data_returns_expert_source():
     assert weights.sample_size == 0
 
 
-def test_sufficient_data_returns_calibrated_source():
+def test_pipeline_never_auto_applies_calibrated_weights():
+    """主决策流水线必须始终用专家先验，即使历史样本充足。
+
+    回归防线：此处过去会用 `calibrate_inventory_risk_weights`（事后特征、目标泄漏）
+    算出的权重**自动驱动真实决策**，既不可信又绕过了产品承诺的人工审批。
+    数据驱动权重现在只能经校准治理流程（样本外验证 + 管理员确认）生效。
+    """
+    from src.config_loader import load_risk_weights
+
     records = [
         {
-            "outcome_status": "success",
-            "covered_demand_rate": 0.9,
-            "actual_delay_hours": 5,
-            "lost_orders": 0,
-            "production_downtime_hours": 0,
-        },
-        {
-            "outcome_status": "failed",
-            "covered_demand_rate": 0.2,
-            "actual_delay_hours": 60,
-            "lost_orders": 5,
-            "production_downtime_hours": 24,
-        },
-        {
-            "outcome_status": "partial_success",
-            "covered_demand_rate": 0.6,
-            "actual_delay_hours": 30,
-            "lost_orders": 2,
-            "production_downtime_hours": 8,
-        },
-        {
-            "outcome_status": "success",
-            "covered_demand_rate": 0.95,
-            "actual_delay_hours": 3,
-            "lost_orders": 0,
-            "production_downtime_hours": 0,
-        },
-        {
-            "outcome_status": "failed",
-            "covered_demand_rate": 0.1,
-            "actual_delay_hours": 72,
-            "lost_orders": 8,
-            "production_downtime_hours": 48,
-        },
-        {
-            "outcome_status": "success",
-            "covered_demand_rate": 0.85,
-            "actual_delay_hours": 10,
-            "lost_orders": 0,
-            "production_downtime_hours": 2,
-        },
+            "outcome_status": "success" if index % 2 == 0 else "failed",
+            "covered_demand_rate": 0.9 if index % 2 == 0 else 0.2,
+            "actual_delay_hours": 5 if index % 2 == 0 else 60,
+            "lost_orders": 0 if index % 2 == 0 else 5,
+            "production_downtime_hours": 0 if index % 2 == 0 else 24,
+        }
+        for index in range(20)
     ]
 
-    weights = WeightManager().resolve_inventory_risk_weights(records)
+    resolved = WeightManager().resolve_inventory_risk_weights(records)
 
-    assert weights.source == "calibrated"
-    assert weights.sample_size == 6
+    assert resolved.source == "expert", "样本再多也不得自动套用校准权重"
+    assert resolved.method == "expert_yaml"
+    assert resolved.values == load_risk_weights()["inventory_risk_weights"]
 
+
+def test_trigger_threshold_is_not_auto_calibrated():
+    from src.config_loader import load_thresholds
+
+    records = [{"outcome_status": "failed", "covered_demand_rate": 0.1} for _ in range(50)]
+    resolved = WeightManager().resolve_trigger_threshold(records, load_risk_weights()["inventory_risk_weights"])
+
+    assert resolved["_source"] == "expert"
+    assert resolved["value"] == load_thresholds()["inventory_warning"]["inventory_risk_trigger"]
 
 def test_calibrated_weights_change_inventory_risk_output():
     from src.inventory_monitor import calculate_inventory_risk
@@ -227,8 +212,8 @@ def test_orchestrator_result_contains_weight_meta():
     risk_weights = result.risk_weights
 
     assert "_inventory_weight_source" in risk_weights
-    assert risk_weights["_inventory_weight_source"] == "calibrated"
-    assert risk_weights["_inventory_weight_sample_size"] >= WeightManager.MIN_SAMPLES
+    # 主流水线用专家先验；校准权重只能经治理流程确认后生效
+    assert risk_weights["_inventory_weight_source"] == "expert"
     assert "inventory_risk_weights" in risk_weights
     assert "decision_score_weights" in risk_weights
     assert "payoff_weights" in risk_weights

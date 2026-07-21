@@ -57,7 +57,19 @@ def propose_calibration_workflow() -> list[str]:
 
 
 def calibrate_inventory_risk_weights(historical_data: Any) -> dict[str, Any]:
-    """Calibrate inventory risk weights from historical decision outcomes."""
+    """⚠ 已废弃：存在目标泄漏，结果不得用于决策。
+
+    本函数用 `covered_demand_rate` / `lost_orders` / `actual_delay_hours` /
+    `production_downtime_hours` 当特征，而标签 `outcome_status` 正是由这几个量
+    算出来的——相关性接近同义反复，不是预测能力。此外它取相关系数绝对值
+    （丢掉方向，保护性因子会被当成风险放大项），也不处理共线性。
+
+    **替代方案**：`src.supervised_calibration.calibrate_weights_supervised`
+    （事前特征 + 逻辑回归 + 样本外验证 + 校准不成立时明确拒绝）。
+
+    保留本函数仅为历史对比用途（`scripts/diagnose_calibration.py` 并排展示两代方法），
+    任何生产路径都不应再调用它。
+    """
     records = list(historical_data) if historical_data else []
     expert = dict(load_risk_weights()["inventory_risk_weights"])
     keys = ["shortage_urgency", "order_importance", "transit_delay", "external_event"]
@@ -105,6 +117,11 @@ def calibrate_inventory_risk_weights(historical_data: Any) -> dict[str, Any]:
 
 
 def calibrate_thresholds(historical_data: Any) -> dict[str, Any]:
+    """⚠ 已废弃：分位数口径只优化召回、不计误报代价，且依赖泄漏特征。
+
+    替代方案：`src.supervised_calibration.calibrate_trigger_threshold_cost_sensitive`
+    （按期望代价最小选阈值，并报出召回/精确率/告警率）。
+    """
     """Calibrate alert thresholds from failed or partially failed outcomes."""
     result = load_thresholds()
     records = list(historical_data) if historical_data else []
@@ -133,15 +150,13 @@ def evaluate_decision_outcomes(historical_decisions: Any) -> dict[str, Any]:
     records = list(historical_decisions) if historical_decisions else []
     if not records:
         return {
-            "status": "simulated",
+            # 无样本时不得编造指标：过去这里返回 average_score 82 / success_rate 0.76，
+            # 是凭空捏造的"演示用"数字，会被当成真实历史表现读走（P0-2 同源问题）。
+            "status": "no_data",
             "sample_size": 0,
-            "average_score": 82,
-            "success_rate": 0.76,
-            "key_findings": [
-                "高优先级订单的库存锁定策略通常能降低延期风险。",
-                "空运补货可提升时效，但需要结合成本和毛利约束评估。",
-                "供应商可靠性评分应纳入应急采购方案排序。",
-            ],
+            "average_score": None,
+            "success_rate": None,
+            "key_findings": ["暂无历史决策结果样本，无法评估。"],
         }
 
     scored = []
