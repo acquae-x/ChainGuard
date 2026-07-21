@@ -39,6 +39,12 @@ export default function Integration() {
     <Alert showIcon type="info" style={{ marginBottom: 16 }} message="字段映射即时生效" description="内置映射来自 ChainGuard/config/erp_mapping.yaml；在下方保存自定义映射后，本租户的下一次 ERP 同步即按新映射执行，同步历史会记录所用映射版本。CSV 导入仍使用内置映射。" />
     <Row gutter={[16, 16]}>
       <Col xs={24} xl={12}><Card title={<Space><ApiOutlined />ERP 连接配置</Space>} loading={loading} extra={<Tag color={config?.credentialConfigured ? 'green' : 'default'}>{config?.credentialMasked || '未配置凭证'}</Tag>}>
+        {/* 后端按密文前缀判断该凭证是否仍是旧派生方案（见 security/encryption.py 的
+            needs_rewrap）。不在界面提示的话，管理员无从得知需要重新保存一次，
+            存量密文会永远停留在已淘汰的 KDF 上。重新保存即完成升级。 */}
+        {config?.credentialNeedsRewrap && <Alert showIcon type="warning" style={{ marginBottom: 16 }}
+          message="凭证使用旧版加密方案"
+          description="该凭证是用已淘汰的密钥派生方案加密的。请在下方重新填写一次认证令牌并保存，即可升级为当前方案；在此之前它仍可正常解密使用。" />}
         <Form form={form} layout="vertical">
           <Form.Item name="baseUrl" label="ERP Base URL" rules={[{ required: true, type: 'url', message: '请输入 http:// 或 https:// 地址' }]}><Input placeholder="http://127.0.0.1:8765" /></Form.Item>
           <Form.Item name="apiKey" label="认证令牌" extra="保存后只显示脱敏配置状态；留空不会覆盖已保存的令牌。"><Input.Password autoComplete="new-password" placeholder={config?.credentialConfigured ? '已配置（如需更换请输入新令牌）' : '可选：Bearer token'} /></Form.Item>
