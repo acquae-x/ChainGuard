@@ -85,7 +85,7 @@ def upgrade() -> None:
     op.create_table(
         "sso_configs",
         sa.Column("tenant_id", sa.String(64), nullable=False),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("issuer", sa.String(255), nullable=False, server_default=""),
         sa.Column("client_id", sa.String(255), nullable=False, server_default=""),
         sa.Column("client_secret_encrypted", sa.Text(), nullable=False, server_default=""),
@@ -96,7 +96,7 @@ def upgrade() -> None:
         sa.Column("email_claim", sa.String(80), nullable=False, server_default="email"),
         sa.Column("subject_claim", sa.String(80), nullable=False, server_default="sub"),
         sa.Column("allowed_domains", sa.JSON(), nullable=False, server_default=sa.text("'[]'")),
-        sa.Column("auto_provision", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("auto_provision", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("default_role_code", sa.String(40), nullable=False, server_default="auditor"),
         sa.Column("updated_by", sa.String(64), nullable=False, server_default=""),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
