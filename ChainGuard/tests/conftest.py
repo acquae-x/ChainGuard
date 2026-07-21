@@ -11,6 +11,8 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+import pytest
+
 
 os.environ.setdefault("JWT_SECRET", "test-only-signing-key-not-for-deployment")
 os.environ.setdefault("SEED_DEMO_PASSWORD", "test-runtime-password")
@@ -38,3 +40,24 @@ if "DATABASE_URL" not in os.environ:
             Path(_TEST_DB_PATH).unlink(missing_ok=True)
         except OSError:
             pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_model_registry(tmp_path, monkeypatch):
+    """把模型注册表的默认落盘路径重定向到 tmp_path，避免测试写脏受版本控制的文件。
+
+    data/model_registry.json 是受版本控制的 append-only 日志。
+    src/model_comparison.py::_register_best_model 用无参 ModelRegistry()（默认相对路径
+    data/model_registry.json）注册"本次比较的最佳模型"，而 tests/test_model_comparison.py
+    有 12 处 compare_models() 调用——跑一次 pytest 就往仓库文件里追加几十行，工作区
+    因此长期是脏的。src/drift_history.py、src/drift_monitor.py 里也有同样的无参调用。
+
+    修法不逐个打补丁，而是拦在 ModelRegistry.__init__ 解析相对路径的那一步：
+    `self.path = target if target.is_absolute() else PROJECT_ROOT / target`
+    —— PROJECT_ROOT 是调用时才查找的模块全局，改它即可一次覆盖全部默认路径写入。
+    （注意默认参数 DEFAULT_REGISTRY_PATH 在 def 时就已绑定，改那个常量无效。）
+    显式传绝对路径的用例不受影响，它们走 is_absolute() 分支。
+    """
+    import src.model_registry
+
+    monkeypatch.setattr(src.model_registry, "PROJECT_ROOT", tmp_path)
