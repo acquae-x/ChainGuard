@@ -18,6 +18,8 @@ def test_encryption_status_keys():
         "key_configured",
         "active",
         "algorithm",
+        "key_derivation",
+        "rotation_keys",
         "note",
     }
     assert isinstance(status["active"], bool)

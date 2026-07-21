@@ -104,3 +104,19 @@ def test_erp_auth_and_network_failures_are_safe_and_recorded(integration_db, adm
     with pytest.raises(ApiError) as network_failed:
         imports_settings.test_saved_erp_integration(admin_context, integration_db)
     assert network_failed.value.code == "CG-2804" and network_failed.value.message in {"ERP 服务不可用或连接配置不正确", "ERP 服务响应超时"}
+
+
+def test_erp_credential_refused_when_encryption_unavailable(integration_db, admin_context, erp_server, monkeypatch):
+    """fail-closed 的落点：密钥缺失时保存必须被拒，且库里不能留下任何凭证痕迹。
+
+    改造前 encrypt_bytes 会原样返回明文，这条路径靠调用侧"密文 == 明文"的等值比较
+    兜底；该分支此前无任何测试覆盖。现在由 EncryptionUnavailable 保证。
+    """
+    monkeypatch.delenv("CHAINGUARD_ENCRYPTION_KEY", raising=False)
+
+    with pytest.raises(ApiError) as refused:
+        _save(integration_db, admin_context, erp_server, "plaintext-must-not-persist")
+
+    assert refused.value.status_code == 503 and refused.value.code == "CG-2802"
+    stored = integration_db.scalar(select(ErpIntegrationConfig).where(ErpIntegrationConfig.tenant_id == "tenant-a"))
+    assert stored is None or "plaintext-must-not-persist" not in str(stored.credential_ciphertext)
