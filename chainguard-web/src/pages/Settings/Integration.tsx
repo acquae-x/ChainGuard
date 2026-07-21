@@ -1,8 +1,8 @@
 import { PageContainer } from '@ant-design/pro-components';
 import { Alert, App, Button, Card, Col, Descriptions, Form, Input, InputNumber, Row, Space, Table, Tag } from 'antd';
-import { ApiOutlined } from '@ant-design/icons';
+import { ApiOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
-import { getErpIntegration, getErpSyncHistory, saveErpIntegration, syncSavedErpIntegration, testSavedErpIntegration, type ErpIntegrationConfig } from '@/services/settings';
+import { getEncryptionStatus, getErpIntegration, getErpSyncHistory, saveErpIntegration, syncSavedErpIntegration, testSavedErpIntegration, type EncryptionStatus, type ErpIntegrationConfig } from '@/services/settings';
 import ErpMappingEditor from '@/components/ErpMappingEditor';
 import SsoConfigCard from '@/components/SsoConfigCard';
 
@@ -13,6 +13,9 @@ export default function Integration() {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string[]>(['material']);
+  // 加密状态是部署级事实，与 ERP/SSO 配置无关，因此单独取；它不可用时本页两处
+  // 凭证保存都会被 fail-closed 拒绝，管理员需要能就地看到原因。
+  const [encryption, setEncryption] = useState<EncryptionStatus>();
   const load = async () => {
     setLoading(true);
     try {
@@ -21,6 +24,8 @@ export default function Integration() {
       form.setFieldsValue({ baseUrl: saved.baseUrl, connectionParams: saved.connectionParams || {} });
     } finally { setLoading(false); }
   };
+  // 加密状态失败不应连累整页：单独 catch，取不到就不渲染该卡片。
+  useEffect(() => { getEncryptionStatus().then(setEncryption).catch(() => undefined); }, []);
   useEffect(() => { load(); }, []);
   const save = async () => {
     const values = await form.validateFields();
@@ -36,6 +41,21 @@ export default function Integration() {
   };
   const status = config?.lastTestStatus;
   return <PageContainer title="系统集成" subTitle="ERP 最小集成 · 企业单点登录">
+    {/* 凭证加密状态。本页的 ERP 认证令牌与 SSO 客户端密钥都是密文存储，加密不可用时
+        两者的保存都会被 fail-closed 拒绝（CG-2802 / CG-1014）。不给管理员这个入口的话，
+        被拒时无从判断是部署没配密钥还是自己填错了——该状态此前只在 Streamlit 演示里可见。 */}
+    {encryption && <Card size="small" style={{ marginBottom: 16 }} title={<Space><SafetyCertificateOutlined />凭证加密</Space>}
+      extra={<Tag color={encryption.active ? 'green' : 'red'}>{encryption.active ? '已启用' : '不可用'}</Tag>}>
+      <Descriptions size="small" column={{ xs: 1, md: 2, xl: 4 }} items={[
+        { key: 'algorithm', label: '算法', children: encryption.algorithm },
+        // 后端在未配置密钥时把 key_derivation 兜底成 'scrypt'，那只是个默认值。
+        // 照直渲染会声称"正在用 scrypt 派生"，而此时根本没有任何密钥在用。
+        { key: 'derivation', label: '密钥来源', children: !encryption.active ? '—（未启用）' : encryption.key_derivation === 'fernet-key' ? '直接使用所提供的 Fernet 密钥' : 'scrypt 口令派生' },
+        { key: 'rotation', label: '可解密的历史密钥', children: encryption.active ? `${encryption.rotation_keys} 个` : '—' },
+        { key: 'library', label: '依赖库', children: encryption.library_available ? '已安装' : <span style={{ color: '#cf1322' }}>缺失</span> },
+      ]} />
+      {!encryption.active && <Alert showIcon type="error" style={{ marginTop: 12 }} message="凭证加密不可用，下方的 ERP 令牌与 SSO 客户端密钥都无法保存" description={`${encryption.note} 这是部署级配置，需要在服务端设置 CHAINGUARD_ENCRYPTION_KEY 并安装 cryptography 后重启，界面上无法修复。`} />}
+    </Card>}
     <Alert showIcon type="info" style={{ marginBottom: 16 }} message="字段映射即时生效" description="内置映射来自 ChainGuard/config/erp_mapping.yaml；在下方保存自定义映射后，本租户的下一次 ERP 同步即按新映射执行，同步历史会记录所用映射版本。CSV 导入仍使用内置映射。" />
     <Row gutter={[16, 16]}>
       <Col xs={24} xl={12}><Card title={<Space><ApiOutlined />ERP 连接配置</Space>} loading={loading} extra={<Tag color={config?.credentialConfigured ? 'green' : 'default'}>{config?.credentialMasked || '未配置凭证'}</Tag>}>
