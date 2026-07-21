@@ -48,8 +48,6 @@ export default function access(initialState: { currentUser?: API.User } | undefi
     canDataCustomer: any(permissions, ['data:manage', 'data:customer:manage', 'data:view']),
     canDataOrder: any(permissions, ['data:manage', 'data:order:manage', 'data:view']),
     canDataInventory: any(permissions, ['data:manage', 'data:inventory:manage', 'data:view']),
-    // 物流数据无独立权限码，暂以 data:manage 门禁（见 ADR §5 已知取舍）
-    canDataLogistics: has(permissions, 'data:manage'),
     canImport: any(permissions, DATA_IMPORT) && !readonly,
     // 数据导出与审计导出分开控制：auditor 仅可导出审计日志（02 文档能力矩阵「导出数据 auditor=✅(审计)」）
     canExport: any(permissions, ['data:export', 'audit:export']),

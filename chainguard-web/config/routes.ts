@@ -75,7 +75,6 @@ const routes = [
       { path: '/data/customer', name: '客户', access: 'canDataCustomer', component: '@/pages/Data/Customer' },
       { path: '/data/order', name: '订单', access: 'canDataOrder', component: '@/pages/Data/Order' },
       { path: '/data/inventory', name: '库存', access: 'canDataInventory', component: '@/pages/Data/Inventory' },
-      { path: '/data/logistics', name: '物流', access: 'canDataLogistics', component: '@/pages/Data/Logistics' },
       { path: '/data/import', name: '数据导入', component: '@/pages/Data/Import' }
     ]
   },
