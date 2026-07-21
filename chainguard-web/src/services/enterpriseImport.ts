@@ -86,8 +86,15 @@ export async function uploadBatchForRecognition(files: File[]) {
   };
 }
 
+// OCR 预检在服务端同步跑图像识别，冷启动（首次加载模型）可达 10s+，超过全局
+// 请求超时（10s）。后端 OCR 自身超时是 CHAINGUARD_OCR_TIMEOUT_SECONDS（默认 20s），
+// 前端必须给足余量，否则请求会在 OCR 完成前被客户端掐断、返回「服务暂不可用」，
+// 而后端其实识别成功了——CI 冷模型下 data-import OCR 用例正是这样失败的
+// （本地热模型 < 10s 撞不上）。preflight 是 POST、不在幂等重试之列，一旦超时即失败。
+const OCR_PREFLIGHT_TIMEOUT_MS = 60_000;
+
 export async function preflightRecognizedJob(jobId: string): Promise<EnterpriseImportJob> {
-  return apiPost<EnterpriseImportJob>(`/imports/${jobId}/preflight`, {});
+  return apiPost<EnterpriseImportJob>(`/imports/${jobId}/preflight`, {}, { timeoutMs: OCR_PREFLIGHT_TIMEOUT_MS });
 }
 
 export async function confirmAndExecuteRecognizedJob(file: ClassifiedFile): Promise<EnterpriseImportJob> {

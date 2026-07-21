@@ -7,7 +7,7 @@ vi.mock('../utils/request', () => ({
   apiPost,
 }));
 
-import { confirmAndExecuteRecognizedJob, syncErp } from './enterpriseImport';
+import { confirmAndExecuteRecognizedJob, preflightRecognizedJob, syncErp } from './enterpriseImport';
 
 describe('enterpriseImport ERP sync', () => {
   beforeEach(() => { apiGet.mockReset(); apiPost.mockReset(); });
@@ -50,5 +50,17 @@ describe('enterpriseImport ERP sync', () => {
         duplicatePolicy: 'merge', onlyValidRows: true,
       },
     });
+  });
+
+  it('gives OCR preflight a timeout longer than server-side OCR so slow recognition is not cut off', async () => {
+    // 回归守卫：OCR 预检在服务端同步跑识别，冷模型可达 11s+，超过全局 10s 超时。
+    // 若这里退回默认超时，CI 冷模型下请求会在 OCR 完成前被掐断、误报「服务暂不可用」。
+    apiPost.mockResolvedValue({ id: 'ocr-1', status: 'manual_review', result: {} });
+
+    await preflightRecognizedJob('ocr-1');
+
+    const [, , options] = apiPost.mock.calls[0];
+    // 后端 OCR 自身超时默认 20s，前端必须显著高于它
+    expect(options.timeoutMs).toBeGreaterThan(20_000);
   });
 });
