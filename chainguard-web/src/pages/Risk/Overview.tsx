@@ -1,16 +1,41 @@
 import ReactECharts from 'echarts-for-react';
-import { Card, Col, Empty, Row, Table, Typography } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useAccess } from '@umijs/max';
+import { Button, Card, Col, Empty, Row, Space, Table, Typography, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KpiCard, RiskTag, StatusTag } from '@/components';
-import { getRiskMatrix, getRisks } from '@/services/risk';
+import { getRiskMatrix, getRisks, recomputeRisks } from '@/services/risk';
 import { palette } from '@/theme';
 
 const LEVEL_LABELS: Record<string, string> = { high: '高', medium: '中', low: '低' };
 
 export default function RiskOverviewPage() {
+  const access = useAccess();
   const [risks, setRisks] = useState<API.Risk[]>([]);
   const [matrix, setMatrix] = useState<any[]>([]);
-  useEffect(() => { getRisks().then((res) => setRisks(res.data)); getRiskMatrix().then(setMatrix); }, []);
+  const [scanning, setScanning] = useState(false);
+  const load = useCallback(() => {
+    getRisks().then((res) => setRisks(res.data));
+    getRiskMatrix().then(setMatrix);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  // A03：按当前租户实体重算库存风险。同步单次，仅 risk:manage 可见。
+  const rescan = async () => {
+    setScanning(true);
+    try {
+      const result: any = await recomputeRisks();
+      const skipped = Number(result?.skippedCount || 0);
+      message.success(
+        `重新扫描完成：新增 ${result?.created ?? 0}，更新 ${result?.updated ?? 0}，`
+        + `消除 ${result?.resolved ?? 0}，复发 ${result?.recurred ?? 0}，未变化 ${result?.unchanged ?? 0}`
+        + (skipped ? `；${skipped} 个物料因数据不足未计算` : ''),
+      );
+      load();
+    } catch (error: any) {
+      message.error(error?.message || '重新扫描失败');
+    } finally {
+      setScanning(false);
+    }
+  };
   // P1-6：KPI 从真实风险数据计算，不再硬编码
   const today = new Date().toISOString().slice(0, 10);
   const kpis = useMemo(() => [
@@ -51,6 +76,12 @@ export default function RiskOverviewPage() {
   };
   return (
     <div>
+      {access.canManageRisk ? (
+        <Space style={{ marginBottom: 16 }}>
+          <Button type="primary" loading={scanning} onClick={rescan}>重新扫描风险</Button>
+          <Typography.Text type="secondary">按当前租户的物料、库存、订单与供应商数据重算库存风险</Typography.Text>
+        </Space>
+      ) : null}
       <Row gutter={[16, 16]}>{kpis.map((item) => <Col xs={24} md={12} xl={6} key={item.title}><KpiCard title={item.title} value={item.value} /></Col>)}</Row>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} xl={14}>
