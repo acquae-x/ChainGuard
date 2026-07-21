@@ -2,7 +2,7 @@
 import { currentUser } from './user';
 import { appendAudit, workflowStore } from './workflowStore';
 import { pick } from './dataMode';
-import { apiGet, apiPatch, apiPost } from '../utils/request';
+import { apiGet, apiPatch, apiPost, apiPut } from '../utils/request';
 
 const actor = async () => (await currentUser())?.currentUser;
 
@@ -127,11 +127,20 @@ export async function recomputeRisks() {
   );
 }
 
-// 预警规则暂无后端端点，保留 mock（ADR §4 缺口，列 TODO）。
+// 后端 GET/PUT /risk-rules 早已存在（设置页的风险规则卡片一直在用），
+// 这里的注释"暂无后端端点"已经过期：监控规则页因此长期显示三条写死的规则，
+// 与设置页读到的真实规则对不上；更糟的是 updateRule 是空操作，切换开关会
+// 弹出"规则已更新并写入审计"，但既没落库也没有审计记录。
 export async function getRules() {
-  return { data: [{ id: 'rule-1', name: '安全库存预警线', threshold: '20%', enabled: true }, { id: 'rule-2', name: '交期延误容忍天数', threshold: '3 天', enabled: true }, { id: 'rule-3', name: '单一供应商依赖占比', threshold: '60%', enabled: true }] };
+  return pick(
+    () => apiGet<{ data: any[] }>('/risk-rules'),
+    async () => ({ data: [] }),
+  );
 }
 
 export async function updateRule(values: any) {
-  return { ok: true, values };
+  return pick(
+    () => apiPut<any>(`/risk-rules/${values.id}`, values),
+    async () => ({ ok: true, values }),
+  );
 }

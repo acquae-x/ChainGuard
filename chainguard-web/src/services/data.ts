@@ -164,9 +164,11 @@ const logisticsRows: any[] = [{ id: 'log-1', line: '沪深干线', eta: '2026-07
 export async function getDataTable(type: string) {
   return pick(
     async () => {
-      // logistics 无后端资源，回退 mock
+      // api 模式下不存在后端资源的类型（目前只有 logistics）一律返回空集。
+      // 原先回退到 mock 的"沪深干线"，界面上和真实主数据长得一模一样、
+      // 却零 API 调用，等于把演示行冒充成本租户数据。
       if (!API_RESOURCE_TYPES.has(type)) {
-        return { data: logisticsRows, total: logisticsRows.length, success: true };
+        return { data: [], total: 0, success: true, unavailable: true };
       }
       return apiGet(`/data/${type}`);
     },
