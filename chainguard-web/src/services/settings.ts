@@ -111,6 +111,8 @@ export type ErpIntegrationConfig = {
   baseUrl: string;
   credentialConfigured: boolean;
   credentialMasked?: string;
+  /** 密文仍是旧密钥派生方案，重新保存一次凭证即可升级（后端 needs_rewrap）。 */
+  credentialNeedsRewrap?: boolean;
   connectionParams: { timeoutSeconds?: number; pageSize?: number };
   lastTestStatus: 'not_tested' | 'available' | 'unavailable';
   lastTestAt?: string | null;

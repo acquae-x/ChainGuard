@@ -57,6 +57,19 @@ describe('ERP integration settings', () => {
     expect(screen.queryByText('erp-test-token')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
     await waitFor(() => expect(services.testSavedErpIntegration).toHaveBeenCalledTimes(1));
+    // 当前方案加密的凭证不应出现升级提示
+    expect(screen.queryByText('凭证使用旧版加密方案')).not.toBeInTheDocument();
+  });
+
+  // 后端能算出"这条密文用的是旧密钥派生方案"，但此前前端从不读这个字段，
+  // 管理员因此无从得知需要重新保存一次来完成升级，存量密文永远升不了级。
+  it('tells the operator to re-save when the stored credential still uses the legacy KDF', async () => {
+    services.getErpIntegration.mockResolvedValueOnce({ ...config, credentialNeedsRewrap: true });
+    render(<App><Integration /></App>);
+    expect(await screen.findByText('凭证使用旧版加密方案')).toBeInTheDocument();
+    expect(screen.getByText(/重新填写一次认证令牌并保存/)).toBeInTheDocument();
+    // 升级前仍可正常使用，不能把它说成故障
+    expect(screen.getByText(/在此之前它仍可正常解密使用/)).toBeInTheDocument();
   });
 
   it('renders the field mapping editor with its provenance and per-entity rows', async () => {
