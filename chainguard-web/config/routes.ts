@@ -8,6 +8,7 @@ const routes = [
       { path: '/user/register', component: '@/pages/User/Register' },
       { path: '/user/join', component: '@/pages/User/Join' },
       { path: '/user/reset', component: '@/pages/User/Reset' },
+      { path: '/user/sso-callback', component: '@/pages/User/SsoCallback' },
       { path: '/user/profile', component: '@/pages/User/Profile' }
     ]
   },
@@ -95,10 +96,10 @@ const routes = [
     icon: 'BarChartOutlined',
     access: 'canReport',
     routes: [
-      { path: '/report', redirect: '/report/executive' },
-      { path: '/report/executive', name: '经营看板', component: '@/pages/Report/Executive' },
-      { path: '/report/operation', name: '运营看板', component: '@/pages/Report/Operation' },
-      { path: '/report/response', name: '应急效果', component: '@/pages/Report/Response' }
+      { path: '/report', component: '@/pages/Report/index' },
+      { path: '/report/executive', name: '经营看板', access: 'canReportExecutive', component: '@/pages/Report/Executive' },
+      { path: '/report/operation', name: '运营看板', access: 'canReportOperation', component: '@/pages/Report/Operation' },
+      { path: '/report/response', name: '应急效果', access: 'canReportResponse', component: '@/pages/Report/Response' }
     ]
   },
   {

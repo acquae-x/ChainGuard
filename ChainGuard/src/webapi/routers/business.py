@@ -14,10 +14,16 @@ from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
 from ..context_builder import TenantContextBuilder
-from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, Incident, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, ExperienceCard, Incident, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..experience import mark_incident_experience_completed, mark_incident_experience_confirmed
 from ..decision_detail import mask_for_requester, render_pdf
+from ..impact_scope import incident_impact_scope, risk_impact_scope
+from ..node_health import my_nodes as build_my_nodes, node_health_overview
 from ..notifications import ensure_rules, notify_event
+from ..data_scope import apply_scope
 from ..repository import add_audit, get_tenant_record, list_tenant_records, serialize
+from ..risk_explanation import explain_risk
+from ..risk_recompute import recompute_inventory_risks
 from ..schemas import IncidentCreate, PatchRequest
 
 
@@ -34,7 +40,8 @@ def _create_execution_tasks(db: Session, approval: Approval, incident: Incident)
     for role, title in roles:
         assignee = db.scalar(select(User).where(User.tenant_id == approval.tenant_id, User.role_code == role, User.status == "active").order_by(User.id))
         if assignee is not None:
-            db.add(Task(id=f"task-{uuid.uuid4().hex}", tenant_id=approval.tenant_id, title=title, source=incident.code, incident_id=incident.id, assignee=assignee.id, role_code=role, status="pending", due_at=due_at, priority="高" if incident.level == "high" else "中", checklist=[]))
+            # 任务的行级归属跟着承接人走：本人负责（own）与本部门（dept）都据此判定
+            db.add(Task(id=f"task-{uuid.uuid4().hex}", tenant_id=approval.tenant_id, title=title, source=incident.code, incident_id=incident.id, assignee=assignee.id, owner_id=assignee.id, dept_id=assignee.dept_id or None, role_code=role, status="pending", due_at=due_at, priority="高" if incident.level == "high" else "中", checklist=[]))
             ensure_rules(db, approval.tenant_id)
             notify_event(db, approval.tenant_id, "task_assigned", {"assignee_user_id": assignee.id, "title": f"任务已分派：{title}", "target": "/task/mine"})
 
@@ -43,6 +50,7 @@ def _finalize_approval(db: Session, approval: Approval, incident: Incident, *, t
     approval.status = "approved"
     incident.status = "executing"
     _create_execution_tasks(db, approval, incident)
+    mark_incident_experience_confirmed(db, approval.tenant_id, incident.id, approval.proposal_id)
     if timed_out:
         approval.history = [*approval.history, {"action": "countersign_timeout_release", "reason": "超时未会签自动放行", "time": datetime.now(timezone.utc).isoformat()}]
         ensure_rules(db, approval.tenant_id)
@@ -119,24 +127,51 @@ def page(items: list[Any], current: int, page_size: int) -> dict:
 
 @router.get("/risks")
 def risks(ctx: Annotated[AuthContext, Depends(require_permission("risk:view"))], db: Annotated[Session, Depends(get_db)], current: int = 1, page_size: int = Query(20, alias="pageSize"), level: str | None = None, status_: str | None = Query(None, alias="status"), type_: str | None = Query(None, alias="type")):
-    items = list_tenant_records(db, Risk, ctx.tenant_id)
+    items = list_tenant_records(db, Risk, ctx.tenant_id, ctx)
     items = [x for x in items if (not level or x.level == level) and (not status_ or x.status == status_) and (not type_ or x.type == type_)]
     return page(items, current, page_size)
 
 
+@router.post("/risks/recompute")
+def recompute_risks(request: Request, ctx: Annotated[AuthContext, Depends(require_permission("risk:manage"))], db: Annotated[Session, Depends(get_db)]):
+    """A03：按当前租户实体重算库存风险。同步单次，不进调度器、不发通知。"""
+    outcome = recompute_inventory_risks(db, ctx.tenant_id, commit=False).to_dict()
+    add_audit(db, ctx, "重算风险", "risk", "-", "库存风险重算", outcome, request.client.host if request.client else "")
+    db.commit()
+    return outcome
+
+
 @router.get("/risks/matrix")
 def risk_matrix(ctx: Annotated[AuthContext, Depends(require_permission("risk:view"))], db: Annotated[Session, Depends(get_db)]):
-    return [{"name": x.code, "value": [i + 2, round(x.score / 10), x.score], "level": x.level} for i, x in enumerate(list_tenant_records(db, Risk, ctx.tenant_id))]
+    return [{"name": x.code, "value": [i + 2, round(x.score / 10), x.score], "level": x.level} for i, x in enumerate(list_tenant_records(db, Risk, ctx.tenant_id, ctx))]
 
 
 @router.get("/risks/{item_id}")
 def risk_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("risk:view"))], db: Annotated[Session, Depends(get_db)]):
-    return serialize(get_tenant_record(db, Risk, item_id, ctx.tenant_id))
+    return serialize(get_tenant_record(db, Risk, item_id, ctx.tenant_id, ctx))
+
+
+@router.get("/risks/{item_id}/explanation")
+def risk_explanation(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("risk:view"))], db: Annotated[Session, Depends(get_db)]):
+    """A03：这条风险为什么是现在这个等级、由哪些当前租户数据触发、证据在哪。
+
+    跨租户请求走 get_tenant_record 的 404 路径，不泄露存在性；出口统一过既有字段脱敏。
+    """
+    return explain_risk(db, ctx.tenant_id, get_tenant_record(db, Risk, item_id, ctx.tenant_id, ctx), ctx.permissions)
+
+
+@router.get("/risks/{item_id}/impact-scope")
+def risk_impact(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("risk:view"))], db: Annotated[Session, Depends(get_db)]):
+    """A04：这条风险波及了哪些真实业务对象、经由什么关系（两跳，沿 C2 真实外键）。
+
+    与解释端点同权限码、同租户隔离路径、同脱敏出口；不新增权限码。
+    """
+    return risk_impact_scope(db, ctx.tenant_id, get_tenant_record(db, Risk, item_id, ctx.tenant_id, ctx), ctx.permissions)
 
 
 @router.patch("/risks/{item_id}/status")
 def patch_risk(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("risk:manage"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Risk, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Risk, item_id, ctx.tenant_id, ctx)
     if body.status == "ignored" and not (body.reason or "").strip():
         raise ApiError(422, "CG-2101", "忽略风险必须填写理由")
     before = item.status
@@ -148,17 +183,23 @@ def patch_risk(item_id: str, body: PatchRequest, request: Request, ctx: Annotate
 
 @router.get("/incidents")
 def incidents(ctx: Annotated[AuthContext, Depends(require_permission("incident:view"))], db: Annotated[Session, Depends(get_db)], current: int = 1, page_size: int = Query(20, alias="pageSize")):
-    return page(list_tenant_records(db, Incident, ctx.tenant_id), current, page_size)
+    return page(list_tenant_records(db, Incident, ctx.tenant_id, ctx), current, page_size)
 
 
 @router.post("/incidents", status_code=201)
 def create_incident(body: IncidentCreate, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("risk:event:create"))], db: Annotated[Session, Depends(get_db)]):
-    risks = list(db.scalars(select(Risk).where(Risk.tenant_id == ctx.tenant_id, Risk.id.in_(body.risk_ids))).all())
+    # 建事件的来源风险必须也在本人数据范围内，否则等于借建事件读取越权风险的属性。
+    risks = list(db.scalars(apply_scope(
+        db, ctx, Risk,
+        select(Risk).where(Risk.tenant_id == ctx.tenant_id, Risk.id.in_(body.risk_ids)),
+    )).all())
     if len(risks) != len(set(body.risk_ids)):
         raise ApiError(404, "CG-2001", "部分风险不存在")
     item_id = f"inc-{uuid.uuid4().hex}"
     level = "high" if any(x.level == "high" for x in risks) else (risks[0].level if risks else "medium")
-    item = Incident(id=item_id, tenant_id=ctx.tenant_id, code=f"INC-{datetime.now():%Y%m%d}-{uuid.uuid4().hex[:6].upper()}", title=body.title or f"{risks[0].object_name if risks else '手工'}风险应急事件", type=body.type, level=level, status="pending", owner=ctx.name, source_risk_ids=body.risk_ids, loss=body.loss, cost=body.cost)
+    # owner_id / dept_id 必须落值：留空的记录在 dept/own 范围下对所有人不可见，
+    # 创建者自己都看不到自己刚建的事件。
+    item = Incident(id=item_id, tenant_id=ctx.tenant_id, code=f"INC-{datetime.now():%Y%m%d}-{uuid.uuid4().hex[:6].upper()}", title=body.title or f"{risks[0].object_name if risks else '手工'}风险应急事件", type=body.type, level=level, status="pending", owner=ctx.name, owner_id=ctx.user_id, dept_id=ctx.dept_id or None, source_risk_ids=body.risk_ids, loss=body.loss, cost=body.cost)
     db.add(item)
     for risk in risks:
         risk.status, risk.incident_id = "incident_created", item_id
@@ -172,12 +213,12 @@ def create_incident(body: IncidentCreate, request: Request, ctx: Annotated[AuthC
 
 @router.get("/incidents/{item_id}")
 def incident_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("incident:view"))], db: Annotated[Session, Depends(get_db)]):
-    return serialize(get_tenant_record(db, Incident, item_id, ctx.tenant_id))
+    return serialize(get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx))
 
 
 @router.patch("/incidents/{item_id}")
 def update_incident(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("incident:manage"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx)
     if body.status and body.status not in INCIDENT_TRANSITIONS.get(item.status, set()):
         raise ApiError(409, "CG-2201", f"事件不能从{item.status}流转到{body.status}")
     before = item.status
@@ -191,26 +232,20 @@ def update_incident(item_id: str, body: PatchRequest, request: Request, ctx: Ann
 
 @router.delete("/incidents/{item_id}", status_code=204)
 def delete_incident(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("incident:manage"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx)
     if item.status != "pending": raise ApiError(409, "CG-2202", "仅待处理事件可以删除")
     db.delete(item); db.commit()
 
 
 @router.get("/incidents/{item_id}/impact")
 def impact(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("incident:view"))], db: Annotated[Session, Depends(get_db)]):
-    from ..models import DataRecord
-    incident = get_tenant_record(db, Incident, item_id, ctx.tenant_id)
-    risks = list(db.scalars(select(Risk).where(Risk.tenant_id == ctx.tenant_id, Risk.id.in_(incident.source_risk_ids))).all())
-    terms = {value.strip().lower() for risk in risks for value in [risk.object_name, *(risk.details.values() if isinstance(risk.details, dict) else [])] if isinstance(value, str) and len(value.strip()) >= 2}
-    records = list_tenant_records(db, DataRecord, ctx.tenant_id)
-    def matches(record: DataRecord) -> bool:
-        text = " ".join([record.name, *map(str, record.payload.values())]).lower()
-        return any(term in text for term in terms)
-    materials = [{"id": item.id, "name": item.name, **item.payload} for item in records if item.resource_type == "material" and matches(item)]
-    orders = [{"id": item.id, "orderNo": item.payload.get("orderNo", item.name), **item.payload} for item in records if item.resource_type == "order" and matches(item)]
-    suppliers = [{"id": item.id, "name": item.name, **item.payload} for item in records if item.resource_type == "supplier" and matches(item)]
-    inventory = [{"id": item.id, "material": item.payload.get("material", item.name), **item.payload} for item in records if item.resource_type == "inventory" and matches(item)]
-    return {"id": item_id, "materials": materials, "orders": orders, "suppliers": suppliers, "inventory": inventory, "dataMissing": {"materials": not bool(materials), "orders": not bool(orders), "suppliers": not bool(suppliers), "inventory": not bool(inventory)}}
+    """A04：事件影响范围完整版。
+
+    路径与权限码保持不变，实现就地替换为 C2 实体图谱遍历。原先的实现是把风险 details
+    里的任意字符串当关键词，去 DataRecord 的文本里找子串——那是**猜测关系**：既漏掉实体表
+    上的真实外键，又会把所有含"上海"的行都算成受影响。按 A04 规格第 3 条，它不得保留。
+    """
+    return incident_impact_scope(db, ctx.tenant_id, get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx), ctx.permissions)
 
 
 @router.get("/incidents/{item_id}/timeline")
@@ -220,7 +255,7 @@ def timeline(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissio
 
 
 def _decision_detail_response(item_id: str, ctx: AuthContext, db: Session) -> dict:
-    get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx)
     detail = db.scalar(select(DecisionDetail).where(DecisionDetail.tenant_id == ctx.tenant_id, DecisionDetail.incident_id == item_id).order_by(DecisionDetail.created_at.desc()))
     if detail is None: raise ApiError(404, "CG-2503", "尚未生成完整推演")
     payload = dict(detail.payload)
@@ -242,7 +277,7 @@ def decision_readiness(
     db: Annotated[Session, Depends(get_db)],
 ):
     # Preserve the product's non-enumerating cross-tenant 404 contract.
-    get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx)
     return TenantContextBuilder(db, ctx.tenant_id).readiness(item_id)
 
 
@@ -262,7 +297,7 @@ def export_decision_detail(item_id: str, format: str = "json", ctx: Annotated[Au
 
 @router.post("/incidents/{item_id}/proposals:generate", status_code=status.HTTP_202_ACCEPTED)
 def generate(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:generate"))], db: Annotated[Session, Depends(get_db)]):
-    get_tenant_record(db, Incident, item_id, ctx.tenant_id)
+    get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx)
     job = enqueue_decision_job(db, ctx, item_id)
     return {"jobId": job.id, "status": job.status}
 
@@ -274,27 +309,58 @@ def job_status(item_id: str, ctx: Annotated[AuthContext, Depends(get_current_use
 
 @router.get("/proposals")
 def proposals(ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)], incident_id: str | None = Query(None, alias="incidentId")):
-    items = list_tenant_records(db, Proposal, ctx.tenant_id)
+    items = list_tenant_records(db, Proposal, ctx.tenant_id, ctx)
     # P1-10：归档方案仅供审批详情按 id 追溯，不进入方案列表
     items = [x for x in items if not x.archived]
     if incident_id: items = [x for x in items if x.incident_id == incident_id]
-    return {"data": [serialize(x) for x in items], "total": len(items), "success": True}
+    history = {"matched": False, "count": 0, "conclusions": [], "sources": []}
+    if incident_id:
+        detail = db.scalar(select(DecisionDetail).where(
+            DecisionDetail.tenant_id == ctx.tenant_id,
+            DecisionDetail.incident_id == incident_id,
+        ).order_by(DecisionDetail.created_at.desc()))
+        matched = list(((detail.payload.get("experience_references") or {}).get("references") or [])) if detail else []
+        history = {
+            "matched": bool(matched), "count": len(matched),
+            "conclusions": [str(item.get("recommended_pattern") or "") for item in matched if item.get("recommended_pattern")],
+            "sources": [str(item.get("case_id") or "") for item in matched if item.get("case_id")],
+        }
+    return {"data": [{**serialize(x), "historyExperience": history} for x in items], "total": len(items), "success": True}
+
+
+@router.get("/experiences")
+def experiences(ctx: Annotated[AuthContext, Depends(require_permission("case:view"))], db: Annotated[Session, Depends(get_db)]):
+    cards = list(db.scalars(select(ExperienceCard).where(
+        ExperienceCard.tenant_id == ctx.tenant_id,
+    ).order_by(ExperienceCard.created_at.desc())).all())
+    data = []
+    for card in cards:
+        row = serialize(card)
+        retrieval = (card.content or {}).get("retrievalCard") or card.content or {}
+        row.update({
+            "scenario": retrieval.get("scenario", ""),
+            "recommendedPattern": retrieval.get("recommended_pattern", ""),
+            "triggerConditions": retrieval.get("trigger_conditions", []),
+            "source": {"jobId": card.source_job_id, "incidentId": card.source_incident_id, "proposalId": card.source_proposal_id},
+        })
+        data.append(row)
+    return {"data": data, "total": len(data), "success": True}
 
 
 @router.get("/proposals/{item_id}")
 def proposal_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)]):
-    return serialize(get_tenant_record(db, Proposal, item_id, ctx.tenant_id))
+    return serialize(get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx))
 
 
 @router.get("/proposals/{item_id}/explanation")
 def proposal_explanation(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx)
     return {"proposalId": item.id, **item.explanation, "evidence": item.explanation.get("evidence", ["安全库存阈值", "高等级客户交付约束"])}
 
 
 @router.patch("/proposals/{item_id}")
 def recalc_proposal(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("decision:modify"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx)
     before = item.total_cost
     # P0-2：成本缺失（None）时无基数可推 4% 浮动；仅当调用方显式给出 totalCost 才写入，否则保持缺失
     override_cost = body.overrides.get("totalCost", before * 1.04 if before is not None else None)
@@ -306,21 +372,23 @@ def recalc_proposal(item_id: str, body: PatchRequest, request: Request, ctx: Ann
 
 @router.post("/proposals/{item_id}/draft")
 def save_draft(item_id: str, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("decision:modify"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id); item.draft = True
+    item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx); item.draft = True
     add_audit(db, ctx, "保存草稿", "proposal", item.id, item.name, {}, request.client.host if request.client else "")
     db.commit(); return {"proposalId": item.id, "savedAt": datetime.now().isoformat()}
 
 
 @router.get("/incidents/{item_id}/draft")
 def get_draft(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)]):
+    # 先按数据范围确认这个事件本人可见，越权事件直接 404，不透出其草稿
+    get_tenant_record(db, Incident, item_id, ctx.tenant_id, ctx)
     item = db.scalar(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == item_id, Proposal.draft.is_(True)))
     return serialize(item) if item else None
 
 
 @router.post("/proposals/{item_id}/submit")
 def submit_approval(item_id: str, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("approval:submit"))], db: Annotated[Session, Depends(get_db)]):
-    proposal = get_tenant_record(db, Proposal, item_id, ctx.tenant_id)
-    incident = get_tenant_record(db, Incident, proposal.incident_id, ctx.tenant_id)
+    proposal = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx)
+    incident = get_tenant_record(db, Incident, proposal.incident_id, ctx.tenant_id, ctx)
     if incident.status != "deciding": raise ApiError(409, "CG-2301", "事件当前不能提交审批")
     # P0-2：成本未知（None）不是 0——中风险成本未知时保守抄送财务，而不是当作 0 跳过会签口径
     cost_requires_finance = proposal.total_cost is None or proposal.total_cost > 50000
@@ -347,7 +415,7 @@ def approvals(ctx: Annotated[AuthContext, Depends(require_permission("approval:v
 @router.get("/approvals/{item_id}")
 def approval_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("approval:view"))], db: Annotated[Session, Depends(get_db)]):
     approval = get_tenant_record(db, Approval, item_id, ctx.tenant_id)
-    proposal = get_tenant_record(db, Proposal, approval.proposal_id, ctx.tenant_id)
+    proposal = get_tenant_record(db, Proposal, approval.proposal_id, ctx.tenant_id, ctx)
     options = list(db.scalars(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == approval.incident_id, Proposal.archived.is_(False))).all())
     # 评审修复：审批页确认点清单依赖推演数据，随详情按请求者角色脱敏后一并返回（无推演的旧单为 None）
     detail_row = db.scalar(select(DecisionDetail).where(DecisionDetail.tenant_id == ctx.tenant_id, DecisionDetail.incident_id == approval.incident_id).order_by(DecisionDetail.created_at.desc()))
@@ -357,7 +425,7 @@ def approval_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_pe
 
 def approval_action(item_id: str, action: str, body: PatchRequest, request: Request, ctx: AuthContext, db: Session):
     approval = get_tenant_record(db, Approval, item_id, ctx.tenant_id)
-    incident = get_tenant_record(db, Incident, approval.incident_id, ctx.tenant_id)
+    incident = get_tenant_record(db, Incident, approval.incident_id, ctx.tenant_id, ctx)
     if action == "countersign" and "approval:countersign" not in ctx.permissions:
         raise ApiError(403, "CG-1003", "没有会签权限")
     if action == "submit" and "approval:submit_high" not in ctx.permissions:
@@ -427,7 +495,7 @@ def _can_manage_all_tasks(ctx: AuthContext) -> bool:
 
 @router.get("/tasks")
 def tasks(ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)], scope: str | None = None):
-    items = list_tenant_records(db, Task, ctx.tenant_id)
+    items = list_tenant_records(db, Task, ctx.tenant_id, ctx)
     # P0-2：无 task:manage 的角色（buyer 等 custom 范围）只能看到分派给自己的任务，
     # 不再返回租户全部任务。
     if not _can_manage_all_tasks(ctx):
@@ -445,7 +513,7 @@ def tasks(ctx: Annotated[AuthContext, Depends(require_permission("task:view"))],
 
 @router.get("/tasks/{item_id}")
 def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Task, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Task, item_id, ctx.tenant_id, ctx)
     # P0-2：无 task:manage 者不得越权查看他人任务详情，返回 404 避免存在性枚举
     if not _can_manage_all_tasks(ctx) and item.assignee != ctx.user_id:
         raise ApiError(404, "CG-2010", "任务不存在")
@@ -454,11 +522,14 @@ def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permis
 
 @router.patch("/tasks/{item_id}")
 def update_task(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("task:execute"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Task, item_id, ctx.tenant_id)
+    item = get_tenant_record(db, Task, item_id, ctx.tenant_id, ctx)
     # P0-2：越权闸门——无 task:manage 者只能更新自己名下的任务
     if not _can_manage_all_tasks(ctx) and item.assignee != ctx.user_id:
         raise ApiError(403, "CG-2011", "只能操作分派给本人的任务")
-    if body.status: item.status = body.status
+    if body.status:
+        item.status = body.status
+        if item.incident_id and body.status in {"completed", "done"}:
+            mark_incident_experience_completed(db, ctx.tenant_id, item.incident_id)
     if body.assignee:
         assignee = db.scalar(select(User).where(User.tenant_id == ctx.tenant_id, User.status == "active", or_(User.id == body.assignee, User.name == body.assignee)))
         if assignee is None: raise ApiError(422, "CG-2404", "任务负责人不是本租户有效用户")
@@ -469,7 +540,7 @@ def update_task(item_id: str, body: PatchRequest, request: Request, ctx: Annotat
 
 @router.post("/tasks/{item_id}/urge")
 def urge_task(item_id: str, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("task:manage"))], db: Annotated[Session, Depends(get_db)]):
-    item = get_tenant_record(db, Task, item_id, ctx.tenant_id); ensure_rules(db, ctx.tenant_id); notify_event(db, ctx.tenant_id, "task_urged", {"assignee_user_id": item.assignee, "title": f"请处理任务：{item.title}", "target": "/task/mine"}); add_audit(db, ctx, "催办任务", "task", item.id, item.title, {}, request.client.host if request.client else ""); db.commit(); return {"ok": True, "message": "已发送站内信催办"}
+    item = get_tenant_record(db, Task, item_id, ctx.tenant_id, ctx); ensure_rules(db, ctx.tenant_id); notify_event(db, ctx.tenant_id, "task_urged", {"assignee_user_id": item.assignee, "title": f"请处理任务：{item.title}", "target": "/task/mine"}); add_audit(db, ctx, "催办任务", "task", item.id, item.title, {}, request.client.host if request.client else ""); db.commit(); return {"ok": True, "message": "已发送站内信催办"}
 
 
 @router.get("/audit-logs")
@@ -483,10 +554,10 @@ def audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("audit:vie
 @router.get("/dashboard/kpis")
 def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]):
     # P1-7：KPI 由真实数据计算，且任务口径与 /tasks、逾期看板一致（无 task:manage 只算本人）。
-    risks = list_tenant_records(db, Risk, ctx.tenant_id)
+    risks = list_tenant_records(db, Risk, ctx.tenant_id, ctx)
     approvals = list_tenant_records(db, Approval, ctx.tenant_id)
-    incidents = list_tenant_records(db, Incident, ctx.tenant_id)
-    all_tasks = list_tenant_records(db, Task, ctx.tenant_id)
+    incidents = list_tenant_records(db, Incident, ctx.tenant_id, ctx)
+    all_tasks = list_tenant_records(db, Task, ctx.tenant_id, ctx)
     mine = all_tasks if _can_manage_all_tasks(ctx) else [t for t in all_tasks if t.assignee == ctx.user_id]
     return {
         "riskCount": len(risks),
@@ -499,10 +570,52 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
     }
 
 
+@router.get("/dashboard/node-health")
+def dashboard_node_health(
+    ctx: Annotated[AuthContext, Depends(require_permission("dashboard:view"))],
+    db: Annotated[Session, Depends(get_db)],
+    node_type: str | None = Query(None, alias="nodeType"),
+    health: str | None = None,
+    keyword: str | None = None,
+    current: int = 1,
+    page_size: int = Query(20, alias="pageSize"),
+):
+    """C02：管理者工作台的供应链节点健康概览。
+
+    四类节点全部由本租户 C2 实体算出：物料走既有库存风险引擎，仓库/供应商/订单走实体行
+    事实判据与物料节点传播。出口统一过既有字段脱敏；不新增权限码。
+    """
+    return node_health_overview(
+        db, ctx.tenant_id, ctx.permissions,
+        node_types=[node_type] if node_type else None,
+        health=health, keyword=keyword, current=current, page_size=page_size,
+    )
+
+
+@router.get("/dashboard/my-nodes")
+def dashboard_my_nodes(
+    ctx: Annotated[AuthContext, Depends(require_permission("dashboard:view"))],
+    db: Annotated[Session, Depends(get_db)],
+    health: str | None = None,
+    keyword: str | None = None,
+    current: int = 1,
+    page_size: int = Query(20, alias="pageSize"),
+):
+    """C03：一线角色的「我的节点」明细。
+
+    节点类型范围由**既有**权限码派生（data:*:manage / risk:manage:*），与 can_view_data
+    同族口径；没有对口类型的角色得到 CG-C031 说明而非空列表伪装。
+    """
+    return build_my_nodes(
+        db, ctx.tenant_id, ctx.permissions,
+        health=health, keyword=keyword, current=current, page_size=page_size,
+    )
+
+
 @router.get("/dashboard/top-risks")
-def top_risks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in sorted(list_tenant_records(db, Risk, ctx.tenant_id), key=lambda x: x.score, reverse=True)[:10]]
+def top_risks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in sorted(list_tenant_records(db, Risk, ctx.tenant_id, ctx), key=lambda x: x.score, reverse=True)[:10]]
 @router.get("/dashboard/my-tasks")
-def my_tasks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in list_tenant_records(db, Task, ctx.tenant_id) if x.role_code == ctx.role_code]
+def my_tasks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in list_tenant_records(db, Task, ctx.tenant_id, ctx) if x.role_code == ctx.role_code]
 @router.get("/dashboard/pending-approvals")
 def pending_approvals(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in list_tenant_records(db, Approval, ctx.tenant_id) if x.status in {"pending", "submitted"}]
 @router.get("/dashboard/audit")

@@ -25,6 +25,28 @@ class RegisterRequest(ApiModel):
     plan: str = "trial"
 
 
+class PasswordResetRequestBody(ApiModel):
+    account: str
+
+
+class PasswordResetConfirmRequest(ApiModel):
+    token: str
+    new_password: str
+
+
+class InvitationRedeemRequest(ApiModel):
+    code: str
+    name: str
+    password: str
+    phone: str = ""
+    email: str = ""
+
+
+class SsoCallbackRequest(ApiModel):
+    state: str
+    code: str
+
+
 class RefreshRequest(ApiModel):
     # 仅为兼容空请求体保留；刷新令牌只从 HttpOnly Cookie 读取。
     pass

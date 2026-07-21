@@ -120,6 +120,9 @@ export function apiPost<T = any>(url: string, data?: unknown, options: RequestOp
 export function apiPatch<T = any>(url: string, data?: unknown, options: RequestOptions = {}) {
   return core<T>(url, { ...options, method: 'PATCH', data });
 }
+export function apiPut<T = any>(url: string, data?: unknown, options: RequestOptions = {}) {
+  return core<T>(url, { ...options, method: 'PUT', data });
+}
 export function apiDelete<T = any>(url: string, options: RequestOptions = {}) {
   return core<T>(url, { ...options, method: 'DELETE' });
 }

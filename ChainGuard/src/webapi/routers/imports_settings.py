@@ -11,20 +11,30 @@ import zipfile
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, UploadFile
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .. import sso as sso_service
+from ..account_lifecycle import create_invitation, list_invitations, list_password_resets, lock_state, mask_account, resolve_pending_resets, revoke_invitation, unlock_account
 from ..auth import AuthContext, can_view_data, get_current_user, require_permission
 from ..config import settings
 from ..database import get_db
 from ..errors import ApiError
-from ..models import CustomField, DataRecord, ImportJob, Role, Tenant, User
+from ..models import CustomField, DataRecord, Department, ImportJob, Role, Tenant, User
 from ..entity_import import DuplicateImportError, reserve_import_signature
 from ..entity_repository import MODEL_BY_RESOURCE, list_product_rows, save_product_entity
+from ..erp_integration import connector_for_config, get_config as get_erp_config, public_config as public_erp_config, record_test_result, safe_erp_error, save_config as save_erp_config
+from ..erp_mapping_config import mapping_view as erp_mapping_view, reset_mapping as reset_erp_mapping, resolve_mapping as resolve_erp_mapping, review as review_erp_mapping, save_mapping as save_erp_mapping
+from ..calibration_governance import build_governance_snapshot, confirm_governance_snapshot
 from ..enterprise_import_catalog import IMPORT_TYPE_CATALOG, catalog_payload
 from ..import_classifier import recognize_import_type
 from ..jobs import enqueue_import_job
+from ..onboarding import activate_tenant_after_business_data, inject_demo_dataset, onboarding_status, save_onboarding_progress
+from ..org_settings import approval_chain_view, data_scope_view, save_approval_chain, save_data_scope
+from ..reports import DEFAULT_MONTHS as REPORT_DEFAULT_MONTHS, executive_report as build_executive_report, operation_report as build_operation_report, response_report as build_response_report
 from ..repository import add_audit, get_tenant_record, list_tenant_records, serialize
+from ..notifications import ensure_rules, notify_event
 from ..schemas import PatchRequest
 
 
@@ -292,7 +302,7 @@ def test_erp_connection(body: PatchRequest, ctx: Annotated[AuthContext, Depends(
     try:
         return _erp_connector(body.values).test_connection()
     except Exception as error:
-        raise ApiError(502, "CG-2611", f"ERP 连接失败：{error}") from error
+        raise ApiError(502, "CG-2611", safe_erp_error(error)) from error
 
 
 @router.post("/imports/erp/preview")
@@ -309,7 +319,7 @@ def preview_erp_import(body: PatchRequest, ctx: Annotated[AuthContext, Depends(r
             rows = connector.fetch_resource(definition["erp_resource"])
             resources.append({"type": value, "label": definition["label"], "rows": len(rows), "preview": rows[:3]})
     except Exception as error:
-        raise ApiError(502, "CG-2611", f"ERP 目录读取失败：{error}") from error
+        raise ApiError(502, "CG-2611", safe_erp_error(error)) from error
     return {"resources": resources, "totalRows": sum(item["rows"] for item in resources), "requiresConfirmation": True}
 
 
@@ -318,6 +328,7 @@ def sync_erp_import(
     body: PatchRequest,
     ctx: Annotated[AuthContext, Depends(require_permission("data:import"))],
     db: Annotated[Session, Depends(get_db)],
+    connector: Any | None = None,
 ):
     """Run an explicitly confirmed, tenant-scoped ERP sync through the shared adapter."""
 
@@ -326,16 +337,32 @@ def sync_erp_import(
     selected = list(dict.fromkeys(body.values.get("types") or []))
     if not selected or any(value not in IMPORT_TYPE_CATALOG for value in selected):
         raise ApiError(422, "CG-2603", "请选择有效的 ERP 资料类型")
-    connector = _erp_connector(body.values)
+    connector = connector or _erp_connector(body.values)
     from ..entity_import import aggregate_shipments, import_audit_rows, import_entity_rows
+
+    # Resolve before any row is fetched: an unusable mapping must stop the sync,
+    # never fall back to the shipped baseline behind the operator's back.
+    spec, mapping_meta = resolve_erp_mapping(db, ctx.tenant_id)
+    missing = [value for value in selected if IMPORT_TYPE_CATALOG[value]["entity"] and value not in spec["resources"]]
+    if missing:
+        raise ApiError(409, "CG-2810", f"当前 ERP 字段映射未声明资料类型：{', '.join(missing)}")
 
     order = [value for value in ("material", "supplier", "customer", "supplier_material", "order", "order_line", "inventory") if value in selected]
     order += [value for value in selected if value not in order]
     job_id = f"erp-{uuid.uuid4().hex}"
+    job_options = {
+        "mode": "erp",
+        "baseUrl": str(getattr(connector, "base_url", body.values.get("baseUrl") or "")),
+        "types": selected,
+        "operator": ctx.name,
+        "mappingSource": mapping_meta["source"],
+        "mappingVersion": mapping_meta["version"],
+        "mappingUpdatedAt": mapping_meta["updatedAt"],
+        "mappingUpdatedBy": mapping_meta["updatedBy"],
+    }
     job = ImportJob(
         id=job_id, tenant_id=ctx.tenant_id, file_name="ERP 接口同步", import_type="erp",
-        status="running", progress=10,
-        options={"mode": "erp", "baseUrl": str(body.values.get("baseUrl")), "types": selected, "operator": ctx.name}, result={},
+        status="running", progress=10, options=job_options, result={},
     )
     db.add(job)
     reports: list[dict[str, Any]] = []
@@ -346,7 +373,7 @@ def sync_erp_import(
             rows = connector.fetch_resource(definition["erp_resource"])
             fetched[value] = rows
             if definition["entity"]:
-                report = import_entity_rows(db, ctx.tenant_id, job_id, rows, value)
+                report = import_entity_rows(db, ctx.tenant_id, job_id, rows, value, spec=spec)
             else:
                 report = import_audit_rows(db, ctx.tenant_id, job_id, rows, definition["source_table"])
             reports.append({"type": value, "label": definition["label"], **report})
@@ -358,12 +385,164 @@ def sync_erp_import(
         rejected = sum(int(report["rejectedRows"]) for report in reports)
         job.status, job.progress = "succeeded", 100
         job.result = {"total": total, "success": total - rejected, "failed": rejected, "reports": reports}
-        add_audit(db, ctx, "ERP 接口导入", "import", job_id, "ERP 接口同步", {"types": selected, "total": total})
+        activate_tenant_after_business_data(db, ctx.tenant_id)
+        add_audit(db, ctx, "ERP 接口导入", "import", job_id, "ERP 接口同步", {
+            "types": selected, "total": total,
+            "mappingSource": mapping_meta["source"], "mappingVersion": mapping_meta["version"],
+        })
+        ensure_rules(db, ctx.tenant_id)
+        notify_event(db, ctx.tenant_id, "import_succeeded", {"trigger_user_id": ctx.user_id, "title": "ERP 同步完成", "target": "/settings/integration"})
         db.commit()
         return _public_job(job)
     except Exception as error:
         db.rollback()
-        raise ApiError(502, "CG-2613", f"ERP 同步失败，未提交本批次：{error}") from error
+        failed = ImportJob(
+            id=job_id, tenant_id=ctx.tenant_id, file_name="ERP 接口同步", import_type="erp",
+            status="failed", progress=100, options=job_options,
+            result={"total": 0, "success": 0, "failed": 0, "reports": [], "errorSummary": safe_erp_error(error)},
+        )
+        db.add(failed)
+        ensure_rules(db, ctx.tenant_id)
+        notify_event(db, ctx.tenant_id, "import_failed", {"trigger_user_id": ctx.user_id, "title": "ERP 同步失败", "target": "/settings/integration"})
+        db.commit()
+        raise ApiError(502, "CG-2613", safe_erp_error(error)) from error
+
+
+@router.get("/settings/integrations/erp")
+def erp_integration_settings(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return only tenant-owned, credential-masked ERP integration state."""
+    return public_erp_config(get_erp_config(db, ctx.tenant_id))
+
+
+@router.patch("/settings/integrations/erp")
+def save_erp_integration_settings(
+    body: PatchRequest,
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = save_erp_config(db, ctx.tenant_id, body.values)
+    add_audit(db, ctx, "保存 ERP 集成配置", "erp_integration", item.id, "ERP 集成", {"baseUrl": item.base_url, "credentialConfigured": bool(item.credential_ciphertext)})
+    db.commit()
+    return public_erp_config(item)
+
+
+@router.post("/settings/integrations/erp/test")
+def test_saved_erp_integration(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = get_erp_config(db, ctx.tenant_id)
+    if item is None:
+        raise ApiError(409, "CG-2803", "请先保存 ERP 集成配置")
+    try:
+        result = connector_for_config(item).test_connection()
+        record_test_result(item, result=result)
+        db.commit()
+        return {"ok": True, **public_erp_config(item)}
+    except Exception as error:
+        record_test_result(item, error=error)
+        db.commit()
+        raise ApiError(502, "CG-2804", item.last_test_error or safe_erp_error(error)) from error
+
+
+@router.post("/settings/integrations/erp/sync", status_code=201)
+def sync_saved_erp_integration(
+    body: PatchRequest,
+    ctx: Annotated[AuthContext, Depends(require_permission("data:import"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = get_erp_config(db, ctx.tenant_id)
+    if item is None:
+        raise ApiError(409, "CG-2803", "请先保存 ERP 集成配置")
+    values = {"confirmed": True, "types": body.values.get("types") or []}
+    return sync_erp_import(PatchRequest(values=values), ctx, db, connector_for_config(item))
+
+
+@router.get("/settings/integrations/erp/mapping")
+def get_erp_mapping(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return the mapping this tenant's next ERP sync will use, with its provenance."""
+    return erp_mapping_view(db, ctx.tenant_id)
+
+
+@router.post("/settings/integrations/erp/mapping:validate")
+def validate_erp_mapping(
+    body: PatchRequest,
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+):
+    """Dry-run a draft mapping; blocking errors and dangerous-but-allowed warnings are separate."""
+    verdict = review_erp_mapping(body.values.get("spec") if isinstance(body.values.get("spec"), dict) else body.values)
+    return {"valid": not verdict["errors"], **verdict}
+
+
+@router.put("/settings/integrations/erp/mapping")
+def put_erp_mapping(
+    body: PatchRequest,
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    spec = body.values.get("spec") if isinstance(body.values.get("spec"), dict) else body.values
+    meta = save_erp_mapping(db, ctx.tenant_id, spec, operator=ctx.name)
+    add_audit(db, ctx, "保存 ERP 字段映射", "erp_field_mapping", f"{ctx.tenant_id}:{meta['version']}", "ERP 字段映射", {
+        "version": meta["version"], "resources": sorted((spec.get("resources") or {}).keys()),
+        "warnings": meta["warnings"],
+    })
+    db.commit()
+    return {**erp_mapping_view(db, ctx.tenant_id), "warnings": meta["warnings"]}
+
+
+@router.post("/settings/integrations/erp/mapping:reset")
+def reset_erp_mapping_endpoint(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Deactivate the tenant override so the shipped baseline applies again."""
+    reset_erp_mapping(db, ctx.tenant_id)
+    add_audit(db, ctx, "恢复 ERP 内置字段映射", "erp_field_mapping", ctx.tenant_id, "ERP 字段映射", {})
+    db.commit()
+    return erp_mapping_view(db, ctx.tenant_id)
+
+
+@router.get("/settings/integrations/erp/mapping/source-fields")
+def erp_mapping_source_fields(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+    resource: Annotated[str, Query(min_length=1, max_length=60)],
+):
+    """Discover real source columns from ERP; every unavailable path names its reason."""
+    if resource not in IMPORT_TYPE_CATALOG:
+        raise ApiError(422, "CG-2603", "请选择有效的 ERP 资料类型")
+    item = get_erp_config(db, ctx.tenant_id)
+    if item is None:
+        raise ApiError(409, "CG-2803", "请先保存 ERP 集成配置后再读取字段目录")
+    if item.last_test_status != "available":
+        raise ApiError(409, "CG-2813", "ERP 连接尚未通过测试，无法读取字段目录")
+    try:
+        rows = connector_for_config(item).sample_resource(IMPORT_TYPE_CATALOG[resource]["erp_resource"], limit=5)
+    except Exception as error:
+        raise ApiError(502, "CG-2814", safe_erp_error(error)) from error
+    if not rows:
+        raise ApiError(409, "CG-2814", "ERP 该资料类型没有可采样的数据，字段目录不可用")
+    spec, _ = resolve_erp_mapping(db, ctx.tenant_id)
+    rule = spec["resources"].get(resource) or {}
+    mapped = {str(key) for key in (rule.get("fields") or {})}
+    mapped |= {str(entry.get("from")) for entry in (rule.get("converts") or {}).values() if isinstance(entry, dict)}
+    sensitive = {str(name).casefold() for name in spec.get("sensitive_columns") or []}
+    fields: list[dict[str, Any]] = []
+    for name in dict.fromkeys(key for row in rows for key in row):
+        sample = next((row[name] for row in rows if row.get(name) not in (None, "")), None)
+        fields.append({
+            "name": str(name),
+            "sample": None if str(name).casefold() in sensitive else str(sample)[:80] if sample is not None else None,
+            "mapped": str(name) in mapped,
+            "sensitive": str(name).casefold() in sensitive,
+        })
+    return {"resource": resource, "sampledRows": len(rows), "fields": fields}
 
 
 @router.post("/imports/{item_id}/preflight")
@@ -378,11 +557,16 @@ def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissi
         extraction = intake.extractions[0]
         if extraction.needs_manual:
             item.status, item.progress = "manual_required", 25
+            reason = extraction.note or "未提取到可校验内容。"
             item.result = {
                 "canProceed": False, "status": "manual_required",
-                "message": "待人工处理：未提取到可校验内容，原始文件已保留。",
+                "message": reason,
                 "recognition": item.options.get("recognition"), "extraction": asdict(extraction),
-                "manualReview": {"required": True, "confirmationLevel": "full", "firstImport": True},
+                "manualReview": {
+                    "required": True, "confirmationLevel": "full", "firstImport": True,
+                    "reasonCode": extraction.error_code,
+                    "suggestions": ["重新上传清晰、端正且保留表头和列分隔符的图片", "改用 CSV/Excel 上传，或人工录入"],
+                },
             }
             db.commit(); payload = serialize(item); payload["options"].pop("path", None); return payload
         rows = next(iter(intake.normalized.values()), [])
@@ -523,7 +707,10 @@ def rollback_import(item_id: str, ctx: Annotated[AuthContext, Depends(require_pe
 @router.get("/settings/users")
 def users(ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
     items = list_tenant_records(db, User, ctx.tenant_id)
-    return {"data": [{**serialize(x, include={"account"}), "roleIds": [x.role_id]} for x in items], "total": len(items), "success": True}
+    # 登录标识按 5B 账户完善要求脱敏后回显（字段保留，值不再是可直接撞库的原文）；
+    # SSO subject 是 IdP 侧标识，不出接口。锁定状态随行返回，供"解锁"操作判断。
+    data = [{**serialize(x, exclude={"sso_subject"}), "account": mask_account(x.account), "roleIds": [x.role_id], "ssoLinked": bool(x.sso_subject), **lock_state(x)} for x in items]
+    return {"data": data, "total": len(data), "success": True}
 
 
 @router.post("/settings/users", status_code=201)
@@ -553,9 +740,54 @@ def reset_user_password(item_id: str, ctx: Annotated[AuthContext, Depends(requir
     temporary_password = f"Cg!{secrets.token_urlsafe(9)}"
     item.password_hash, item.must_change_password = hash_password(temporary_password), True
     revoke_refresh_tokens(db, item)
-    add_audit(db, ctx, "重置密码", "user", item.id, item.name, {"mustChangePassword": True})
+    # 管理员兜底重置同时解锁并关掉该用户的找回密码待办，闭合"通道未配置"降级链路
+    from ..account_lifecycle import clear_login_failures
+    clear_login_failures(item)
+    resolved = resolve_pending_resets(db, ctx, item)
+    add_audit(db, ctx, "重置密码", "user", item.id, item.name, {"mustChangePassword": True, "resolvedResetRequests": resolved})
     db.commit()
-    return {"ok": True, "temporaryPassword": temporary_password, "mustChangePassword": True}
+    return {"ok": True, "temporaryPassword": temporary_password, "mustChangePassword": True, "resolvedResetRequests": resolved}
+
+
+@router.post("/settings/users/{item_id}/unlock")
+def unlock_user(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    item = get_tenant_record(db, User, item_id, ctx.tenant_id)
+    result = unlock_account(db, ctx, item)
+    db.commit()
+    return result
+
+
+@router.get("/settings/password-resets")
+def password_resets(ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    data = list_password_resets(db, ctx.tenant_id)
+    return {"data": data, "total": len(data), "success": True}
+
+
+@router.get("/settings/invitations")
+def invitations(ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    data = list_invitations(db, ctx.tenant_id)
+    return {"data": data, "total": len(data), "success": True}
+
+
+@router.post("/settings/invitations", status_code=201)
+def add_invitation(body: dict[str, Any], ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    """返回体里的 code 是这枚邀请码明文唯一一次出现；库内与后续列表只有哈希与掩码。"""
+    return create_invitation(db, ctx, body)
+
+
+@router.post("/settings/invitations/{item_id}/revoke")
+def disable_invitation(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    return revoke_invitation(db, ctx, item_id)
+
+
+@router.get("/settings/sso")
+def sso_config(ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    return sso_service.public_config(sso_service.get_config(db, ctx.tenant_id))
+
+
+@router.put("/settings/sso")
+def save_sso_config(body: dict[str, Any], ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))], db: Annotated[Session, Depends(get_db)]):
+    return sso_service.save_config(db, ctx, body)
 
 
 @router.delete("/settings/users/{item_id}", status_code=204)
@@ -584,7 +816,45 @@ def delete_role(item_id: str, ctx: Annotated[AuthContext, Depends(require_permis
 @router.get("/settings/tenant")
 def tenant(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return serialize(db.get(Tenant, ctx.tenant_id))
 @router.get("/settings/departments")
-def departments(ctx: Annotated[AuthContext, Depends(get_current_user)]): return [{"id": f"dept-{i+1}", "tenantId": ctx.tenant_id, "name": name} for i, name in enumerate(["采购部", "仓储部", "销售部", "财务部", "生产部"])]
+def departments(
+    ctx: Annotated[AuthContext, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """真实部门树（此前是端点里的 5 个硬编码字符串，没有层级也不可配置）。"""
+    rows = list(db.scalars(select(Department).where(Department.tenant_id == ctx.tenant_id).order_by(Department.code)).all())
+    return [
+        {"id": row.id, "tenantId": row.tenant_id, "code": row.code, "name": row.name, "parentId": row.parent_id}
+        for row in rows
+    ]
+
+
+@router.get("/settings/calibration-governance")
+def calibration_governance(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:approval"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Read a tenant's existing-engine calibration proposal; no config writes."""
+    snapshot = build_governance_snapshot(db, ctx.tenant_id)
+    db.commit()  # persists only D3 notification messages/rules when drift exceeds limits
+    return snapshot
+
+
+@router.post("/settings/calibration-governance/confirm")
+def confirm_calibration_governance(
+    body: PatchRequest,
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:approval"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    recommendation_id = str(body.values.get("recommendationId") or "")
+    if not recommendation_id:
+        raise ApiError(422, "CG-2901", "必须指定当前校准建议")
+    try:
+        result = confirm_governance_snapshot(db, ctx.tenant_id, ctx.user_id, recommendation_id)
+    except ValueError as error:
+        raise ApiError(409, "CG-2902", str(error)) from error
+    add_audit(db, ctx, "确认校准建议", "calibration_governance", recommendation_id, "风险阈值与权重校准", result)
+    db.commit()
+    return {"ok": True, **result}
 
 
 @router.get("/settings/custom-fields")
@@ -672,14 +942,110 @@ def update_webhook_config(body: dict[str, Any], ctx: Annotated[AuthContext, Depe
 
 
 @router.get("/reports/executive")
-def executive_report(ctx: Annotated[AuthContext, Depends(require_permission("report:executive"))]): return {"netBenefit": 732000, "riskCount": 18, "avgResponseHours": 5.2}
+def executive_report(
+    ctx: Annotated[AuthContext, Depends(require_permission("report:executive"))],
+    db: Annotated[Session, Depends(get_db)],
+    months: int = Query(REPORT_DEFAULT_MONTHS, ge=1, le=36),
+):
+    return build_executive_report(db, ctx.tenant_id, months)
+
+
 @router.get("/reports/operation")
-def operation_report(ctx: Annotated[AuthContext, Depends(require_permission("report:operation"))]): return {"funnel": [18, 8, 5, 4, 3], "overdueRate": 0.08}
+def operation_report(
+    ctx: Annotated[AuthContext, Depends(require_permission("report:operation"))],
+    db: Annotated[Session, Depends(get_db)],
+    months: int = Query(REPORT_DEFAULT_MONTHS, ge=1, le=36),
+):
+    return build_operation_report(db, ctx.tenant_id, months)
+
+
 @router.get("/reports/response")
-def response_report(ctx: Annotated[AuthContext, Depends(require_permission("report:view"))]): return {"events": []}
+def response_report(
+    ctx: Annotated[AuthContext, Depends(require_permission("report:view"))],
+    db: Annotated[Session, Depends(get_db)],
+    months: int = Query(REPORT_DEFAULT_MONTHS, ge=1, le=36),
+):
+    return build_response_report(db, ctx.tenant_id, months)
+
+
+@router.get("/settings/approval-chain")
+def get_approval_chain(
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:approval"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    return approval_chain_view(db, ctx.tenant_id)
+
+
+@router.put("/settings/approval-chain")
+def put_approval_chain(
+    body: dict[str, Any],
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:approval"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    result = save_approval_chain(db, ctx.tenant_id, body, actor=ctx.user_id)
+    add_audit(db, ctx, "更新审批流", "approval_chain", "approval_chain", "审批链配置", result)
+    db.commit()
+    return result
+
+
+@router.get("/settings/data-scopes")
+def get_data_scopes(
+    ctx: Annotated[AuthContext, Depends(require_permission("role:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    return data_scope_view(db, ctx.tenant_id)
+
+
+@router.put("/settings/data-scopes")
+def put_data_scopes(
+    body: dict[str, Any],
+    ctx: Annotated[AuthContext, Depends(require_permission("role:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    result = save_data_scope(db, ctx.tenant_id, body, actor=ctx.user_id)
+    add_audit(db, ctx, "更新数据范围", "data_scope", "data_scope", "角色数据范围", body)
+    db.commit()
+    return result
 @router.get("/onboarding/templates")
 def templates(): return [{"id": "electronics", "name": "电子制造", "desc": "芯片、PCB、关键物料齐套与替代供应商模板"}]
+
+
+@router.get("/onboarding/status")
+def onboarding_status_endpoint(
+    ctx: Annotated[AuthContext, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """C3 status is always recomputed from this tenant's persisted C2 entities."""
+    return onboarding_status(db, ctx.tenant_id)
+
+
 @router.post("/onboarding/progress")
-def save_progress(body: dict[str, Any], ctx: Annotated[AuthContext, Depends(get_current_user)]): return {"ok": True, "progress": body}
+def save_progress(
+    body: dict[str, Any],
+    ctx: Annotated[AuthContext, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    status = save_onboarding_progress(db, ctx, body)
+    db.commit()
+    return {"ok": True, "status": status}
+
+
+@router.post("/onboarding/demo-dataset", status_code=201)
+def inject_onboarding_demo_dataset(
+    body: PatchRequest,
+    ctx: Annotated[AuthContext, Depends(require_permission("data:import"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    # No implicit path: both UI and API callers must record an explicit second confirmation.
+    if body.values.get("confirmed") is not True:
+        raise ApiError(422, "CG-2701", "请确认后再注入演示数据集")
+    try:
+        result = inject_demo_dataset(db, ctx)
+    except ValueError as error:
+        raise ApiError(409, "CG-2702", str(error)) from error
+    db.commit()
+    return result
+
+
 @router.post("/onboarding/templates/{template_id}/apply")
 def apply_template(template_id: str, ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): item = db.get(Tenant, ctx.tenant_id); item.industry = template_id; db.commit(); return {"ok": True, "tenant": serialize(item)}

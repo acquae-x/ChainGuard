@@ -47,6 +47,23 @@ class Tenant(Base):
     demo_data_flag: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class Department(Base):
+    """租户部门树。行级数据范围的 `dept`（本部门及子部门）依赖这张表求值。
+
+    此前部门只是 /settings/departments 端点里的 5 个硬编码字符串，没有层级也不可配置，
+    导致「本部门及子部门」这一档数据范围在后端根本无从计算。
+    """
+
+    __tablename__ = "departments"
+    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_departments_tenant_code"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(100))
+    # 自引用父节点；根部门 parent_id 为空。层级深度不设限，遍历时按 tenant 内闭包展开。
+    parent_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+
 class Role(Base):
     __tablename__ = "roles"
     __table_args__ = (UniqueConstraint("tenant_id", "code"),)
@@ -74,6 +91,12 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(30), default="active")
     data_scope: Mapped[str] = mapped_column(String(30), default="all")
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 账号维度防爆破：与 IP 限流互补而非互替——IP 限流挡单机高频，账号锁定挡分布式撞库。
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_failed_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # SSO 账号匹配依据；本地账号为空。租户内唯一由 sso.py 在写入前校验。
+    sso_subject: Mapped[str] = mapped_column(String(255), default="")
 
 
 class TenantRecord:
@@ -83,7 +106,31 @@ class TenantRecord:
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
-class Risk(TenantRecord, Base):
+class ScopedRecord:
+    """带行级归属的业务记录：数据范围（dept / own）按这两列求值。
+
+    与既有的 `owner` / `assignee` 自由文本并存——那两个是展示用的姓名快照，
+    权限判定只认这里的 id 外键。历史行由迁移按姓名尽力回填。
+
+    两列皆空 = 未归属，对全租户可见（系统自动重算的风险没有天然负责人，
+    藏起来比多露出来危险得多）。详细取舍见 data_scope.py 模块注释。
+    """
+
+    dept_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    owner_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+
+class OnboardingState(TenantRecord, Base):
+    """Tenant-owned C3 resume state; business-data truth remains the entity tables."""
+
+    __tablename__ = "onboarding_states"
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_onboarding_states_tenant"),)
+    last_step: Mapped[str] = mapped_column(String(40), default="welcome")
+    dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    progress: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class Risk(ScopedRecord, TenantRecord, Base):
     __tablename__ = "risks"
     code: Mapped[str] = mapped_column(String(80), index=True)
     level: Mapped[str] = mapped_column(String(20))
@@ -98,7 +145,7 @@ class Risk(TenantRecord, Base):
     incident_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-class Incident(TenantRecord, Base):
+class Incident(ScopedRecord, TenantRecord, Base):
     __tablename__ = "incidents"
     code: Mapped[str] = mapped_column(String(80), index=True)
     title: Mapped[str] = mapped_column(String(255))
@@ -112,7 +159,7 @@ class Incident(TenantRecord, Base):
     notes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
-class Proposal(TenantRecord, Base):
+class Proposal(ScopedRecord, TenantRecord, Base):
     __tablename__ = "proposals"
     incident_id: Mapped[str] = mapped_column(String(64), index=True)
     name: Mapped[str] = mapped_column(String(255))
@@ -149,7 +196,7 @@ class Approval(TenantRecord, Base):
     history: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
-class Task(TenantRecord, Base):
+class Task(ScopedRecord, TenantRecord, Base):
     __tablename__ = "tasks"
     title: Mapped[str] = mapped_column(String(255))
     source: Mapped[str] = mapped_column(String(100))
@@ -178,9 +225,17 @@ class AuditLog(TenantRecord, Base):
 
 class ExperienceCard(TenantRecord, Base):
     __tablename__ = "experience_cards"
+    __table_args__ = (UniqueConstraint("tenant_id", "source_job_id", name="uq_experience_cards_tenant_source_job"),)
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(30), default="pending")
+    source_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    source_incident_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    source_proposal_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    outcome: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    references: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
 class Job(TenantRecord, Base):
@@ -202,6 +257,20 @@ class ImportJob(TenantRecord, Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     options: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class ErpIntegrationConfig(TenantRecord, Base):
+    """One tenant-owned ERP connection; credentials are ciphertext only."""
+
+    __tablename__ = "erp_integration_configs"
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_erp_integration_configs_tenant"),)
+    base_url: Mapped[str] = mapped_column(String(500))
+    credential_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connection_params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_status: Mapped[str] = mapped_column(String(30), default="not_tested")
+    last_test_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    available_resources: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
 class ImportSignature(TenantRecord, Base):
@@ -301,6 +370,93 @@ class RefreshToken(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PasswordResetRequest(Base):
+    """自助找回密码申请。令牌只存哈希，明文仅在可用通道上投递一次。"""
+    __tablename__ = "password_reset_requests"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True, default="")
+    # self_service：令牌已投递，用户可自助重置；manual_admin：通道未配置，等管理员兜底重置
+    mode: Mapped[str] = mapped_column(String(20), default="manual_admin")
+    channel: Mapped[str] = mapped_column(String(20), default="none")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    resolved_by: Mapped[str] = mapped_column(String(64), default="")
+    request_ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class InvitationCode(Base):
+    """企业邀请码。明文只在生成时返回一次，库内与后续接口一律只有哈希与掩码前缀。"""
+    __tablename__ = "invitation_codes"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    code_prefix: Mapped[str] = mapped_column(String(8), default="")
+    role_id: Mapped[str] = mapped_column(String(64))
+    role_code: Mapped[str] = mapped_column(String(40))
+    dept_id: Mapped[str] = mapped_column(String(64), default="dept-1")
+    data_scope: Mapped[str] = mapped_column(String(30), default="custom")
+    note: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    revoked_by: Mapped[str] = mapped_column(String(64), default="")
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class InvitationRedemption(Base):
+    """每次成功使用邀请码的留痕，供管理员核对"谁用这个码进了企业"。"""
+    __tablename__ = "invitation_redemptions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    invitation_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_name: Mapped[str] = mapped_column(String(100), default="")
+    role_code: Mapped[str] = mapped_column(String(40), default="")
+    request_ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class SsoConfig(Base):
+    """租户级 OIDC 配置。client_secret 加密存储，任何读接口只回显"是否已设置"。"""
+    __tablename__ = "sso_configs"
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    issuer: Mapped[str] = mapped_column(String(255), default="")
+    client_id: Mapped[str] = mapped_column(String(255), default="")
+    client_secret_encrypted: Mapped[str] = mapped_column(Text, default="")
+    authorization_endpoint: Mapped[str] = mapped_column(String(500), default="")
+    token_endpoint: Mapped[str] = mapped_column(String(500), default="")
+    redirect_uri: Mapped[str] = mapped_column(String(500), default="")
+    scopes: Mapped[str] = mapped_column(String(200), default="openid email profile")
+    email_claim: Mapped[str] = mapped_column(String(80), default="email")
+    subject_claim: Mapped[str] = mapped_column(String(80), default="sub")
+    allowed_domains: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # 首次登录规则：false 时只允许匹配到既有账号，杜绝 IdP 侧任意账号自动进入租户
+    auto_provision: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_role_code: Mapped[str] = mapped_column(String(40), default="auditor")
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
+
+
+class SsoLoginState(Base):
+    """一次性 state/nonce，防 CSRF 与 id_token 重放；回调消费后立即删除。"""
+    __tablename__ = "sso_login_states"
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    nonce: Mapped[str] = mapped_column(String(64))
+    redirect_uri: Mapped[str] = mapped_column(String(500), default="")
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class CustomField(TenantRecord, Base):
