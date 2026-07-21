@@ -9,7 +9,8 @@
     "postbuild": "node scripts/generate-route-access-map.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:gate": "node scripts/run-acceptance-gate.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^5.3.7",
