@@ -3,8 +3,10 @@ import { Alert, Button, Card, Col, List, Result, Row, Space, Table, Typography }
 import { PlusOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useEffect, useMemo, useState } from 'react';
-import { KpiCard, RiskTag, SensitiveField, StatusTag } from '@/components';
+import { KpiCard, NodeHealthPanel, RiskTag, SensitiveField, StatusTag } from '@/components';
 import { getDashboardAudit, getKpis, getMyTasks, getPendingApprovals, getTopRisks } from '@/services/dashboard';
+import { getOnboardingStatus } from '@/services/onboarding';
+import type { OnboardingStatus } from '@/services/onboarding';
 import { dashboardConfig } from './dashboardConfig';
 import type { DashboardSection } from './dashboardConfig';
 
@@ -18,6 +20,7 @@ export default function DashboardPage() {
   const [approvals, setApprovals] = useState<any[]>([]);
   const [audits, setAudits] = useState<API.AuditLog[]>([]);
   const [kpiData, setKpiData] = useState<Record<string, number>>({});
+  const [onboarding, setOnboarding] = useState<OnboardingStatus>();
   // 四态补全（05 文档第 4 节）：加载骨架 + 错误重试，接真实后端后即生效
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -34,6 +37,9 @@ export default function DashboardPage() {
     }
   };
   useEffect(() => { load(); }, [role]);
+  // C3 entry is advisory, not a second permission gate.  The backend derives
+  // it from tenant-scoped C2 entities, so tenants with data are never blocked.
+  useEffect(() => { getOnboardingStatus().then(setOnboarding).catch(() => undefined); }, []);
   const roleTasks = useMemo(() => tasks.filter((item) => item.roleCode === role).slice(0, 8), [role, tasks]);
 
   // P1-7：可计数 KPI 用真实 API 数据覆盖硬编码演示值，保证与列表/图表一致。
@@ -44,6 +50,10 @@ export default function DashboardPage() {
   };
 
   const renderSection = (section: DashboardSection) => {
+    // C02：管理者的供应链节点健康概览。C03：一线角色的「我的节点」明细。
+    // 两者是同一个面板的两种数据范围，范围由后端按既有权限码派生，前端不做权限判断。
+    if (section === 'nodeHealth') return <Card key={section} title="供应链节点健康"><NodeHealthPanel mode="overview" /></Card>;
+    if (section === 'myNodes') return <Card key={section} title="我的节点"><NodeHealthPanel mode="mine" testIdPrefix="my-nodes" /></Card>;
     if (section === 'riskDistribution') return <Card key={section} title="风险等级分布"><ReactECharts style={{ height: 260 }} option={{ series: [{ type: 'pie', radius: '60%', data: [{ name: '高风险', value: risks.filter((item) => item.level === 'high').length }, { name: '中风险', value: risks.filter((item) => item.level === 'medium').length }, { name: '低风险', value: risks.filter((item) => item.level === 'low').length }] }] }} /></Card>;
     if (section === 'responseTrend' || section === 'costTrend') return <Card key={section} title={section === 'costTrend' ? '应急成本趋势' : '应急响应时长趋势'}><ReactECharts style={{ height: 240 }} option={{ xAxis: { type: 'category', data: ['2月', '3月', '4月', '5月', '6月', '7月'] }, yAxis: { type: 'value' }, series: [{ type: section === 'costTrend' ? 'bar' : 'line', data: section === 'costTrend' ? [12, 14, 9, 18, 16, 12.8] : [8, 6.5, 7, 5.2, 4.8, 5.2] }] }} /></Card>;
     if (section === 'onboarding') return <Card key={section} title="初始化待办"><List dataSource={['导入供应商主数据', '完善审批流设置']} renderItem={(item) => <List.Item actions={[<Button key={item} type="link" onClick={() => history.push(item.includes('导入') ? '/data/import' : '/settings/approval')}>处理</Button>]}>{item}</List.Item>} /></Card>;
@@ -58,7 +68,8 @@ export default function DashboardPage() {
   if (loading) return <Space direction="vertical" size="middle" style={{ width: '100%' }}><Row gutter={[16, 16]}>{[1, 2, 3, 4].map((key) => <Col xs={24} md={12} xl={6} key={key}><Card loading /></Col>)}</Row><Card loading /><Card loading /></Space>;
 
   return <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-    {initialState?.tenant?.demoDataFlag && <Alert type="warning" showIcon message="当前为示例数据，导入真实数据后可关闭提示。" action={<Button size="small" onClick={() => history.push('/data/import')}>导入真实数据</Button>} />}
+    {onboarding?.guideVisible && <Alert type="info" showIcon message="开始准备真实业务数据" description="当前租户还没有 C2 业务实体数据。导入物料、供应商、库存和订单后即可进入真实决策链路。" action={<Button size="small" type="primary" onClick={() => history.push('/onboarding')}>查看引导</Button>} />}
+    {(onboarding?.entitySummary.hasDemoData || initialState?.tenant?.demoDataFlag) && <Alert type="warning" showIcon message="当前租户包含演示数据" description="演示数据具有来源标记；它不是 run_demo，也不会写入其他租户。导入真实数据前请确认避免混合使用。" action={<Button size="small" onClick={() => history.push('/data/import')}>查看数据导入</Button>} />}
     <Space wrap><Access accessible={access.canCreateIncident && !config.readonly}><Button type="primary" icon={<PlusOutlined />} onClick={() => history.push('/risk/list')}>上报异常</Button></Access><Access accessible={access.canApproval}><Button onClick={() => history.push('/decision/approval')}>待我审批</Button></Access><Button onClick={() => history.push('/risk/overview')}>风险总览</Button>{role === 'admin' && <Button onClick={() => history.push('/settings/users')}>邀请成员</Button>}</Space>
     <Row gutter={[16, 16]}>{config.kpis.map((item) => <Col xs={24} md={12} xl={6} key={item.key}>{item.sensitive ? <Card><Typography.Text type="secondary">{item.title}</Typography.Text><Typography.Title level={3}><SensitiveField field={item.sensitive} value={item.value} /></Typography.Title><Typography.Text type="secondary">{item.trend}</Typography.Text></Card> : <KpiCard title={item.title} value={kpiValue(item)} trend={item.trend} />}</Col>)}</Row>
     <Row gutter={[16, 16]}>{config.second.map((section) => <Col xs={24} xl={config.second.length > 1 ? 12 : 24} key={section}>{renderSection(section)}</Col>)}</Row>
