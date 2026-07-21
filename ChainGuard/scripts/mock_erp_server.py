@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -65,6 +66,10 @@ class ERPHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         parsed = urlparse(self.path)
+        expected_key = os.environ.get("MOCK_ERP_API_KEY", "").strip()
+        if expected_key and self.headers.get("Authorization") != f"Bearer {expected_key}":
+            self.send_json(401, {"error": "unauthorized"})
+            return
         if parsed.path == "/health":
             self.send_json(200, {"status": "ok", "database": str(self.database_path)})
             return

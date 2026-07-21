@@ -75,7 +75,7 @@ const rejectionColumns = [
   { title: '源数据', dataIndex: 'source', render: (value: Record<string, unknown>) => <Typography.Text code>{JSON.stringify(value)}</Typography.Text> },
 ];
 
-export default function EnterpriseImportWizard(_props: { embedded?: boolean } = {}) {
+export default function EnterpriseImportWizard({ onCompleted }: { embedded?: boolean; onCompleted?: () => void } = {}) {
   const { message } = App.useApp();
   const screens = Grid.useBreakpoint();
   const { initialState } = useModel('@@initialState');
@@ -205,6 +205,7 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
       }
       setResults(completed);
       setStep(4);
+      onCompleted?.();
       if (completed.some((item) => {
         const normalized = normalizeImportHistoryJob(item);
         return item.status === 'failed' || normalized.rejectedRows > 0;
@@ -257,6 +258,7 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
       const result = await syncErp({ ...erpConnectionValues, types: selectedErpTypes });
       setResults([result]);
       setStep(4);
+      onCompleted?.();
       message.success('ERP 同步完成');
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'ERP 同步失败');
@@ -428,6 +430,17 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
         const missingRequired = (file.mappingFields || []).filter((field) => field.required && !mappedTargets.includes(field.key));
         return <Card key={`${file.jobId}-mapping`} size="small" title={`${file.fileName} · 字段映射`}>
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            {file.preflight?.canProceed === false && <Alert
+              type="error"
+              showIcon
+              message={`OCR 无法安全形成字段映射${file.preflight.extraction?.error_code ? `（${file.preflight.extraction.error_code}）` : ''}`}
+              description={<Space direction="vertical" size={2}>
+                <Typography.Text>{file.preflight.message || file.preflight.extraction?.note || '识别结果不可用于导入。'}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {(file.preflight.manualReview?.suggestions || ['请重新上传清晰图片，或改用人工录入。']).join('；')}
+                </Typography.Text>
+              </Space>}
+            />}
             <Typography.Text type="secondary">已识别 {sourceFields.length} 个源字段。系统按现有别名规则给出建议，请逐项核对；“必填”目标必须完成映射。</Typography.Text>
             {missingRequired.length > 0 && <Alert type="error" showIcon message={`缺少必填映射：${missingRequired.map((field) => `${field.label} (${field.key})`).join('、')}`} />}
             {!file.mappingFields?.length && <Alert type="warning" showIcon message="当前资料类型尚无可用的前端字段定义，请改选受支持的资料类型或人工处理。" />}
@@ -521,7 +534,10 @@ export default function EnterpriseImportWizard(_props: { embedded?: boolean } = 
       <Button disabled={step === 0 || loading} onClick={() => setStep((value) => Math.max(0, value - 1))}>上一步</Button>
       {step < 4 && <Button
         type="primary" loading={loading} onClick={() => void next()}
-        disabled={(step === 1 && mode !== 'erp') || (step === 1 && mode === 'erp' && !erpConnected) || (step === 2 && mode === 'erp' && !selectedErpTypes.length)}
+        disabled={(step === 1 && mode !== 'erp')
+          || (step === 1 && mode === 'erp' && !erpConnected)
+          || (step === 2 && mode === 'erp' && !selectedErpTypes.length)
+          || (step === 3 && mode !== 'erp' && files.some((file) => file.preflight?.canProceed === false))}
       >{step === 3 ? '确认并执行' : '下一步'}</Button>}
       {step === 4 && <Button type="primary" onClick={() => { setStep(0); resetChannel(mode); }}>继续导入</Button>}
     </Space>

@@ -163,6 +163,26 @@ class TenantDecisionInputs:
     configuration: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class MaterialSnapshot:
+    """One material's tenant-isolated entity snapshot, independent of any incident.
+
+    A03 风险重算按物料取数，没有事件可依附；C1 的 build() 则在此之上补事件/运输/派生段。
+    两条路径共用同一份取数与配置解析逻辑，保证"解释里的阈值"与"决策用的阈值"同源。
+    """
+
+    material: Material
+    inventory: dict[str, Any]
+    inventory_rows: list[InventoryEntity]
+    arrival: dict[str, datetime | None]
+    orders: list[dict[str, Any]]
+    suppliers: list[dict[str, Any]]
+    thresholds: dict[str, Any]
+    risk_weights: dict[str, Any]
+    configuration: dict[str, Any]
+    data_quality: DataQuality
+
+
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 _CLOSED_ORDER_STATUSES = {"delivered", "cancelled", "canceled", "closed", "已交付", "已取消"}
 _HIGH_LEVELS = {"high", "critical", "高", "严重"}
@@ -248,31 +268,99 @@ class TenantContextBuilder:
         delay = self._event_delay(incident, risks, quality)
         affected_supplier = self._resolve_affected_supplier(risks)
         risk_score = max([float(risk.score or 0) for risk in risks] or [0.0])
+        transport, transport_config = self._transport_options(incident, risks)
+        snapshot = self.build_material_snapshot(
+            material,
+            delay=delay,
+            affected_supplier=affected_supplier,
+            external_risk_score=risk_score,
+            quality=quality,
+            transport_meta=transport_config,
+        )
+
+        event = self._event_context(
+            incident, risks, material.material_id, affected_supplier, delay, risk_score
+        )
+        derived = self._derived_metrics(
+            snapshot.inventory, snapshot.inventory_rows, snapshot.orders,
+            snapshot.suppliers, snapshot.arrival,
+        )
+        context = {
+            "inventory": snapshot.inventory,
+            "orders": snapshot.orders,
+            "suppliers": snapshot.suppliers,
+            "transport_options": transport,
+            "events": [event],
+            "derived_metrics": derived,
+            "data_quality": quality.to_dict(),
+            "configuration": snapshot.configuration,
+        }
+        validated = EngineContext.model_validate(context).model_dump()
+        return TenantDecisionInputs(
+            validated, quality, snapshot.thresholds, snapshot.risk_weights, snapshot.configuration
+        )
+
+    def build_material_snapshot(
+        self,
+        material: Material,
+        *,
+        delay: float = 0.0,
+        affected_supplier: str = "",
+        external_risk_score: float = 0.0,
+        quality: DataQuality | None = None,
+        transport_meta: dict[str, Any] | None = None,
+    ) -> MaterialSnapshot:
+        """Take one material's entity snapshot + resolved configuration, no incident needed."""
+        if material.daily_consumption is None or float(material.daily_consumption) <= 0:
+            raise ContextBuildError("CG-2512", "物料日消耗量缺失或不大于 0")
+        quality = quality if quality is not None else DataQuality()
         inventory, inventory_rows, arrival = self._inventory(material, delay, quality)
-        inventory["external_risk_score"] = risk_score
+        inventory["external_risk_score"] = external_risk_score
         orders = self._orders(material, quality)
         suppliers = self._suppliers(material, affected_supplier, delay, quality)
-        transport, transport_config = self._transport_options(incident, risks)
-        thresholds, risk_weights, configuration = self._decision_configuration(transport_config)
+        thresholds, risk_weights, configuration = self._decision_configuration(transport_meta)
         coefficients, coefficient_meta = self._estimation_coefficients()
         configuration["items"]["estimation_coefficients"] = coefficient_meta
         orders = self._apply_financial_estimates(orders, coefficients, quality)
 
-        critical_orders = [order for order in orders if order["priority"] == "A"]
-        critical_demand = sum(order["demand_qty"] for order in critical_orders)
+        critical_demand = sum(order["demand_qty"] for order in orders if order["priority"] == "A")
         inventory["critical_order_demand"] = float(critical_demand)
-        event = self._event_context(
-            incident, risks, material.material_id, affected_supplier, delay, risk_score
-        )
-        derived = self._derived_metrics(inventory, inventory_rows, orders, suppliers, arrival)
         if not orders:
             quality.degrade("no_orders")
         if not suppliers:
             quality.degrade("no_suppliers")
+        self._finalize_configuration(configuration)
+        return MaterialSnapshot(
+            material=material,
+            inventory=inventory,
+            inventory_rows=inventory_rows,
+            arrival=arrival,
+            orders=orders,
+            suppliers=suppliers,
+            thresholds=thresholds,
+            risk_weights=risk_weights,
+            configuration=configuration,
+            data_quality=quality,
+        )
 
-        configuration["items"]["transport_options"] = transport_config
+    def snapshot_for_material_id(
+        self, material_id: str, *, quality: DataQuality | None = None
+    ) -> MaterialSnapshot:
+        """Material-id entry point for A03 risk recompute; tenant filter is non-optional."""
+        material = self.db.scalar(
+            select(Material).where(
+                Material.tenant_id == self.tenant_id, Material.material_id == material_id
+            )
+        )
+        if material is None:
+            raise ContextBuildError("CG-2511", "事件未关联租户内有效物料")
+        return self.build_material_snapshot(material, quality=quality)
+
+    @staticmethod
+    def _finalize_configuration(configuration: dict[str, Any]) -> None:
         configuration["source"] = (
-            "tenant_config" if any(item.get("source") == "tenant_config" for item in configuration["items"].values())
+            "tenant_config"
+            if any(item.get("source") == "tenant_config" for item in configuration["items"].values())
             else "expert_default"
         )
         configuration["fallback_reasons"] = [
@@ -280,18 +368,6 @@ class TenantContextBuilder:
             for name, item in configuration["items"].items()
             if item.get("fallback_reason")
         ]
-        context = {
-            "inventory": inventory,
-            "orders": orders,
-            "suppliers": suppliers,
-            "transport_options": transport,
-            "events": [event],
-            "derived_metrics": derived,
-            "data_quality": quality.to_dict(),
-            "configuration": configuration,
-        }
-        validated = EngineContext.model_validate(context).model_dump()
-        return TenantDecisionInputs(validated, quality, thresholds, risk_weights, configuration)
 
     def readiness(self, incident_id: str) -> dict[str, Any]:
         try:
@@ -602,7 +678,7 @@ class TenantContextBuilder:
         }
 
     def _decision_configuration(
-        self, transport_meta: dict[str, Any]
+        self, transport_meta: dict[str, Any] | None = None
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         thresholds = load_thresholds()
         raw_weights = load_risk_weights()
@@ -621,23 +697,42 @@ class TenantContextBuilder:
             "_trigger_threshold_note": "租户无获批配置时使用专家默认值",
             "_trigger_threshold_sample_size": 0,
         }
-        items: dict[str, Any] = {"transport_options": transport_meta}
+        items: dict[str, Any] = {} if transport_meta is None else {"transport_options": transport_meta}
         threshold_config, threshold_meta = self._approved_config("thresholds")
+        threshold_provenance: dict[str, Any] = {}
         if threshold_config is not None and isinstance(threshold_config.payload, dict):
-            thresholds = _deep_merge(thresholds, threshold_config.payload)
+            payload = dict(threshold_config.payload)
+            # _provenance 是追溯元数据，不是阈值本身；合并前摘出来，否则会污染阈值字典
+            threshold_provenance = dict(payload.pop("_provenance", {}) or {})
+            thresholds = _deep_merge(thresholds, payload)
         items["thresholds"] = threshold_meta
         weights_config, weights_meta = self._approved_config("risk_weights")
         if weights_config is not None and isinstance(weights_config.payload, dict):
             payload = weights_config.payload
+            provenance = dict(payload.get("_provenance") or {})
             for key in ("inventory_risk_weights", "decision_score_weights", "payoff_weights"):
                 if isinstance(payload.get(key), dict):
                     risk_weights[key] = _deep_merge(risk_weights[key], payload[key])
             risk_weights["_inventory_weight_source"] = weights_config.source
             risk_weights["_score_weight_source"] = weights_config.source
             risk_weights["_payoff_weight_source"] = weights_config.source
+            # 回填追溯信息：源标 calibrated 却报样本量 0，会让"数字可追溯"这条承诺当场破功
+            if provenance:
+                risk_weights["_inventory_weight_sample_size"] = provenance.get("sampleSize", 0)
+                risk_weights["_inventory_weight_note"] = (
+                    f"由 {provenance.get('sampleSize', 0)} 条历史决策按 {provenance.get('method', '未知方法')} 校准，"
+                    f"经 {provenance.get('approvedBy', '未知')} 于 {provenance.get('approvedAt', '未知时间')} 确认"
+                )
+                risk_weights["_inventory_weight_provenance"] = provenance
         items["risk_weights"] = weights_meta
         risk_weights["_trigger_threshold_value"] = thresholds["inventory_warning"]["inventory_risk_trigger"]
         risk_weights["_trigger_threshold_source"] = threshold_meta["source"]
+        if threshold_provenance:
+            risk_weights["_trigger_threshold_sample_size"] = threshold_provenance.get("sampleSize", 0)
+            risk_weights["_trigger_threshold_note"] = (
+                f"由 {threshold_provenance.get('sampleSize', 0)} 条历史决策校准，"
+                f"经 {threshold_provenance.get('approvedBy', '未知')} 确认"
+            )
         return thresholds, risk_weights, {"source": "expert_default", "items": items, "fallback_reasons": []}
 
     def _estimation_coefficients(self) -> tuple[dict[str, Any], dict[str, Any]]:

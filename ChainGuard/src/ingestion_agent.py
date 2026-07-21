@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import os
 import queue
+import re
 import time
 import urllib.error
 import urllib.request
@@ -36,6 +37,7 @@ class FileExtraction:
     confidence: float | None = None
     elapsed_seconds: float | None = None
     error_code: str | None = None
+    column_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -204,7 +206,7 @@ class OcrEngineBackend:
 
         if payload.get("error"):
             return self._fail("OCR_ENGINE_FAILED", "本地 OCR 识别失败；需要人工处理。", started)
-        texts = [str(value).strip() for value in payload.get("texts") or [] if str(value).strip()]
+        texts = _reconstruct_ocr_lines(payload)
         scores = [float(value) for value in payload.get("scores") or []]
         if not texts or not scores:
             return self._fail("OCR_EMPTY", "图片为空白或未识别到文字；需要人工处理。", started)
@@ -226,16 +228,21 @@ class OcrEngineBackend:
                 elapsed_seconds=elapsed,
             )
             return None
+        normalized_text, quality_error = _validate_ocr_table(texts)
+        if quality_error:
+            error_code, message = quality_error
+            return self._fail(error_code, message, started, confidence=confidence)
         self.last_metadata = {
             "confidence": round(confidence, 6),
             "elapsed_seconds": elapsed,
             "line_count": len(texts),
+            "column_count": len(_split_text_line(normalized_text.splitlines()[0])),
         }
         log_event(
             "ocr_succeeded", file_name=path.name, backend=self.name,
             confidence=round(confidence, 6), line_count=len(texts), elapsed_seconds=elapsed,
         )
-        return "\n".join(texts)
+        return normalized_text
 
     def _fail(
         self,
@@ -243,6 +250,7 @@ class OcrEngineBackend:
         message: str,
         started: float,
         error: Exception | None = None,
+        confidence: float | None = None,
     ) -> None:
         elapsed = round(time.perf_counter() - started, 6)
         self.last_metadata = {
@@ -250,6 +258,8 @@ class OcrEngineBackend:
             "error_code": error_code,
             "message": message,
         }
+        if confidence is not None:
+            self.last_metadata["confidence"] = round(confidence, 6)
         log_event(
             "ocr_manual_required", file_name=getattr(self, "_current_file_name", "-"), backend=self.name,
             error_code=error_code, exception=type(error).__name__ if error else None,
@@ -264,12 +274,104 @@ def _rapidocr_worker(file_path: str, result_queue: Any) -> None:
         from rapidocr import RapidOCR  # type: ignore
 
         output = RapidOCR()(file_path, text_score=0.0)
+        raw_boxes = getattr(output, "boxes", None)
         result_queue.put({
             "texts": list(getattr(output, "txts", ()) or ()),
             "scores": [float(value) for value in (getattr(output, "scores", ()) or ())],
+            "boxes": raw_boxes.tolist() if raw_boxes is not None else [],
         })
     except Exception as error:
         result_queue.put({"error": type(error).__name__})
+
+
+def _reconstruct_ocr_lines(payload: dict[str, Any]) -> list[str]:
+    """Rebuild visual rows from OCR boxes instead of trusting detector order.
+
+    RapidOCR may return a whole CSV row as one box or split the same visual row
+    into several boxes.  In the latter case, joining every detection with a
+    newline destroys the column structure.  Boxes on the same baseline are
+    therefore ordered left-to-right and separated as columns.
+    """
+    texts = [str(value).strip() for value in payload.get("texts") or []]
+    boxes = payload.get("boxes") or []
+    detections: list[dict[str, Any]] = []
+    for index, text in enumerate(texts):
+        if not text or index >= len(boxes):
+            continue
+        try:
+            points = boxes[index]
+            xs = [float(point[0]) for point in points]
+            ys = [float(point[1]) for point in points]
+            detections.append({
+                "text": text,
+                "left": min(xs),
+                "center_y": (min(ys) + max(ys)) / 2,
+                "height": max(max(ys) - min(ys), 1.0),
+            })
+        except (TypeError, ValueError, IndexError):
+            return [value for value in texts if value]
+    if len(detections) != len([value for value in texts if value]):
+        return [value for value in texts if value]
+
+    rows: list[dict[str, Any]] = []
+    for detection in sorted(detections, key=lambda item: (item["center_y"], item["left"])):
+        match = next((
+            row for row in rows
+            if abs(detection["center_y"] - row["center_y"])
+            <= max(detection["height"], row["height"]) * 0.6
+        ), None)
+        if match is None:
+            rows.append({
+                "center_y": detection["center_y"],
+                "height": detection["height"],
+                "items": [detection],
+            })
+        else:
+            match["items"].append(detection)
+            count = len(match["items"])
+            match["center_y"] = ((match["center_y"] * (count - 1)) + detection["center_y"]) / count
+            match["height"] = max(match["height"], detection["height"])
+
+    lines: list[str] = []
+    for row in sorted(rows, key=lambda item: item["center_y"]):
+        parts = [item["text"] for item in sorted(row["items"], key=lambda item: item["left"])]
+        line = parts[0]
+        for part in parts[1:]:
+            line += part if line.endswith((",", "，", "\t")) or part.startswith((",", "，", "\t")) else f",{part}"
+        lines.append(line)
+    return lines
+
+
+def _validate_ocr_table(lines: list[str]) -> tuple[str, tuple[str, str] | None]:
+    """Reject high-confidence garbage and incomplete table structures safely."""
+    normalized_lines = [line.replace("，", ",").strip() for line in lines if line.strip()]
+    text = "\n".join(normalized_lines)
+    compact = re.sub(r"\s", "", text)
+    suspicious_count = sum(compact.count(marker) for marker in ("?", "�", "锟斤拷", "烫烫", "屯屯"))
+    if re.search(r"[?？�]{2,}", compact) or (compact and suspicious_count / len(compact) >= 0.08):
+        return "", (
+            "OCR_GARBLED_TEXT",
+            "OCR 结果疑似乱码（出现连续问号、替换字符或异常编码文本）；不能作为预检通过依据。"
+            "请重新上传包含真实中文像素的清晰图片，或改用人工录入。",
+        )
+
+    parsed_rows = [_split_text_line(line) for line in normalized_lines]
+    column_counts = [len(values) for values in parsed_rows]
+    if len(parsed_rows) < 2 or not column_counts or column_counts[0] < 2 or any(
+        count != column_counts[0] for count in column_counts[1:]
+    ):
+        return "", (
+            "OCR_STRUCTURE_INCOMPLETE",
+            "OCR 结果未形成至少两行且列数一致的表格，列分隔符可能缺失或文本行重建不完整；"
+            "不能作为预检通过依据。请重新上传清晰、端正且保留表头/分隔符的图片，或改用人工录入。",
+        )
+    if any(not value.strip() for values in parsed_rows for value in values):
+        return "", (
+            "OCR_STRUCTURE_INCOMPLETE",
+            "OCR 结果存在空白列，表格结构不完整；不能作为预检通过依据。"
+            "请重新上传清晰、完整的图片，或改用人工录入。",
+        )
+    return text, None
 
 
 def _env_float(name: str, default: float, *, minimum: float, maximum: float | None = None) -> float:
@@ -458,6 +560,7 @@ def ingest_files(
                         path.name, kind, method_used, len(rows), False,
                         confidence=metadata.get("confidence"),
                         elapsed_seconds=metadata.get("elapsed_seconds"),
+                        column_count=metadata.get("column_count"),
                     )
                 )
             else:

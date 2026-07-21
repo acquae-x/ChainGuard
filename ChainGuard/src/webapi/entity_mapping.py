@@ -168,6 +168,12 @@ def validate_mapping(spec: Mapping[str, Any]) -> list[str]:
                 problems.append(f"{resource_type}: empty source field")
             if target not in columns:
                 problems.append(f"{resource_type}: field target {target!r} is not a column of {table}")
+        # One target column may only be written once; a second writer would silently win.
+        seen_targets: set[str] = set()
+        for target in list(fields.values()) + list(converts):
+            if target in seen_targets:
+                problems.append(f"{resource_type}: target {target!r} is mapped more than once")
+            seen_targets.add(str(target))
         for target, conversion in converts.items():
             if target not in columns:
                 problems.append(f"{resource_type}: convert target {target!r} is not a column of {table}")
