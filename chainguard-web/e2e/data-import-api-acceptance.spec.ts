@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
-import { expectNoHorizontalOverflow } from './helpers';
+import { expectNoHorizontalOverflow, gotoApp } from './helpers';
 
 const evidenceDir = resolve(process.env.C2_EVIDENCE_DIR || '../ChainGuard/output/phase5b-c2-closeout-api/screenshots');
 const account = process.env.C2_ACCOUNT || 'c2-closeout-a8a53701@chainguard.demo';
@@ -74,10 +74,12 @@ async function importMaterialThroughApi(page: Page, token: string) {
   throw new Error('API import polling timed out');
 }
 
-// 这里借用 page 渲染一张 OCR 素材图，属于对共享状态的临时改动：改完必须把
-// 视口还回去。否则后续 goto('/') 是在 360px 高的视口里找侧边栏菜单项——
-// 本函数是本套件里唯一压低视口的地方，而唯一失败的用例恰好就是调它的那个
-// （另两个用例分别在 1280x900 与默认 1280x720 下点同一个菜单，都通过）。
+// 这里借用 page 渲染一张 OCR 素材图，属于对共享状态的临时改动：改完把视口
+// 还回去，避免后续断言隐式依赖一个 360px 高的视口。
+//
+// 注：这条还原**不是** CI 上那次菜单点击超时的原因（我一度这样判断，后来被
+// DOM 快照证伪——真实原因是 umi dev 首次冷编译，见 helpers.ts 的 gotoApp）。
+// 保留它只是因为辅助函数改共享状态不还原本身就该修。
 async function renderOcrImage(page: Page, headers: string, row: string) {
   const previous = page.viewportSize();
   await page.setViewportSize({ width: 1400, height: 360 });
@@ -90,7 +92,7 @@ async function renderOcrImage(page: Page, headers: string, row: string) {
 async function uploadThroughCurrentImportUi(page: Page, image: Buffer, fileName: string) {
   // Umi dev server only serves the SPA shell at `/`; enter the target route
   // through the rendered navigation so this remains a real UI flow.
-  await page.goto('/');
+  await gotoApp(page);
   await page.getByRole('menuitem', { name: /数据管理/ }).click();
   await page.getByRole('menuitem', { name: '数据导入' }).click();
   await expect(page.getByText('数据导入', { exact: true }).first()).toBeVisible();
@@ -103,7 +105,7 @@ async function uploadThroughCurrentImportUi(page: Page, image: Buffer, fileName:
 }
 
 async function openDataPage(page: Page, pageName: '数据导入' | '物料') {
-  await page.goto('/');
+  await gotoApp(page);
   await page.getByRole('menuitem', { name: /数据管理/ }).click();
   await page.getByRole('menuitem', { name: pageName }).click();
   await expect(page.getByText(pageName, { exact: true }).first()).toBeVisible();
