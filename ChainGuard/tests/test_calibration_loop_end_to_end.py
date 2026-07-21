@@ -20,7 +20,7 @@ from src.api import app
 from src.webapi.auth.security import create_tokens, hash_password
 from src.webapi.context_builder import TenantContextBuilder
 from src.webapi.database import SessionLocal
-from src.webapi.models import ImportSourceRow, Role, Tenant, TenantConfig, User
+from src.webapi.models import ImportSourceRow, Role, Tenant, User
 from src.webapi.seed import BASE, ROLE_PERMISSIONS, seed
 
 

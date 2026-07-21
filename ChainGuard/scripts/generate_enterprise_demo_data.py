@@ -13,7 +13,7 @@ import random
 import shutil
 import sqlite3
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 

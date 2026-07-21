@@ -17,10 +17,8 @@ from sqlalchemy.orm import Session
 from src.webapi.auth import AuthContext
 from src.webapi.database import Base
 from src.webapi.entity_import import (
-    DuplicateImportError,
     aggregate_shipments,
     import_entity_file,
-    reserve_import_signature,
     import_entity_rows,
 )
 from src.webapi.enterprise_import_catalog import IMPORT_MODES, IMPORT_TYPE_CATALOG, catalog_payload

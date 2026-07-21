@@ -6,7 +6,7 @@ from src.agents import generate_all_proposals
 from src.config_loader import load_risk_weights
 from src.data_loader import load_demo_context
 from src.debate import generate_rebuttal
-from src.scoring import attach_total_scores, rank_proposals
+from src.scoring import attach_total_scores
 from src.text_generator import TextGenerator
 
 

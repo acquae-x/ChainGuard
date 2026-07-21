@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from mock_oidc_server import MockOidcProvider, start_server  # noqa: E402
 
 from src.api import app  # noqa: E402
-from src.webapi import account_lifecycle, sso as sso_service  # noqa: E402
+from src.webapi import account_lifecycle  # noqa: E402
 from src.webapi.auth.security import hash_password  # noqa: E402
 from src.webapi.config import settings  # noqa: E402
 from src.webapi.database import Base, SessionLocal, engine  # noqa: E402

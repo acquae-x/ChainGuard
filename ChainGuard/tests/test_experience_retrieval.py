@@ -9,7 +9,7 @@ from src.config_loader import load_risk_weights, load_thresholds
 from src.conflict_detector import detect_conflict
 from src.data_loader import load_demo_context
 from src.debate import generate_rebuttal
-from src.feedback import ExperienceFeedback, RetrievalResult
+from src.feedback import ExperienceFeedback
 from src.learning import generate_experience_card, save_experience_card
 from src.orchestrator import DecisionOrchestrator
 from src.agents import generate_all_proposals

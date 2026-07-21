@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.history_pipeline import HistoryPipeline
+from src.history_pipeline import HistoryPipeline  # noqa: E402 - 需先完成上面的 sys.path 引导
 
 
 def main(argv: list[str] | None = None) -> int:

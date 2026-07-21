@@ -14,7 +14,7 @@ from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
 from ..context_builder import TenantContextBuilder
-from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, ExperienceCard, ImportJob, Incident, InventoryEntity, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..models import Approval, AuditLog, DecisionDetail, ExperienceCard, ImportJob, Incident, InventoryEntity, Job, NotificationMessage, Proposal, Risk, Task, User
 from ..experience import mark_incident_experience_completed, mark_incident_experience_confirmed
 from ..decision_detail import mask_for_requester, render_pdf
 from ..impact_scope import incident_impact_scope, risk_impact_scope

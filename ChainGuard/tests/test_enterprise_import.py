@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 from scripts.enterprise_import import (
     TableImportResult,
     import_csv,
-    import_pdf,
     run_import,
     validate_csv,
     validate_pdf,

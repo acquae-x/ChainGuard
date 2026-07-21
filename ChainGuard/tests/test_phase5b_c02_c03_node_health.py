@@ -37,7 +37,6 @@ from src.webapi.models import (
 )
 from src.webapi.node_health import (
     MAX_NODES_PER_TYPE,
-    NodeHealthBuilder,
     scope_for,
 )
 from src.webapi.risk_recompute import measure_material
