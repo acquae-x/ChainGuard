@@ -74,10 +74,17 @@ async function importMaterialThroughApi(page: Page, token: string) {
   throw new Error('API import polling timed out');
 }
 
+// 这里借用 page 渲染一张 OCR 素材图，属于对共享状态的临时改动：改完必须把
+// 视口还回去。否则后续 goto('/') 是在 360px 高的视口里找侧边栏菜单项——
+// 本函数是本套件里唯一压低视口的地方，而唯一失败的用例恰好就是调它的那个
+// （另两个用例分别在 1280x900 与默认 1280x720 下点同一个菜单，都通过）。
 async function renderOcrImage(page: Page, headers: string, row: string) {
+  const previous = page.viewportSize();
   await page.setViewportSize({ width: 1400, height: 360 });
   await page.setContent(`<!doctype html><html><body style="margin:0;background:white"><pre style="margin:48px;font:48px/1.8 'Microsoft YaHei','Segoe UI',sans-serif;color:#000;white-space:pre">${headers}\n${row}</pre></body></html>`);
-  return page.screenshot({ type: 'png' });
+  const shot = await page.screenshot({ type: 'png' });
+  if (previous) await page.setViewportSize(previous);
+  return shot;
 }
 
 async function uploadThroughCurrentImportUi(page: Page, image: Buffer, fileName: string) {
