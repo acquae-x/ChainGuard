@@ -72,6 +72,12 @@ def _run_alembic(database: Path, *args: str) -> subprocess.CompletedProcess[str]
         cwd=ROOT,
         env=env,
         text=True,
+        # alembic 的迁移说明里有中文，它按 UTF-8 写 stderr。text=True 不指定
+        # encoding 时用的是 locale 默认编码——中文 Windows 上是 GBK，解码直接抛
+        # UnicodeDecodeError，读取线程死掉后 stderr 变成 None，断言报的却是
+        # "NoneType is not iterable"，与真实原因毫无关系。
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=True,
     )
