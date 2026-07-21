@@ -4,7 +4,7 @@ import { Alert, Badge, Button, Card, Collapse, Descriptions, Drawer, Empty, Flex
 import { AppstoreOutlined, EditOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined, SendOutlined, TableOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';
 import { AgentProgress, DecisionTrace, EmptyGuide, RiskTag, SensitiveField, StatusTag } from '@/components';
-import { generateProposals, getDraft, getProposalsForIncident, recalc, saveDraft, submitForApproval } from '@/services/decision';
+import { generateProposals, getDecisionReadiness, getDraft, getProposalsForIncident, recalc, saveDraft, submitForApproval, type DecisionReadiness } from '@/services/decision';
 import { getIncident } from '@/services/incident';
 import { customerLabel, daysLabel, isMissing, moneyLabel, riskLabel, MISSING_TEXT } from '@/utils/proposalMetrics';
 
@@ -24,6 +24,8 @@ export default function DecisionGenerate() {
   const [incident, setIncident] = useState<API.Incident>();
   const [error, setError] = useState<string>();
   const [traceOpen, setTraceOpen] = useState(false);
+  // 决策就绪度：推演前先问后端"这个事件的数据够不够"，避免用户对着缺数据的事件生成方案。
+  const [readiness, setReadiness] = useState<DecisionReadiness>();
 
   const loadExisting = async () => {
     setError(undefined);
@@ -38,6 +40,8 @@ export default function DecisionGenerate() {
 
   useEffect(() => {
     getIncident(incidentId).then(setIncident).catch((reason) => setError(reason instanceof Error ? reason.message : '事件加载失败'));
+    // 就绪度失败不阻断页面：拿不到就当作未知，不伪造"就绪"
+    getDecisionReadiness(incidentId).then(setReadiness).catch(() => setReadiness(undefined));
     if (readonly) loadExisting();
     // 恢复上次保存的草稿选择（mock 服务端保存，非 localStorage）
     getDraft(incidentId).then((draft) => { if (draft?.proposalId) setSelected(draft.proposalId); });
@@ -81,6 +85,8 @@ export default function DecisionGenerate() {
             <Statistic title="客户影响" value={isMissing(proposal.customerImpact) ? MISSING_TEXT : `${proposal.customerImpact} 单`} />
             <div><Typography.Text type="secondary">剩余风险</Typography.Text><div style={{ marginTop: 8 }}>{isMissing(proposal.residualRisk) ? <Typography.Text type="secondary">{MISSING_TEXT}</Typography.Text> : <RiskTag level={proposal.residualRisk} />}</div></div>
           </Flex>
+          {proposal.historyExperience?.matched && <Alert style={{ marginTop: 16 }} type="info" showIcon message={`引用历史经验（${proposal.historyExperience.count}）`} description={<Space direction="vertical" size={2}>{proposal.historyExperience.conclusions.slice(0, 2).map((item) => <span key={item}>关键结论：{item}</span>)}<Typography.Text type="secondary">来源：{proposal.historyExperience.sources.join('、')}</Typography.Text></Space>} />}
+          {!proposal.historyExperience?.matched && <Typography.Text type="secondary" style={{ display: 'block', marginTop: 16 }}>历史经验：暂无同租户相似经验，本次按当前真实数据独立推演。</Typography.Text>}
           <Collapse ghost style={{ marginTop: 16 }} items={[
             { key: 'views', label: '五视角明细', children: Object.entries(proposal.views).map(([name, value]) => <Descriptions key={name} size="small" column={1} items={[{ key: name, label: name, children: value }]} />) },
             { key: 'ai', label: 'AI 解释：结论 → 关键因素 → 证据链', children: <><Typography.Paragraph>{proposal.reason}</Typography.Paragraph><Typography.Text type="secondary">关键因素：成本、交期、客户影响与约束冲突</Typography.Text><br/><Space><Tag>EXP-019</Tag><Tag>高等级客户交付约束</Tag></Space></> }
@@ -100,9 +106,41 @@ export default function DecisionGenerate() {
   return (
     <PageContainer title="方案生成与对比" subTitle={incident?.code || incidentId} extra={<Radio.Group value={view} onChange={(event) => setView(event.target.value)} optionType="button" options={[{ label: <><AppstoreOutlined /> 卡片</>, value: 'card' }, { label: <><TableOutlined /> 对比表</>, value: 'table' }]} />}>
       <Collapse items={[{ key: 'summary', label: incident?.title || '加载事件摘要...', children: incident && <Descriptions column={{ xs: 1, md: 4 }} items={[{ key: 'risk', label: '风险等级', children: <RiskTag level={incident.level} /> }, { key: 'owner', label: '负责人', children: incident.owner }, { key: 'loss', label: '预计损失', children: <SensitiveField field="cost" value={`¥${incident.loss.toLocaleString()}`} /> }, { key: 'status', label: '状态', children: <StatusTag status={incident.status} /> }]} /> }]} />
+      {readiness && !readiness.ready && (
+        <Alert
+          style={{ marginTop: 16 }}
+          type="error"
+          showIcon
+          message="决策数据不完整，推演已被阻断"
+          description={
+            <Space direction="vertical" size={2}>
+              {readiness.blocking.map((item) => (
+                <span key={item.code}>
+                  {item.code}：{item.message}
+                </span>
+              ))}
+              <Typography.Text type="secondary">补齐上述数据后即可生成方案。</Typography.Text>
+            </Space>
+          }
+        />
+      )}
+      {readiness?.ready && readiness.degraded?.length > 0 && (
+        <Alert
+          style={{ marginTop: 16 }}
+          type="warning"
+          showIcon
+          message={`数据质量：${readiness.level}，部分字段为估算值`}
+          description={
+            <Space direction="vertical" size={2}>
+              <span>降级项：{readiness.degraded.join('、')}</span>
+              <Typography.Text type="secondary">推演结果仍可用，但相关指标的精度受影响，审批时请留意。</Typography.Text>
+            </Space>
+          }
+        />
+      )}
       <Card style={{ marginTop: 16 }}>
         {!running && !generated && !readonly && (access.canModifyDecision
-          ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成应急方案"><Button type="primary" icon={<PlayCircleOutlined />} onClick={start}>生成方案</Button></Empty>
+          ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成应急方案"><Button type="primary" icon={<PlayCircleOutlined />} onClick={start} disabled={readiness ? !readiness.ready : false}>生成方案</Button></Empty>
           : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前角色无生成方案权限，请由供应链负责人生成后在此查看" />)}
         {running && <AgentProgress running onFinish={() => { setRunning(false); setGenerated(true); message.success('已生成 3 个候选方案'); }} />}
         {generated && <Alert type="success" showIcon message="多 Agent 推演完成" description={readonly ? '当前为只读推演，写操作已隐藏。' : '采购、物流、财务、销售、生产约束已汇总，可选择方案并提交审批。'} action={!readonly && access.canModifyDecision && <Button icon={<ReloadOutlined />} onClick={start}>重新生成</Button>} />}

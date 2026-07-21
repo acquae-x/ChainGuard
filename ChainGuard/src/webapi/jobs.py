@@ -13,7 +13,9 @@ from .auth import AuthContext
 from .context_builder import ContextBuildError, TenantContextBuilder
 from .database import SessionLocal
 from .models import Approval, DecisionAudit, DecisionDetail, ImportJob, Incident, Job, Proposal
+from .experience import attach_retrieval_result, persist_job_experience, retrieve_tenant_experience
 from .notifications import ensure_rules, notify_event
+from .onboarding import activate_tenant_after_business_data
 from .proposal_mapper import map_decision_result
 from .repository import add_audit
 
@@ -113,8 +115,16 @@ def _run_decision_job(job_id: str, ctx: AuthContext) -> None:
                     db.delete(item)
             ids = []
             for values in mapped:
-                proposal = Proposal(id=f"prop-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, **values)
+                # 方案继承所属事件的行级归属，否则推演出来的方案在 dept/own 范围下没人看得见
+                proposal = Proposal(
+                    id=f"prop-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id,
+                    owner_id=incident.owner_id, dept_id=incident.dept_id, **values,
+                )
                 db.add(proposal); ids.append(proposal.id)
+            persist_job_experience(
+                db, tenant_id=ctx.tenant_id, job=job, incident=incident,
+                result=result, proposals=[item for item in db.new if isinstance(item, Proposal)],
+            )
             db.add(DecisionDetail(id=f"decision-detail-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, incident_id=incident.id, job_id=job.id, payload=detail_payload))
             audit = detail_payload.get("audit_entry") or {}
             db.add(DecisionAudit(id=f"decision-audit-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, incident_id=incident.id, decision_id=str(audit.get("decision_id", job.id)), entry=audit))
@@ -154,11 +164,13 @@ def _execute_tenant_decision(job_id: str, tenant_id: str):
         if job is None:
             raise ContextBuildError("CG-2510", "决策作业不存在", status_code=404)
         built = TenantContextBuilder(db, tenant_id).build(job.resource_id)
-    return DecisionOrchestrator().run_tenant_scenario(
+        retrieval = retrieve_tenant_experience(db, tenant_id, built.context)
+    result = DecisionOrchestrator().run_tenant_scenario(
         built.context,
         risk_weights=built.risk_weights,
         thresholds=built.thresholds,
     )
+    return attach_retrieval_result(result, retrieval)
 
 
 def _fail_job(
@@ -227,6 +239,10 @@ def _run_import_job(job_id: str, ctx: AuthContext) -> None:
                 "imported": int(result.get("successRows", 0)),
                 "review": asdict(review),
             }
+            # C3 only treats persisted C2 entities as completion evidence;
+            # this keeps a newly registered tenant from staying "initializing"
+            # after a successful real import.
+            activate_tenant_after_business_data(db, ctx.tenant_id)
             update_import_signature(db, ctx.tenant_id, item.id, "succeeded", int(result.get("sourceRows", 0)))
             ensure_rules(db, ctx.tenant_id)
             notify_event(db, ctx.tenant_id, "import_succeeded", {"trigger_user_id": ctx.user_id, "title": f"{item.file_name}导入完成", "target": "/data/import"})

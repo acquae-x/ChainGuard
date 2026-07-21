@@ -1,11 +1,10 @@
 import { PageContainer, ProTable } from '@ant-design/pro-components';
-import { Tag } from 'antd';
+import { Empty, Tag } from 'antd';
 import { useEffect, useState } from 'react';
-import { SensitiveField } from '@/components';
-import { workflowStore } from '@/services/workflowStore';
+import { getExperienceCards } from '@/services/decision';
 
 export default function Experience() {
-  const [cards, setCards] = useState<any[]>([]);
-  useEffect(() => setCards(workflowStore.listExperiences()), []);
-  return <PageContainer title="经验卡片"><ProTable search={false} rowKey="id" dataSource={cards} columns={[{ title: '编号', dataIndex: 'id' }, { title: '触发条件', dataIndex: 'trigger' }, { title: '推荐动作', dataIndex: 'action' }, { title: '关键约束', dataIndex: 'constraint' }, { title: '效果', dataIndex: 'outcome', render: (_, row) => <SensitiveField field="profit" value={row.outcome} /> }, { title: '状态', dataIndex: 'status', render: (_, row) => <Tag color={row.status === 'verified' ? 'green' : 'blue'}>{row.status === 'verified' ? '已验证' : '待复核'}</Tag> }]} /></PageContainer>;
+  const [cards, setCards] = useState<API.ExperienceCard[]>([]);
+  useEffect(() => { getExperienceCards().then(setCards); }, []);
+  return <PageContainer title="经验卡片" subTitle="仅展示当前租户沉淀的真实决策经验"><ProTable search={false} rowKey="id" dataSource={cards} locale={{ emptyText: <Empty description="暂无本租户经验卡" /> }} columns={[{ title: '编号', dataIndex: 'id' }, { title: '事件/物料上下文', dataIndex: 'scenario' }, { title: '推荐动作', dataIndex: 'recommendedPattern' }, { title: '关键约束', dataIndex: 'triggerConditions', render: (_, row) => row.triggerConditions.join('；') }, { title: '执行结果', dataIndex: ['outcome', 'summary'] }, { title: '来源作业', dataIndex: ['source', 'jobId'] }, { title: '状态', dataIndex: 'status', render: (_, row) => <Tag color={row.status === 'completed' || row.status === 'confirmed' ? 'green' : 'blue'}>{row.status === 'completed' ? '已完成' : row.status === 'confirmed' ? '已确认' : '已生成'}</Tag> }]} /></PageContainer>;
 }
