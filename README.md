@@ -75,6 +75,7 @@
 | [defense_qa.md](ChainGuard/docs/defense_qa.md) | 追问预演 Q&A |
 | [integration_guide.md](ChainGuard/docs/integration_guide.md) | ERP 对接与集成 |
 | [deploy_guide.md](ChainGuard/docs/deploy_guide.md) | 部署指南 |
+| [技术方案说明书](ChainGuard/docs/技术方案说明书.md) | 架构、性能实测数据、落地路径、已知限制 |
 | [api_sla.md](ChainGuard/docs/api_sla.md) | 接口 SLA |
 | [production_db_migration.md](ChainGuard/docs/production_db_migration.md) | PostgreSQL 迁移路径 |
 
