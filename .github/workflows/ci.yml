@@ -15,20 +15,67 @@ jobs:
       JWT_SECRET: ci-only-signing-key-not-for-deployment
       SEED_DEMO_PASSWORD: ci-demo-password
       DATABASE_URL: sqlite:///./ci.db
+      # tests/conftest.py 会 setdefault 同名变量，这里显式给出是为了让"CI 跑的是
+      # 真加密路径"成为一件可读的事，而不是依赖 conftest 的隐式兜底。
+      CHAINGUARD_ENCRYPTION_KEY: ci-only-encryption-key-not-for-deployment
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      # 旧决策引擎保留历史单行风格；本阶段对 Web API 和其契约测试执行 Ruff。
-      - run: ruff check src/webapi tests/test_webapi.py --ignore E701,E702
+      # 规则与豁免项落在 ChainGuard/ruff.toml，本地 `ruff check` 与此处判定一致。
+      # 覆盖面从 src/webapi + 单个测试文件扩到全部 src / tests / scripts。
+      - run: ruff check src tests scripts
       - run: alembic upgrade head
-      # pytest.ini 配置 --basetemp=.tmp/pytest，pytest 不自动创建父目录（本地长期存在该目录掩盖了此问题）
-      - run: mkdir -p .tmp/pytest
+      # basetemp 由 pytest.ini 指定为 test_tmp/pytest。此前这里 mkdir 的是 .tmp/pytest
+      # ——那是改配置前的旧路径，等于建了个没人用的空目录。
+      - run: mkdir -p test_tmp/pytest
       # 演示企业库 *.db 不入库（.gitignore 排除），场景/监控/校准类测试依赖它，CI 现场确定性生成（固定 SEED）
       - run: python scripts/generate_enterprise_demo_data.py
       - run: pytest -q
+
+  # PostgreSQL 是 requirements.txt 里声明的生产驱动，但 tests/test_phase5b_c2_postgres.py
+  # 需要 CHAINGUARD_TEST_POSTGRES_URL 才运行——没有它这 4 个用例一直静默跳过，
+  # 意味着"生产数据库上的业务键与租户隔离约束"从未在 CI 验证过。
+  backend-postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ChainGuard
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chainguard_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-signing-key-not-for-deployment
+      SEED_DEMO_PASSWORD: ci-demo-password
+      CHAINGUARD_ENCRYPTION_KEY: ci-only-encryption-key-not-for-deployment
+      CHAINGUARD_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chainguard_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      # 该模块要求目标库已迁移到 head
+      - run: alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chainguard_test
+      - run: mkdir -p test_tmp/pytest
+      # DATABASE_URL 另指向一个 SQLite 文件：模块级导入要通过 database.py 的显式目标校验，
+      # 而用例自己按 CHAINGUARD_TEST_POSTGRES_URL 建连接。
+      - run: pytest tests/test_phase5b_c2_postgres.py -q
+        env:
+          DATABASE_URL: sqlite:///./ci-pg-harness.db
 
   frontend:
     runs-on: ubuntu-latest
@@ -46,4 +93,49 @@ jobs:
       # 生成 src/.umi 类型声明（@/ 别名、useAccess 等），tsc 依赖它；本地有构建残留掩盖了此问题
       - run: npx max setup
       - run: npx tsc --noEmit
+      # 66 个 vitest 此前从未进过流水线：package.json 里有 test 脚本，但没有任何一步调用它。
+      - run: npm test
       - run: npm run build
+
+  # Phase 5B 验收门禁。此前完全靠人工执行 test:e2e:gate，改动可以在没人跑它的情况下合入。
+  # 每个套件都要起一套 uvicorn + umi dev，整体耗时以十分钟计，因此单列一个 job。
+  acceptance-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JWT_SECRET: ci-only-signing-key-not-for-deployment
+      SEED_DEMO_PASSWORD: ci-demo-password
+      CHAINGUARD_ENCRYPTION_KEY: ci-only-encryption-key-not-for-deployment
+      # umi dev server 在默认堆上会 OOM
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: chainguard-web/package-lock.json
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+        working-directory: ChainGuard
+      - run: npm ci
+        working-directory: chainguard-web
+      - run: npx playwright install --with-deps chromium
+        working-directory: chainguard-web
+      - run: npx max setup
+        working-directory: chainguard-web
+      # data-import 套件的 provisioning 读 demo_assets/enterprise/csv
+      - run: python scripts/generate_enterprise_demo_data.py
+        working-directory: ChainGuard
+      # 门禁自己按套件建 GUID 库并跑 alembic；判定读 JSON reporter，
+      # 各套件跳过数必须与申报的 expectedSkips 一致，否则失败。
+      - run: npm run test:e2e:gate
+        working-directory: chainguard-web
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-gate-artifacts
+          path: ChainGuard/.workspace/gate/artifacts
+          retention-days: 14
