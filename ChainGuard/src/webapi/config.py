@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from .env_file import load_env_file
+
+# 必须在 Settings 定义之前执行：下面的字段默认值是在类定义时求值的，
+# 那时 os.getenv 就已经被调用，晚一步加载 .env 就不生效了。
+# 已存在的环境变量优先，因此测试/CI/start-demo 显式设的值不会被覆盖。
+load_env_file()
+
 
 @dataclass(frozen=True)
 class Settings:
