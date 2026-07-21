@@ -9,16 +9,24 @@
  *   node scripts/run-acceptance-gate.mjs              # 全跑
  *   node scripts/run-acceptance-gate.mjs --only erp-mapping,account
  *   node scripts/run-acceptance-gate.mjs --list
+ *
+ * 结果判定不看进程退出码，改读 JSON reporter 的结构化输出。原因：Playwright 对
+ * 跳过的用例（test.skip / test.fixme）返回 0，门禁因此把"10/10 通过"和"其中一条
+ * 主路径根本没跑"这两件事显示成同一个绿灯。每个套件必须在 expectedSkips 里显式
+ * 申报允许跳过的条数，实际跳过数超出即判失败——跳过必须是一个需要有人签字的决定，
+ * 而不是一条静默通道。
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
 
 const WEB_DIR = resolve(import.meta.dirname, '..');
 const API_DIR = resolve(WEB_DIR, '../ChainGuard');
 const WORKSPACE = resolve(API_DIR, '.workspace/gate');
+// JSON 报告与失败 trace 的归档位置。CI 用 upload-artifact 收这个目录。
+const ARTIFACTS = resolve(WORKSPACE, 'artifacts');
 
 const PYTHON = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
 // 直接用当前 node 跑 Playwright 的 JS 入口，不经 npx：Node 24 起在 Windows 上
@@ -27,6 +35,7 @@ const PLAYWRIGHT_CLI = resolve(WEB_DIR, 'node_modules/@playwright/test/cli.js');
 
 // seed 为 null 表示该套件用 /auth/register 自助建租户，只需要一个已迁移的空库。
 // seedArgs 用于需要参数化 provisioning 的套件：拿到 { dbPath, workspace } 返回 argv。
+// expectedSkips 省略即视为 0：该套件不允许有任何跳过的用例。
 const SUITES = [
   // data-import 的"C2 产品界面收尾验收"用例断言的是整套企业演示资产
   // （批次 import-phase5b-c2-a8a53701、111460 行、物料 240/供应商 60/…），
@@ -47,7 +56,9 @@ const SUITES = [
       '--output', resolve(workspace, 'data-import-c2-report.json'),
     ],
   },
-  { name: 'calibration', config: 'playwright.calibration-api.config.ts', dbEnv: 'CALIBRATION_DATABASE_URL', seed: null },
+  // expectedSkips=1：漂移告警那半段是 test.fixme（见 3cfd3b7），需要一个带实体数据、
+  // 历史决策能关联真实中断事件的租户才能启用。补上主路径验收后这里必须归 0。
+  { name: 'calibration', config: 'playwright.calibration-api.config.ts', dbEnv: 'CALIBRATION_DATABASE_URL', seed: null, expectedSkips: 1 },
   { name: 'risk-explanation', config: 'playwright.risk-explanation-api.config.ts', dbEnv: 'RISK_EXPLAIN_DATABASE_URL', seed: 'seed_phase5b_a03_e2e.py' },
   { name: 'impact-scope', config: 'playwright.impact-scope-api.config.ts', dbEnv: 'IMPACT_SCOPE_DATABASE_URL', seed: 'seed_phase5b_a04_e2e.py' },
   { name: 'node-health', config: 'playwright.node-health-api.config.ts', dbEnv: 'NODE_HEALTH_DATABASE_URL', seed: 'seed_phase5b_c02_c03_e2e.py' },
@@ -90,7 +101,51 @@ function run(command, cmdArgs, options) {
   return result.status ?? 1;
 }
 
+/**
+ * 从 JSON reporter 产物里取各状态计数。
+ *
+ * 优先用 Playwright 自带的 stats（1.40+ 提供），但不依赖它：老版本或 reporter 中途
+ * 崩溃时 stats 可能缺失，此时退回遍历 suites/specs/tests 自行统计。两条路都拿不到
+ * 结果时返回 null，调用侧按"结果不可解析"判失败——绝不静默当作通过。
+ */
+function readOutcome(jsonPath) {
+  if (!existsSync(jsonPath)) return null;
+  let report;
+  try {
+    report = JSON.parse(readFileSync(jsonPath, 'utf8'));
+  } catch {
+    return null;
+  }
+
+  const s = report.stats;
+  if (s && typeof s.expected === 'number') {
+    return {
+      passed: s.expected, failed: s.unexpected ?? 0,
+      skipped: s.skipped ?? 0, flaky: s.flaky ?? 0,
+      errors: (report.errors ?? []).length,
+    };
+  }
+
+  const counts = { passed: 0, failed: 0, skipped: 0, flaky: 0, errors: (report.errors ?? []).length };
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) {
+      for (const test of spec.tests ?? []) {
+        // test.status 是聚合后的判定；results 是每次重试的原始记录。
+        const status = test.status ?? (test.results ?? []).at(-1)?.status;
+        if (status === 'skipped') counts.skipped += 1;
+        else if (status === 'flaky') counts.flaky += 1;
+        else if (status === 'expected' || status === 'passed') counts.passed += 1;
+        else counts.failed += 1;
+      }
+    }
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of report.suites ?? []) walk(suite);
+  return counts;
+}
+
 mkdirSync(WORKSPACE, { recursive: true });
+mkdirSync(ARTIFACTS, { recursive: true });
 
 const results = [];
 for (const suite of suites) {
@@ -107,22 +162,76 @@ for (const suite of suites) {
   }
   if (status !== 0) {
     console.error(`[${suite.name}] provisioning failed`);
-    results.push({ name: suite.name, status, stage: 'provision' });
+    results.push({ name: suite.name, ok: false, stage: 'provision', reason: 'provisioning failed' });
     continue;
   }
 
   console.log(`=== [${suite.name}] running ${suite.config} ===`);
-  status = run(process.execPath, [PLAYWRIGHT_CLI, 'test', `--config=${suite.config}`], {
-    cwd: WEB_DIR,
-    env: { ...baseEnv, [suite.dbEnv]: databaseUrl },
+  const jsonPath = resolve(ARTIFACTS, `${suite.name}-report.json`);
+  const outputDir = resolve(ARTIFACTS, `${suite.name}-output`);
+  // list 给人看进度，json 落文件给门禁判定；--trace/--output 从命令行覆盖，
+  // 免得为了归档 trace 去改十个 playwright.*.config.ts。
+  status = run(
+    process.execPath,
+    [
+      PLAYWRIGHT_CLI, 'test', `--config=${suite.config}`,
+      '--reporter=list,json',
+      '--trace=retain-on-failure',
+      `--output=${outputDir}`,
+    ],
+    {
+      cwd: WEB_DIR,
+      env: { ...baseEnv, [suite.dbEnv]: databaseUrl, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath },
+    },
+  );
+
+  const outcome = readOutcome(jsonPath);
+  const expectedSkips = suite.expectedSkips ?? 0;
+  if (!outcome) {
+    results.push({ name: suite.name, ok: false, stage: 'test', reason: 'JSON 报告缺失或无法解析', outputDir });
+    continue;
+  }
+
+  const reasons = [];
+  if (outcome.failed > 0) reasons.push(`${outcome.failed} 个用例失败`);
+  if (outcome.errors > 0) reasons.push(`${outcome.errors} 个套件级错误`);
+  if (outcome.flaky > 0) reasons.push(`${outcome.flaky} 个 flaky`);
+  // 跳过数必须与申报值一致。超出＝有主路径悄悄没跑；少于＝申报值过时，
+  // 说明有人修好了用例却没下调 expectedSkips，同样要求改一行代码来确认。
+  if (outcome.skipped > expectedSkips) {
+    reasons.push(`跳过 ${outcome.skipped} 个，超出申报的 expectedSkips=${expectedSkips}`);
+  } else if (outcome.skipped < expectedSkips) {
+    reasons.push(`跳过 ${outcome.skipped} 个，少于申报的 expectedSkips=${expectedSkips}，请下调该值`);
+  }
+  // 计数全对但退出码非 0：reporter 之外的失败（webServer 起不来等），不能放过。
+  if (!reasons.length && status !== 0) reasons.push(`playwright 退出码 ${status}`);
+
+  results.push({
+    name: suite.name, ok: reasons.length === 0, stage: 'test',
+    reason: reasons.join('；'), outcome, expectedSkips, outputDir,
   });
-  results.push({ name: suite.name, status, stage: 'test' });
 }
 
 console.log('\n===== acceptance gate summary =====');
 for (const r of results) {
-  console.log(`${r.status === 0 ? 'PASS' : 'FAIL'}  ${r.name}${r.status === 0 ? '' : ` (${r.stage})`}`);
+  const counts = r.outcome
+    ? ` [pass ${r.outcome.passed} / fail ${r.outcome.failed} / skip ${r.outcome.skipped}(申报 ${r.expectedSkips}) / flaky ${r.outcome.flaky}]`
+    : '';
+  console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${counts}${r.ok ? '' : `  <- ${r.stage}: ${r.reason}`}`);
 }
-const failed = results.filter((r) => r.status !== 0);
-console.log(`${results.length - failed.length}/${results.length} suites passed`);
+
+const failed = results.filter((r) => !r.ok);
+const totalSkipped = results.reduce((sum, r) => sum + (r.outcome?.skipped ?? 0), 0);
+console.log(`${results.length - failed.length}/${results.length} suites passed，累计跳过 ${totalSkipped} 个用例`);
+
+if (failed.length) {
+  console.log('\n失败套件的 trace / 截图：');
+  for (const r of failed) {
+    if (r.outputDir && existsSync(r.outputDir)) {
+      console.log(`  ${r.name}: ${relative(WEB_DIR, r.outputDir)}`);
+      console.log(`    npx playwright show-trace ${relative(WEB_DIR, r.outputDir)}/**/trace.zip`);
+    }
+  }
+  console.log(`  JSON 报告：${relative(WEB_DIR, ARTIFACTS)}`);
+}
 process.exit(failed.length ? 1 : 0);
