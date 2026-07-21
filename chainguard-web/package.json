@@ -4,7 +4,8 @@
   "private": true,
   "description": "ChainGuard 企业级供应链中断应急决策 SaaS 前端",
   "scripts": {
-    "dev": "max dev",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=6144 max dev",
+    "dev:clean": "node -e \"require('fs').rmSync('src/.umi',{recursive:true,force:true})\" && npm run dev",
     "build": "max build",
     "postbuild": "node scripts/generate-route-access-map.cjs",
     "test": "vitest run",
