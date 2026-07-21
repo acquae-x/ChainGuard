@@ -11,13 +11,34 @@ from src.training_dataset import (
 )
 
 
-FEATURE_NAMES: list[str] = [
+# ⚠ 这五个特征全部是**事后结果指标**，而标签 outcome_status 正是由它们经
+# derive_outcome_quality 算出来的。因此用它们预测 outcome_status 属于目标泄漏：
+# 模型学到的是生成器的确定性映射，不是"提前预判成败"的能力。
+# 保留该口径只为回答"能否从结果指标复原结果标签"，其指标**不得**作为预测能力对外引用。
+# 真正的预测能力评估用下面的 PRE_EVENT_FEATURE_NAMES（事前可得）。
+POST_HOC_FEATURE_NAMES: list[str] = [
     "covered_demand_rate",
     "delay_ratio",
     "cost_ratio",
     "downtime_norm",
     "human_rating_norm",
 ]
+
+# 向后兼容别名；新代码请显式使用 POST_HOC_FEATURE_NAMES 或 PRE_EVENT_FEATURE_NAMES
+FEATURE_NAMES: list[str] = POST_HOC_FEATURE_NAMES
+
+# 事前特征：决策时点即可获得，与 src/feature_reconstruction.py 的口径一致
+PRE_EVENT_FEATURE_NAMES: list[str] = [
+    "shortage_urgency",
+    "order_importance",
+    "transit_delay",
+    "external_event",
+]
+
+
+def extract_pre_event_features(record: dict[str, Any]) -> list[float]:
+    """从已重建的事前特征记录中取值（0–100 分量分数）。"""
+    return [float(record.get(name, 0.0)) for name in PRE_EVENT_FEATURE_NAMES]
 
 
 @dataclass
@@ -68,6 +89,8 @@ def compare_models(
     *,
     label_field: str = "outcome_status",
     random_state: int = 42,
+    feature_extractor: Any = None,
+    feature_names: list[str] | None = None,
 ) -> ModelComparisonReport:
     """
     Train six fixed model candidates and register the validation F1 winner.
@@ -77,6 +100,9 @@ def compare_models(
     """
     if len(split.train) < 10:
         raise ValueError("训练数据不足，至少需要 10 条已标注记录")
+
+    extractor = feature_extractor or extract_features
+    names = list(feature_names or FEATURE_NAMES)
 
     eval_records = split.validation if split.validation else split.train
     evaluated_on = "validation" if split.validation else "train_fallback"
@@ -102,9 +128,9 @@ def compare_models(
     except Exception:
         model_results.extend(_sklearn_unavailable_results())
     else:
-        x_train = [extract_features(record) for record in split.train]
+        x_train = [extractor(record) for record in split.train]
         y_train = [str(record.get(label_field) or "") for record in split.train]
-        x_eval = [extract_features(record) for record in eval_records]
+        x_eval = [extractor(record) for record in eval_records]
         y_eval = [str(record.get(label_field) or "") for record in eval_records]
 
         candidates = [
@@ -158,9 +184,9 @@ def compare_models(
                 model.fit(x_train, y_train)
                 predictions = model.predict(x_eval)
                 elapsed_ms = (time.perf_counter() - start) * 1000
-                feature_importance = _feature_importance_for(model, name)
+                feature_importance = _feature_importance_for(model, name, names)
                 tree_text = (
-                    export_text(model, feature_names=FEATURE_NAMES)
+                    export_text(model, feature_names=names)
                     if name == "DecisionTreeClassifier"
                     else None
                 )
@@ -217,7 +243,7 @@ def compare_models(
         model_results=model_results,
         best_model_name=best.model_name,
         best_f1_macro=best.f1_macro,
-        feature_names=list(FEATURE_NAMES),
+        feature_names=list(names),
         evaluated_on=evaluated_on,
     )
     _register_best_model(report)
@@ -283,7 +309,8 @@ def _evaluate_prior(
     )
 
 
-def _feature_importance_for(model: Any, model_name: str) -> dict[str, float] | None:
+def _feature_importance_for(model: Any, model_name: str, names: list[str] | None = None) -> dict[str, float] | None:
+    names = list(names or FEATURE_NAMES)
     if model_name == "LogisticRegression" and hasattr(model, "coef_"):
         raw = [abs(float(value)) for value in model.coef_.sum(axis=0)]
     elif hasattr(model, "feature_importances_"):
@@ -293,11 +320,11 @@ def _feature_importance_for(model: Any, model_name: str) -> dict[str, float] | N
 
     total = sum(raw)
     if total <= 0:
-        neutral = 1.0 / len(FEATURE_NAMES)
-        return {name: neutral for name in FEATURE_NAMES}
+        neutral = 1.0 / len(names)
+        return {name: neutral for name in names}
     return {
         name: round(value / total, 6)
-        for name, value in zip(FEATURE_NAMES, raw, strict=True)
+        for name, value in zip(names, raw, strict=True)
     }
 
 
