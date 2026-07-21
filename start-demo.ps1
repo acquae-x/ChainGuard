@@ -81,6 +81,12 @@ $env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { 'chainguard-de
 $env:CHAINGUARD_ENCRYPTION_KEY = if ($env:CHAINGUARD_ENCRYPTION_KEY) { $env:CHAINGUARD_ENCRYPTION_KEY } else { 'chainguard-demo-encryption-key-not-for-production' }
 $env:SEED_DEMO_PASSWORD = if ($env:SEED_DEMO_PASSWORD) { $env:SEED_DEMO_PASSWORD } else { 'Demo@2026' }
 
+# 文案生成后端：有 DEEPSEEK_API_KEY 就用 DeepSeek，否则落确定性模板。
+# 密钥只从环境变量读，绝不写进仓库；未配置也能完整演示，只是解释文案走模板。
+$LlmProvider = if ($env:CHAINGUARD_LLM_PROVIDER) { $env:CHAINGUARD_LLM_PROVIDER }
+               elseif ($env:DEEPSEEK_API_KEY) { 'deepseek' } else { 'template（未配置 DEEPSEEK_API_KEY）' }
+Ok "解释文案后端 $LlmProvider"
+
 # DATABASE_URL 必须是绝对路径：相对路径会随工作目录漂移，
 # 导致"迁移建的库"和"服务读的库"不是同一个。
 $DbPath = (Join-Path $ApiDir 'chainguard-demo.db')

@@ -204,3 +204,121 @@ def test_invalid_ollama_json_falls_back(monkeypatch):
     assert result["llm_used"] is False
     assert result["model_name"] == "template"
 
+
+
+# --------------------------------------------------------------------------
+# DeepSeek 后端
+#
+# 安全属性与 Ollama 路径完全一致：结构不符/网络失败/缺 key 一律落模板，
+# 且绝不把异常抛给决策链。这些用例就是守这条线的。
+# --------------------------------------------------------------------------
+
+def _deepseek_response(content: str):
+    """构造一个 OpenAI 兼容格式的响应体。"""
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {"choices": [{"message": {"content": content}}]},
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    return FakeResponse
+
+
+def _rebuttal_via(generator: TextGenerator) -> dict:
+    return generator.generate_rebuttal_content(
+        branch="high_cost",
+        debater="财务 Agent",
+        target="物流 Agent",
+        proposal_data={"proposal_title": "高成本快速运输", "scores": {"cost": 30}},
+        context_data={"event_title": "供应商停产事件", "critical_orders_count": 2},
+    )
+
+
+def test_provider_defaults_to_ollama_without_key(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("CHAINGUARD_LLM_PROVIDER", raising=False)
+    assert TextGenerator().provider == "ollama"
+
+
+def test_provider_switches_to_deepseek_when_key_present(monkeypatch):
+    monkeypatch.delenv("CHAINGUARD_LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    generator = TextGenerator()
+    assert generator.provider == "deepseek"
+    assert generator.model == "deepseek-chat"
+
+
+def test_explicit_endpoint_stays_on_ollama_even_with_key(monkeypatch):
+    """既有用例用不可达 endpoint 验证模板兜底；环境里恰好有 key 时不得改走远程。"""
+    monkeypatch.delenv("CHAINGUARD_LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    assert TextGenerator(endpoint="http://localhost:9/api/generate").provider == "ollama"
+
+
+def test_env_can_force_provider(monkeypatch):
+    monkeypatch.setenv("CHAINGUARD_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    assert TextGenerator().provider == "ollama"
+
+
+def test_deepseek_success_marks_llm_used(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.delenv("CHAINGUARD_LLM_PROVIDER", raising=False)
+    payload = json.dumps(
+        {
+            "rebuttal_points": ["成本偏高", "风险需分级", "资源要聚焦"],
+            "suggested_revision": "分级保障",
+            "accepted_tradeoff": "让渡非关键订单时效",
+        },
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _deepseek_response(payload)())
+
+    result = _rebuttal_via(TextGenerator(provider="deepseek", api_key="sk-test"))
+
+    assert result["llm_used"] is True
+    assert result["model_name"] == "deepseek-chat"
+    assert result["rebuttal_points"] == ["成本偏高", "风险需分级", "资源要聚焦"]
+
+
+def test_deepseek_schema_mismatch_falls_back_to_template(monkeypatch):
+    """字段类型不符（rebuttal_points 应为 list）必须落模板，不能把模型输出放行。"""
+    payload = json.dumps({"rebuttal_points": "成本偏高", "suggested_revision": 1}, ensure_ascii=False)
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _deepseek_response(payload)())
+
+    result = _rebuttal_via(TextGenerator(provider="deepseek", api_key="sk-test"))
+
+    assert result["llm_used"] is False
+    assert result["model_name"] == "template"
+
+
+def test_deepseek_network_failure_falls_back_to_template(monkeypatch):
+    def boom(*args, **kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+
+    result = _rebuttal_via(TextGenerator(provider="deepseek", api_key="sk-test"))
+
+    assert result["llm_used"] is False
+    assert result["model_name"] == "template"
+
+
+def test_deepseek_without_api_key_falls_back_to_template(monkeypatch):
+    """缺 key 时不得抛异常打断决策链，只落模板。"""
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    result = _rebuttal_via(TextGenerator(provider="deepseek", api_key=""))
+
+    assert result["llm_used"] is False
+    assert result["model_name"] == "template"
