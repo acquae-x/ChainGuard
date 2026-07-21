@@ -5,6 +5,8 @@ import { confirmCalibrationGovernance, getCalibrationGovernance, getRiskRules, u
 
 const labels: Record<string, string> = { shortage_urgency: '缺货紧急度', order_importance: '订单重要性', transit_delay: '在途延误', external_event: '外部事件' };
 const thresholdLabels: Record<string, string> = { yellow_support_hours: '黄色预警支撑时长（小时）', red_support_hours: '红色预警支撑时长（小时）', inventory_risk_trigger: '库存风险触发分' };
+// drift_monitor 的 recommended_action 枚举，原样透出会在整页中文里蹦出一个 none。
+const RECOMMENDED_ACTION_LABELS: Record<string, string> = { none: '无需操作', recalibrate: '建议重新校准', review_rollback: '建议复核并考虑回滚' };
 
 function compareRows(snapshot: any) {
   const expert = snapshot?.comparison?.expert || {};
@@ -65,7 +67,7 @@ export default function Thresholds() {
           { title: '启用', dataIndex: 'enabled', render: (_, row) => <Switch checked={row.enabled} onChange={(checked) => saveRule(row, { enabled: checked })} /> },
         ]} />
       </Card></Col>
-      <Col span={24}><Card title="漂移体检" loading={loading}><Descriptions size="small" column={{ xs: 1, md: 3 }} items={[{ key: 'status', label: '体检结果', children: <Tag color={drift?.driftDetected ? 'red' : 'green'}>{drift?.driftDetected ? '超限' : '正常'}</Tag> }, { key: 'rate', label: '当前成功率', children: `${(Number(drift?.successRate || 0) * 100).toFixed(1)}%` }, { key: 'reason', label: '超限原因', children: drift?.findings?.join('；') || '-' }, { key: 'notify', label: '本次 D3 通知', children: `${drift?.notificationCount || 0} 位管理员` }, { key: 'action', label: '建议操作', children: drift?.recommendedAction || '无需操作' }, { key: 'threshold', label: '漂移阈值', children: `预警 ${(Number(drift?.thresholds?.warnDrop || 0) * 100).toFixed(0)}% / 严重 ${(Number(drift?.thresholds?.criticalDrop || 0) * 100).toFixed(0)}%` }]} /></Card></Col>
+      <Col span={24}><Card title="漂移体检" loading={loading}><Descriptions size="small" column={{ xs: 1, md: 3 }} items={[{ key: 'status', label: '体检结果', children: <Tag color={drift?.driftDetected ? 'red' : 'green'}>{drift?.driftDetected ? '超限' : '正常'}</Tag> }, { key: 'rate', label: '当前成功率', children: `${(Number(drift?.successRate || 0) * 100).toFixed(1)}%` }, { key: 'reason', label: '超限原因', children: drift?.findings?.join('；') || '-' }, { key: 'notify', label: '本次 D3 通知', children: `${drift?.notificationCount || 0} 位管理员` }, { key: 'action', label: '建议操作', children: RECOMMENDED_ACTION_LABELS[drift?.recommendedAction as string] || drift?.recommendedAction || '无需操作' }, { key: 'threshold', label: '漂移阈值', children: `预警 ${(Number(drift?.thresholds?.warnDrop || 0) * 100).toFixed(0)}% / 严重 ${(Number(drift?.thresholds?.criticalDrop || 0) * 100).toFixed(0)}%` }]} /></Card></Col>
     </Row>
   </PageContainer>;
 }

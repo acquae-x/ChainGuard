@@ -1,5 +1,5 @@
 import { history, useAccess, useParams } from '@umijs/max';
-import { Button, Card, Col, Descriptions, Form, Input, List, Modal, Result, Row, Select, Space, Steps, Table, Tabs, Timeline, Typography, Upload, message } from 'antd';
+import { Button, Card, Col, Descriptions, Empty, Form, Input, List, Modal, Result, Row, Select, Space, Steps, Table, Tabs, Timeline, Typography, Upload, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { ImpactScopePanel, RiskExplanationDrawer, RiskTag, SensitiveField, StatusTag } from '@/components';
 import { addIncidentNote, closeIncident, getImpact, getIncident, getTimeline, updateIncident } from '@/services/incident';
@@ -60,10 +60,11 @@ export default function IncidentDetailPage() {
   // 任务页签跟随 task:* 权限：无权限的角色不展示空表格，也不会去请求 /tasks。
   const tabItems = [
     { key: 'impact', label: '影响范围', children: impactContent },
-    { key: 'timeline', label: '时间线', children: <Timeline items={timelineItems} /> },
+    // Timeline 在 items 为空时什么都不画，页签看起来像加载失败；给一个明确空态。
+    { key: 'timeline', label: '时间线', children: timelineItems.length ? <Timeline items={timelineItems} /> : <Empty description="暂无时间线记录：该事件尚未产生可留痕的操作" /> },
     { key: 'proposal', label: '关联方案', children: <List dataSource={proposals} locale={{ emptyText: '尚未生成方案' }} renderItem={(item: API.Proposal) => <List.Item><Space><Typography.Text>{item.name}</Typography.Text><StatusTag status={item.tag === 'invalid' ? 'rejected' : item.tag === 'recommended' ? 'approved' : 'pending'} /></Space></List.Item>} /> },
     ...(access.canTask ? [{ key: 'task', label: '任务', children: <Table rowKey="id" dataSource={tasks} pagination={false} locale={{ emptyText: '审批通过后自动拆解任务' }} columns={[{ title: '任务', dataIndex: 'title' }, { title: '负责人', dataIndex: 'assignee' }, { title: '状态', dataIndex: 'status', render: (value: string) => <StatusTag status={value} /> }]} /> }] : []),
-    { key: 'audit', label: '操作记录', children: <Timeline items={timeline.map((item) => ({ children: `${item.action}：${JSON.stringify(item.detail)}` }))} /> },
+    { key: 'audit', label: '操作记录', children: timeline.length ? <Timeline items={timeline.map((item) => ({ children: `${item.action}：${JSON.stringify(item.detail)}` }))} /> : <Empty description="暂无操作记录" /> },
   ];
 
   return (
