@@ -112,12 +112,7 @@ export async function registerTenant(values: any): Promise<API.LoginResult> {
   return createMockSession(users[0], { ...tenant, name: values.companyName || tenant.name, status: 'initializing' });
 }
 
-export async function joinTenant(values: any): Promise<API.LoginResult> {
-  return createMockSession({ ...users[3], name: values.name || users[3].name });
-}
-
-export async function getSsoConfig(domain: string) {
-  return { domain, enabled: false, message: '该企业未配置 SSO' };
-}
+// 邀请码加入与 SSO 已在 5B「账户完善」落到真实后端，见 services/account.ts；
+// 这里不再保留会造成"假成功"的 mock 实现。
 
 export { DATA_MODE };

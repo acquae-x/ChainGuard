@@ -28,6 +28,10 @@ class AuthContext:
     name: str
     role_code: str
     permissions: tuple[str, ...]
+    # 行级数据范围所需。给默认值是为了不破坏既有的位置参数构造（测试里大量存在），
+    # 默认 all = 不过滤，等价于本特性上线前的行为——遗漏填充不会意外收紧或放宽权限。
+    dept_id: str = ""
+    data_scope: str = "all"
 
 
 def hash_password(password: str) -> str:
@@ -35,7 +39,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode(), password_hash.encode())
+    try:
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    except ValueError:
+        # 仅 SSO 的账号存的是非 bcrypt 占位串：密码登录必须失败，而不是 500
+        return False
 
 
 def _token(user: User, token_type: str, expires: timedelta) -> str:
@@ -81,7 +89,10 @@ def get_current_user(
     role = db.scalar(select(Role).where(Role.id == user.role_id, Role.tenant_id == user.tenant_id))
     if role is None:
         raise ApiError(403, "CG-1003", "账号未配置有效角色")
-    return AuthContext(user.id, user.tenant_id, user.name, user.role_code, tuple(role.permissions))
+    return AuthContext(
+        user.id, user.tenant_id, user.name, user.role_code, tuple(role.permissions),
+        dept_id=user.dept_id or "", data_scope=user.data_scope or "all",
+    )
 
 
 def record_refresh_token(db: Session, user: User, refresh_token: str) -> None:
@@ -128,6 +139,9 @@ def require_permission(code: str):
             "report:view": lambda p: p.startswith("report:") or p == "settings:manage",
             "report:executive": lambda p: p == "settings:manage",
             "report:operation": lambda p: p == "settings:manage",
+            # Calibrated parameters reuse the same gate as the existing
+            # frontend canApprovalConfig capability; no new permission code.
+            "settings:approval": lambda p: p in {"settings:manage", "settings:approval"},
         }
         allowed = code in ctx.permissions or "*" in ctx.permissions or any(implied.get(code, lambda _: False)(permission) for permission in ctx.permissions)
         if not allowed:

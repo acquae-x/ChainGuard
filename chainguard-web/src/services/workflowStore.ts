@@ -224,13 +224,21 @@ export const workflowStore = {
     return state.drafts[incidentId];
   },
 
+  // A04：影响范围由实体间真实外键算出，mock 数据集没有这些关系。
+  // 与其把四张互不相干的演示表并排摆出来假装是"影响范围"，不如如实说 mock 模式不支持。
   getImpact(id: string) {
+    const message = 'mock 模式没有结构化实体关系，影响范围仅在 api 模式可用。';
     return {
-      id,
-      materials: materials.map((item) => ({ ...item, shortage: Math.max(item.safety - item.stock, 0) })),
-      orders,
-      suppliers,
-      inventory: inventories
+      available: false,
+      code: 'CG-A046',
+      message,
+      scopeOf: { kind: 'incident', id, code: id, name: '' },
+      seeds: [],
+      summary: { total: 0, direct: 0, indirect: 0, byType: {} },
+      groups: [],
+      traversal: { maxHops: 2, relations: [], note: null },
+      limitations: [{ code: 'CG-A046', message }],
+      generatedAt: null
     };
   }
 };
