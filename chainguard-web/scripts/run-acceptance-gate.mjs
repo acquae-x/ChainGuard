@@ -26,8 +26,27 @@ const PYTHON = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python
 const PLAYWRIGHT_CLI = resolve(WEB_DIR, 'node_modules/@playwright/test/cli.js');
 
 // seed 为 null 表示该套件用 /auth/register 自助建租户，只需要一个已迁移的空库。
+// seedArgs 用于需要参数化 provisioning 的套件：拿到 { dbPath, workspace } 返回 argv。
 const SUITES = [
-  { name: 'data-import', config: 'playwright.api-acceptance.config.ts', dbEnv: 'C2_DATABASE_URL', seed: null },
+  // data-import 的"C2 产品界面收尾验收"用例断言的是整套企业演示资产
+  // （批次 import-phase5b-c2-a8a53701、111460 行、物料 240/供应商 60/…），
+  // 自助注册的空租户里不存在这些数据，必须走 C2 provisioning 脚本。
+  // account/password 与 spec 内的默认值保持一致，spec 因此无需外部注入。
+  {
+    name: 'data-import',
+    config: 'playwright.api-acceptance.config.ts',
+    dbEnv: 'C2_DATABASE_URL',
+    seed: 'phase5b_c2_acceptance.py',
+    seedArgs: ({ dbPath, workspace }) => [
+      '--database', dbPath,
+      '--data-dir', 'demo_assets/enterprise/csv',
+      '--tenant-id', 'tenant-phase5b-c2-a8a53701',
+      '--job-id', 'import-phase5b-c2-a8a53701',
+      '--account', 'c2-closeout-a8a53701@chainguard.demo',
+      '--password', 'C2Closeout@2026!',
+      '--output', resolve(workspace, 'data-import-c2-report.json'),
+    ],
+  },
   { name: 'calibration', config: 'playwright.calibration-api.config.ts', dbEnv: 'CALIBRATION_DATABASE_URL', seed: null },
   { name: 'risk-explanation', config: 'playwright.risk-explanation-api.config.ts', dbEnv: 'RISK_EXPLAIN_DATABASE_URL', seed: 'seed_phase5b_a03_e2e.py' },
   { name: 'impact-scope', config: 'playwright.impact-scope-api.config.ts', dbEnv: 'IMPACT_SCOPE_DATABASE_URL', seed: 'seed_phase5b_a04_e2e.py' },
@@ -83,7 +102,8 @@ for (const suite of suites) {
 
   let status = run(PYTHON, ['-m', 'alembic', 'upgrade', 'head'], { cwd: API_DIR, env: provisionEnv });
   if (status === 0 && suite.seed) {
-    status = run(PYTHON, [`scripts/${suite.seed}`], { cwd: API_DIR, env: provisionEnv });
+    const seedArgs = suite.seedArgs ? suite.seedArgs({ dbPath, workspace: WORKSPACE }) : [];
+    status = run(PYTHON, [`scripts/${suite.seed}`, ...seedArgs], { cwd: API_DIR, env: provisionEnv });
   }
   if (status !== 0) {
     console.error(`[${suite.name}] provisioning failed`);
