@@ -80,17 +80,35 @@ async function renderOcrImage(page: Page, headers: string, row: string) {
   return page.screenshot({ type: 'png' });
 }
 
+async function uploadThroughCurrentImportUi(page: Page, image: Buffer, fileName: string) {
+  // Umi dev server only serves the SPA shell at `/`; enter the target route
+  // through the rendered navigation so this remains a real UI flow.
+  await page.goto('/');
+  await page.getByRole('menuitem', { name: /数据管理/ }).click();
+  await page.getByRole('menuitem', { name: '数据导入' }).click();
+  await expect(page.getByText('数据导入', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: /直接上传/ }).click();
+  const fileChooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '选择 ZIP / 多个文件' }).click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({ name: fileName, mimeType: 'image/png', buffer: image });
+  await expect(page.getByText(fileName)).toBeVisible({ timeout: 30_000 });
+}
+
+async function openDataPage(page: Page, pageName: '数据导入' | '物料') {
+  await page.goto('/');
+  await page.getByRole('menuitem', { name: /数据管理/ }).click();
+  await page.getByRole('menuitem', { name: pageName }).click();
+  await expect(page.getByText(pageName, { exact: true }).first()).toBeVisible();
+}
+
 async function importOcrMaterialThroughUi(
   page: Page,
   image: Buffer,
   fileName: string,
   sources: Array<{ source: string; option: RegExp }>,
 ) {
-  await page.goto('/data/import?tab=wizard');
-  await page.getByText('PDF / Word / 图片', { exact: true }).click();
-  await page.getByRole('button', { name: '下一步' }).click();
-  await page.locator('.ant-upload input[type="file"]').setInputFiles({ name: fileName, mimeType: 'image/png', buffer: image });
-  await expect(page.getByText(fileName)).toBeVisible({ timeout: 30_000 });
+  await uploadThroughCurrentImportUi(page, image, fileName);
 
   const typeSelect = page.locator('.ant-table-tbody').getByRole('combobox').first();
   await typeSelect.click();
@@ -114,23 +132,23 @@ async function importOcrMaterialThroughUi(
   await expect(resultRow.locator('td').nth(4)).toHaveText('0');
 }
 
-test('OCR 中文别名字段映射 UI 闭环与英文标准字段回归', async ({ page }) => {
+test('OCR 真实 Chromium 中文三字段闭环、英文回归与乱码安全降级', async ({ page }) => {
   const suffix = String(Date.now()).slice(-8);
   const tenant = await registerTenant(page, `137${suffix}`, `OCR界面验收-${suffix}`);
   await useAccessToken(page, tenant.token);
-  const chineseId = `MAT-OCR-CN-${suffix}`;
+  const chineseId = `MAT-UI-ZH-${suffix}`;
   const englishId = `MAT-OCR-EN-${suffix}`;
 
-  const chineseImage = await renderOcrImage(page, '物料编码,物料名称,成本', `${chineseId},中文界面芯片,12.50`);
+  const chineseImage = await renderOcrImage(page, '物料编码,物料名称,成本', `${chineseId},中文界面验收芯片,12.50`);
   await importOcrMaterialThroughUi(page, chineseImage, `ocr-cn-${suffix}.png`, [
     { source: '物料编码', option: /物料编号.*material_id/ },
     { source: '物料名称', option: /物料名称.*material_name/ },
     { source: '成本', option: /单位成本.*standard_cost/ },
   ]);
 
-  await page.goto('/data/material');
+  await openDataPage(page, '物料');
   const chineseRow = page.locator('.ant-table-row').filter({ hasText: chineseId });
-  await expect(chineseRow).toContainText('中文界面芯片');
+  await expect(chineseRow).toContainText('中文界面验收芯片');
   await expect(chineseRow).toContainText('12.5');
 
   const englishImage = await renderOcrImage(page, 'material_id,material_name,standard_cost', `${englishId},English OCR Material,23.75`);
@@ -140,10 +158,22 @@ test('OCR 中文别名字段映射 UI 闭环与英文标准字段回归', async 
     { source: 'standard_cost', option: /单位成本.*standard_cost/ },
   ]);
 
-  await page.goto('/data/material');
+  await openDataPage(page, '物料');
   const englishRow = page.locator('.ant-table-row').filter({ hasText: englishId });
   await expect(englishRow).toContainText('English OCR Material');
   await expect(englishRow).toContainText('23.75');
+
+  const garbledImage = await renderOcrImage(page, '????,????,??', 'MAT-GARBLED-UI,??????,12.50');
+  const garbledName = `ocr-garbled-${suffix}.png`;
+  await uploadThroughCurrentImportUi(page, garbledImage, garbledName);
+  await page.locator('.ant-table-tbody').getByRole('combobox').first().click();
+  await page.locator('.ant-select-dropdown:visible').getByText('物料主数据 · 主数据', { exact: true }).click();
+  await page.getByRole('button', { name: '下一步' }).click();
+  await expect(page.getByText(/OCR 无法安全形成字段映射（OCR_GARBLED_TEXT）/)).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByText(/重新上传清晰、端正且保留表头和列分隔符/)).toBeVisible();
+  await expect(page.getByText(/CSV\/Excel 上传，或人工录入/)).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /已核对原文、类型和关键字段/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '确认并执行' })).toBeDisabled();
 });
 
 test('C2 真实 API 产品界面收尾验收', async ({ page }) => {

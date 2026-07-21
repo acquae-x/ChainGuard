@@ -125,8 +125,8 @@ def _audit_rows(db: Session, tenant_id: str, import_job_id: str, source_table: s
     )
 
 
-def _entity_count(db: Session, tenant_id: str, resource_type: str) -> int:
-    rule = load_mapping()["resources"][resource_type]
+def _entity_count(db: Session, tenant_id: str, resource_type: str, spec: Mapping[str, Any] | None = None) -> int:
+    rule = (spec or load_mapping())["resources"][resource_type]
     model = MODEL_BY_TABLE[rule["target_table"]]
     return int(db.scalar(select(func.count()).select_from(model).where(model.tenant_id == tenant_id)) or 0)
 
@@ -150,12 +150,17 @@ def import_entity_rows(
     *,
     field_mapping: Mapping[str, str] | None = None,
     batch_size: int = 1000,
+    spec: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Import an iterable from CSV, OCR, or ERP through the same YAML adapter."""
+    """Import an iterable from CSV, OCR, or ERP through the same YAML adapter.
+
+    ``spec`` lets a caller (ERP sync) pass the tenant's resolved mapping; when it
+    is omitted the shipped baseline applies.
+    """
 
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
-    spec = load_mapping()
+    spec = spec or load_mapping()
     if resource_type not in spec["resources"]:
         raise KeyError(f"unknown resource_type: {resource_type}")
     source_table = str(spec["resources"][resource_type]["source_table"])
@@ -200,7 +205,7 @@ def import_entity_rows(
         "rejectedRows": rejected_rows,
         "inserted": inserted,
         "updated": updated,
-        "entityRows": _entity_count(db, tenant_id, resource_type),
+        "entityRows": _entity_count(db, tenant_id, resource_type, spec),
         "elapsedSeconds": round(time.perf_counter() - started, 6),
         "rejections": rejections,
     }

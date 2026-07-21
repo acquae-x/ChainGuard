@@ -88,6 +88,43 @@ describe('EnterpriseImportWizard 数据来源与识别优先流程', () => {
     expect(await screen.findByText('导入批次执行完成')).toBeInTheDocument();
   });
 
+  it('OCR 乱码或列结构损坏时展示明确原因和重传/人工录入建议', async () => {
+    const user = userEvent.setup();
+    getCatalog.mockResolvedValue({ modes: [], types: [{
+      value: 'material', label: '物料主数据', group: '主数据', source_table: 'materials', erp_resource: 'materials', entity: true,
+    }] });
+    uploadForRecognition.mockResolvedValue({
+      jobId: 'ocr-garbled', fileName: '乱码物料.png', mode: 'ocr', selectedType: 'material',
+      recognition: { recognizedType: 'material', label: '物料主数据', confidence: 0.99, requiresConfirmation: true, reasons: [], candidates: [] },
+    });
+    preflightRecognizedJob.mockResolvedValue({ id: 'ocr-garbled', status: 'manual_required', result: {
+      canProceed: false,
+      message: 'OCR 结果疑似乱码；不能作为预检通过依据。请重新上传包含真实中文像素的清晰图片，或改用人工录入。',
+      extraction: { error_code: 'OCR_GARBLED_TEXT', note: 'OCR 结果疑似乱码。', confidence: 0.99 },
+      normalized: { previewRows: [] },
+      manualReview: {
+        confirmationLevel: 'full',
+        reasonCode: 'OCR_GARBLED_TEXT',
+        suggestions: ['重新上传清晰、端正且保留表头和列分隔符的图片', '改用 CSV/Excel 上传，或人工录入'],
+      },
+    } });
+
+    const { container } = render(<App><EnterpriseImportWizard /></App>);
+    await user.click(screen.getByText('PDF / Word / 图片'));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    const input = container.querySelector('.ant-upload input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(['png'], '乱码物料.png', { type: 'image/png' }));
+    await screen.findByText('乱码物料.png');
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(await screen.findByText(/OCR 无法安全形成字段映射（OCR_GARBLED_TEXT）/)).toBeInTheDocument();
+    expect(screen.getByText(/疑似乱码；不能作为预检通过依据/)).toBeInTheDocument();
+    expect(screen.getByText(/重新上传清晰、端正且保留表头和列分隔符/)).toBeInTheDocument();
+    expect(screen.getByText(/CSV\/Excel 上传，或人工录入/)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /已核对原文、类型和关键字段/ })).toBeDisabled();
+    expect(confirmAndExecuteRecognizedJob).not.toHaveBeenCalled();
+  });
+
   it('ERP 确认步骤沿用已预览的连接信息执行全量同步', async () => {
     const user = userEvent.setup();
     testErpConnection.mockResolvedValue({ ok: true });

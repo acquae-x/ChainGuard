@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 
 from src.api import app
-from src.ingestion_agent import OcrEngineBackend, ingest_files
+from src.ingestion_agent import OcrEngineBackend, _reconstruct_ocr_lines, ingest_files
 from src.webapi.auth.security import create_tokens
 from src.webapi.database import SessionLocal
 from src.webapi.models import Material, User
@@ -42,12 +42,18 @@ def _font_path() -> Path:
     pytest.skip("没有可生成中英文真实 OCR 样本的 CJK 字体")
 
 
-def _image_bytes(lines: list[str], image_format: str = "PNG") -> bytes:
-    image = Image.new("RGB", (1800, 160 + 115 * len(lines)), "white")
+def _image_bytes(
+    lines: list[str],
+    image_format: str = "PNG",
+    *,
+    font_path: Path | None = None,
+    font_size: int = 48,
+) -> bytes:
+    image = Image.new("RGB", (1800, 160 + (font_size * 2 + 19) * len(lines)), "white")
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype(str(_font_path()), 48)
+    font = ImageFont.truetype(str(font_path or _font_path()), font_size)
     for index, line in enumerate(lines):
-        draw.text((35, 45 + index * 115), line, font=font, fill="black")
+        draw.text((35, 45 + index * (font_size * 2 + 19)), line, font=font, fill="black")
     output = io.BytesIO()
     image.save(output, format=image_format, quality=96)
     return output.getvalue()
@@ -58,11 +64,38 @@ def _write_image(path: Path, lines: list[str], image_format: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize(("suffix", "image_format"), [(".png", "PNG"), (".jpg", "JPEG")])
-def test_real_png_jpg_recognize_chinese_and_english(ocr_runtime_dir: Path, suffix: str, image_format: str):
+def test_rapidocr_boxes_rebuild_split_cells_into_visual_rows():
+    payload = {
+        "texts": ["成本", "物料编码", "物料名称", "12.50", "MAT-BOX-001", "中文芯片"],
+        "boxes": [
+            [[410, 10], [500, 10], [500, 50], [410, 50]],
+            [[10, 10], [120, 10], [120, 50], [10, 50]],
+            [[180, 10], [330, 10], [330, 50], [180, 50]],
+            [[410, 80], [500, 80], [500, 120], [410, 120]],
+            [[10, 80], [150, 80], [150, 120], [10, 120]],
+            [[180, 80], [330, 80], [330, 120], [180, 120]],
+        ],
+    }
+
+    assert _reconstruct_ocr_lines(payload) == [
+        "物料编码,物料名称,成本",
+        "MAT-BOX-001,中文芯片,12.50",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("suffix", "image_format", "headers", "name"),
+    [
+        (".png", "PNG", "物料编码,物料名称,成本", "中文界面验收芯片"),
+        (".jpg", "JPEG", "material_id,物料名称,standard_cost", "中英文混合芯片"),
+    ],
+)
+def test_real_png_jpg_recognize_three_columns_and_mixed_text(
+    ocr_runtime_dir: Path, suffix: str, image_format: str, headers: str, name: str
+):
     path = _write_image(
         ocr_runtime_dir / f"bilingual-{uuid.uuid4().hex}{suffix}",
-        ["material_id,material_name,standard_cost", "MAT-OCR-001,中文芯片,12.50"],
+        [headers, f"MAT-OCR-001,{name},12.50"],
         image_format,
     )
 
@@ -73,9 +106,53 @@ def test_real_png_jpg_recognize_chinese_and_english(ocr_runtime_dir: Path, suffi
     assert extraction.needs_manual is False
     assert extraction.confidence is not None and extraction.confidence >= 0.70
     rows = next(iter(result.normalized.values()))
-    flattened = " ".join(str(value) for row in rows for value in row.values())
-    assert "material_id" in flattened and "MAT-OCR-001" in flattened
-    assert "中文芯片" in flattened
+    assert len(rows) == 2
+    assert list(rows[0].values()) == headers.split(",")
+    assert list(rows[1].values()) == ["MAT-OCR-001", name, "12.50"]
+
+
+def test_real_microsoft_yahei_png_preserves_chinese_headers_and_full_width_separator(
+    ocr_runtime_dir: Path,
+):
+    yahei = Path("C:/Windows/Fonts/msyh.ttc")
+    if not yahei.is_file():
+        pytest.skip("Windows Microsoft YaHei font is unavailable")
+    path = ocr_runtime_dir / "microsoft-yahei-real.png"
+    path.write_bytes(_image_bytes(
+        ["物料编码，物料名称，成本", "MAT-UI-ZH-001，中文界面验收芯片，12.50"],
+        font_path=yahei,
+        font_size=24,
+    ))
+
+    result = ingest_files([path], backends=[OcrEngineBackend(timeout_seconds=30)])
+
+    extraction = result.extractions[0]
+    assert extraction.needs_manual is False
+    assert extraction.confidence is not None and extraction.confidence >= 0.75
+    rows = next(iter(result.normalized.values()))
+    assert list(rows[0].values()) == ["物料编码", "物料名称", "成本"]
+    assert list(rows[1].values()) == ["MAT-UI-ZH-001", "中文界面验收芯片", "12.50"]
+
+
+@pytest.mark.parametrize(
+    ("file_name", "lines", "error_code"),
+    [
+        ("garbled.png", ["????,????,??", "MAT-BAD-001,??????,12.50"], "OCR_GARBLED_TEXT"),
+        ("broken-structure.png", ["物料编码物料名称成本", "MAT-BAD-002中文芯片12.50"], "OCR_STRUCTURE_INCOMPLETE"),
+    ],
+)
+def test_real_high_confidence_garbage_and_broken_structure_never_preflight_green(
+    ocr_runtime_dir: Path, file_name: str, lines: list[str], error_code: str
+):
+    path = _write_image(ocr_runtime_dir / file_name, lines, "PNG")
+
+    result = ingest_files([path], backends=[OcrEngineBackend(timeout_seconds=30)])
+
+    extraction = result.extractions[0]
+    assert extraction.needs_manual is True
+    assert extraction.error_code == error_code
+    assert not result.normalized
+    assert "重新上传" in extraction.note and "人工录入" in extraction.note
 
 
 def test_blank_damaged_low_confidence_and_missing_engine_degrade_safely(
@@ -175,8 +252,31 @@ def test_real_ocr_api_preflight_mapping_execute_poll_and_tenant_visibility(
     assert preflight_body["status"] == "manual_review"
     assert preflight_body["result"]["canProceed"] is True
     assert preflight_body["result"]["extraction"]["method_used"] == "rapidocr_local"
+    assert preflight_body["result"]["extraction"]["column_count"] == 3
     preview = preflight_body["result"]["normalized"]["previewRows"]
     assert preview and preview[0]["物料编码"] == material_id
+
+    garbled_uploaded = client.post(
+        "/api/v1/imports/upload?type=material&mode=ocr",
+        headers=auth,
+        files={"file": ("garbled_materials.png", _image_bytes(
+            ["????,????,??", "MAT-GARBLED-001,??????,12.50"], "PNG"
+        ), "image/png")},
+    )
+    assert garbled_uploaded.status_code == 201
+    garbled_preflight = client.post(
+        f"/api/v1/imports/{garbled_uploaded.json()['id']}/preflight", headers=auth
+    )
+    assert garbled_preflight.status_code == 200
+    garbled_body = garbled_preflight.json()
+    assert garbled_body["status"] == "manual_required"
+    assert garbled_body["result"]["canProceed"] is False
+    assert garbled_body["result"]["extraction"]["error_code"] == "OCR_GARBLED_TEXT"
+    assert "疑似乱码" in garbled_body["result"]["message"]
+    assert garbled_body["result"]["manualReview"]["suggestions"] == [
+        "重新上传清晰、端正且保留表头和列分隔符的图片",
+        "改用 CSV/Excel 上传，或人工录入",
+    ]
 
     confirmed = client.post(
         f"/api/v1/imports/{job_id}/confirm",

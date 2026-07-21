@@ -24,7 +24,17 @@ export type Recognition = {
 export type EnterpriseImportResult = Record<string, unknown> & {
   recognition?: Recognition;
   canProceed?: boolean;
-  manualReview?: { confirmationLevel?: 'full' | 'light' };
+  message?: string;
+  extraction?: {
+    error_code?: string | null;
+    note?: string;
+    confidence?: number | null;
+  };
+  manualReview?: {
+    confirmationLevel?: 'full' | 'light';
+    reasonCode?: string | null;
+    suggestions?: string[];
+  };
 };
 
 export type ClassifiedFile = {

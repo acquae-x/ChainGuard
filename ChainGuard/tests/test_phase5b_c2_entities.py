@@ -12,8 +12,10 @@ import uuid
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -50,6 +52,15 @@ def _unique_db_path(prefix: str) -> Path:
     root = ROOT / "test_tmp"
     root.mkdir(parents=True, exist_ok=True)
     return root / f"{prefix}-{os.getpid()}-{uuid.uuid4().hex}.db"
+
+
+def _alembic_head_revision() -> str:
+    # Derived, not pinned: every new migration would otherwise break this test.
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "alembic"))
+    heads = ScriptDirectory.from_config(config).get_heads()
+    assert len(heads) == 1, f"expected a single alembic head, got {heads}"
+    return heads[0]
 
 
 def _run_alembic(database: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -176,7 +187,7 @@ def test_migration_upgrade_downgrade_upgrade_and_sqlite_constraints():
         with sqlite3.connect(database) as connection:
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert NEW_TABLES <= tables
-            assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260718_0005"
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == _alembic_head_revision()
     finally:
         _best_effort_unlink(database)
 

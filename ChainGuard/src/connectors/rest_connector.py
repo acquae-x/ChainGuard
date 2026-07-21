@@ -42,12 +42,28 @@ class RestErpConnector(ErpConnector):
         """Fetch a complete ERP resource for the shared import adapter."""
         return self._fetch_resource(resource)
 
+    def sample_resource(self, resource: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Read one small page for field-catalog discovery; never pages the whole resource."""
+        size = max(1, min(int(limit), 50))
+        payload = self._json_request("GET", f"/api/v1/{resource}", params={"page": 1, "page_size": size})
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise ErpConnectorError(f"ERP resource {resource} returned an unexpected page")
+        return [dict(item) for item in payload["items"] if isinstance(item, dict)][:size]
+
     def test_connection(self) -> dict[str, Any]:
-        """Perform a bounded, read-only ERP connectivity check."""
-        payload = self._json_request("GET", "/api/v1/materials", params={"page": 1, "page_size": 1})
-        if not isinstance(payload, dict):
-            raise ErpConnectorError("Unexpected ERP health response")
-        return {"ok": True, "sampleRows": len(payload.get("items", [])), "total": self._int(payload.get("total"), 0)}
+        """Perform the E01/E02 read-only health and catalog handshake."""
+        health = self._json_request("GET", "/health")
+        if not isinstance(health, dict) or str(health.get("status", "")).lower() not in {"ok", "healthy", "up"}:
+            raise ErpConnectorError("ERP health check failed")
+        catalog = self._json_request("GET", "/api/v1/catalog")
+        if not isinstance(catalog, dict) or not isinstance(catalog.get("resources"), list):
+            raise ErpConnectorError("ERP catalog response is invalid")
+        resources = []
+        for entry in catalog["resources"]:
+            if not isinstance(entry, dict) or not entry.get("resource"):
+                continue
+            resources.append({"resource": str(entry["resource"]), "recordCount": self._int(entry.get("record_count"), 0)})
+        return {"ok": True, "resources": resources}
 
     def fetch_disruption_events(self) -> list[dict[str, Any]]:
         """Return valid disruption events from ERP, skipping malformed rows."""
@@ -177,7 +193,7 @@ class RestErpConnector(ErpConnector):
                 with request.urlopen(req, timeout=self.timeout) as response:
                     raw = response.read()
                 return json.loads(raw.decode("utf-8")) if raw else {}
-            except (OSError, TimeoutError, json.JSONDecodeError, error.URLError) as exc:
+            except (OSError, TimeoutError, json.JSONDecodeError, error.URLError, error.HTTPError) as exc:
                 last_error = exc
                 if attempt < self.retries:
                     time.sleep(0.1 * (attempt + 1))
