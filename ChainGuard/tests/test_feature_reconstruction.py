@@ -156,7 +156,8 @@ def test_inventory_never_goes_negative():
 
 @pytest.mark.skipif(not (CSV_DIR / "historical_decisions.csv").exists(), reason="缺少企业演示数据包")
 def test_full_demo_pack_reconstructs_without_exclusions():
-    import csv, io
+    import csv
+    import io
 
     def load(name):
         with io.open(CSV_DIR / name, encoding="utf-8-sig", newline="") as handle:

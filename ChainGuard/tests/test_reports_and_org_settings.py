@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import app
-from src.webapi.auth.security import AuthContext, create_tokens, hash_password
+from src.webapi.auth.security import create_tokens
 from src.webapi.database import SessionLocal
 from src.webapi.models import (
     Approval,
@@ -136,7 +136,6 @@ def test_operation_report_funnel_and_overdue_rate():
 
 def test_response_report_costdiff_null_when_no_estimate():
     """方案没给出成本时，偏差必须是 null，不能算成 0 偏差。"""
-    now = datetime.now(timezone.utc)
     with SessionLocal() as db:
         tenant_id = _fresh_tenant(db)
         incident_id = f"inc-{uuid.uuid4().hex[:8]}"

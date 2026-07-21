@@ -13,7 +13,7 @@ Alembic upgrade/downgrade/upgrade 由迁移驱动单独实测（见 phase5b 交�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -26,7 +26,6 @@ from src.webapi.database import Base
 from src.webapi import models  # noqa: F401  确保实体表注册进 metadata
 from src.webapi.models import (
     CustomerEntity,
-    InventoryEntity,
     Material,
     SalesOrder,
     SalesOrderLine,
@@ -38,7 +37,6 @@ from src.webapi.entity_mapping import (
     activate_tenant_config,
     active_tenant_config,
     load_mapping,
-    map_row,
     normalize_transport_mode,
     upsert_entities,
     validate_mapping,

@@ -203,7 +203,6 @@ class ImpactScopeBuilder:
     # ── 入口 ────────────────────────────────────────────────────────────────
 
     def for_risk(self, risk: Risk) -> dict[str, Any]:
-        details = risk.details if isinstance(risk.details, dict) else {}
         head = {
             "kind": "risk", "id": risk.id, "code": risk.code,
             "name": risk.object_name, "status": risk.status,

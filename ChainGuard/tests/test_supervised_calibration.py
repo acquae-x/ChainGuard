@@ -185,7 +185,9 @@ def test_pre_event_model_comparison_is_far_weaker_than_leaky_one():
     这条测试锁住的是一个**结论**：在当前演示数据上，用事前特征几乎学不到东西
     （接近多数类基线），而用事后指标能到 0.7+，差距正是目标泄漏的体现。
     """
-    import csv, io, random
+    import csv
+    import io
+    import random
     from pathlib import Path
 
     from src.feature_reconstruction import reconstruct_cases

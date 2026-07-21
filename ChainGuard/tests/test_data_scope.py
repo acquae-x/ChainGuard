@@ -14,10 +14,10 @@ from fastapi.testclient import TestClient
 
 from src.api import app
 from src.webapi.auth.security import AuthContext, create_tokens
-from src.webapi.data_scope import descendant_departments, effective_scope, is_visible
+from src.webapi.data_scope import descendant_departments, effective_scope
 from src.webapi.database import SessionLocal
 from src.webapi.entity_mapping import activate_tenant_config
-from src.webapi.models import Department, Incident, Risk, Role, Task, Tenant, User
+from src.webapi.models import Department, Incident, Risk, Role, Tenant, User
 from src.webapi.repository import get_tenant_record, list_tenant_records
 from src.webapi.errors import ApiError
 from src.webapi.seed import seed
