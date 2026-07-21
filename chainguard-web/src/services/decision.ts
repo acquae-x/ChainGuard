@@ -65,6 +65,13 @@ export async function getProposals() {
   );
 }
 
+export async function getExperienceCards() {
+  return pick(
+    async () => (await apiGet<{ data: API.ExperienceCard[] }>('/experiences')).data,
+    async () => [],
+  );
+}
+
 export async function saveDraft(incidentId: string, proposalId?: string) {
   return pick(
     async () => {
@@ -80,6 +87,24 @@ export async function getDraft(incidentId: string) {
   return pick(
     () => apiGet(`/incidents/${incidentId}/draft`),
     async () => workflowStore.getDraft(incidentId),
+  );
+}
+
+// 决策就绪度：后端在推演前就能判断上下文数据是否齐备（blocking）以及哪些字段是估算的（degraded）。
+// 这个信号此前完全没被前端消费，用户可能对着数据不全的事件生成方案而不自知。
+export type DecisionReadiness = {
+  ready: boolean;
+  level: string;
+  blocking: { code: string; message: string }[];
+  degraded: string[];
+  checks?: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
+};
+
+export async function getDecisionReadiness(incidentId: string) {
+  return pick<DecisionReadiness>(
+    () => apiGet(`/incidents/${incidentId}/decision-readiness`),
+    async () => ({ ready: true, level: 'complete', blocking: [], degraded: [] }),
   );
 }
 

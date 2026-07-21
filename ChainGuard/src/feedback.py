@@ -37,21 +37,24 @@ class ExperienceFeedback:
         self,
         cards_path: str | Path = "data/experience_cards.json",
         top_k: int = 3,
+        *,
+        cards: list[dict[str, Any]] | None = None,
     ) -> None:
         self.cards_path = Path(cards_path)
         self.top_k = top_k
+        self.cards = cards
 
     def retrieve(self, context: dict[str, Any]) -> RetrievalResult:
         query = self._build_query(context)
-        if not self.cards_path.exists() and not self.cards_path.is_absolute():
+        if self.cards is None and not self.cards_path.exists() and not self.cards_path.is_absolute():
             project_path = Path(__file__).resolve().parents[1] / self.cards_path
             if not project_path.exists():
                 return self._empty_result(query)
-        elif not self.cards_path.exists():
+        elif self.cards is None and not self.cards_path.exists():
             return self._empty_result(query)
 
         query_terms = self._query_terms(query)
-        matches = get_vector_store(mode="tfidf", path=self.cards_path).search(query)
+        matches = get_vector_store(mode="tfidf", path=self.cards_path, cards=self.cards).search(query)
         references = [
             ExperienceReference(
                 case_id=str(card.get("case_id", "")),

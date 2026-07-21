@@ -15,10 +15,16 @@ def resolve_project_path(path: str | Path) -> Path:
 
 
 class SimpleKeywordStore:
-    def __init__(self, path: str | Path = "data/experience_cards.json") -> None:
+    def __init__(self, path: str | Path = "data/experience_cards.json", *, cards: list[dict[str, Any]] | None = None) -> None:
         self.path = resolve_project_path(path)
+        # Web tenant retrieval supplies already-authorized cards from the DB.
+        # Keeping this as an optional source reuses the exact same ranking code
+        # while preventing a global JSON file from participating in tenant runs.
+        self.cards = cards
 
     def load_cards(self) -> list[dict[str, Any]]:
+        if self.cards is not None:
+            return list(self.cards)
         if not self.path.exists():
             return []
         try:
@@ -252,14 +258,19 @@ class EmbeddingStore:
         return numerator / (left_norm * right_norm)
 
 
-def get_vector_store(mode: str = "tfidf", path: str | Path = "data/experience_cards.json"):
+def get_vector_store(
+    mode: str = "tfidf",
+    path: str | Path = "data/experience_cards.json",
+    *,
+    cards: list[dict[str, Any]] | None = None,
+):
     normalized_mode = (mode or "tfidf").strip().lower()
     if normalized_mode == "chroma":
-        return ChromaStore(path)
+        return ChromaStore(path) if cards is None else TfidfStore(path, cards=cards)
     if normalized_mode == "embedding":
-        return EmbeddingStore(path)
+        return EmbeddingStore(path) if cards is None else TfidfStore(path, cards=cards)
     if normalized_mode in {"keyword", "simple"}:
-        return SimpleKeywordStore(path)
+        return SimpleKeywordStore(path, cards=cards)
     if normalized_mode == "tfidf":
-        return TfidfStore(path)
-    return TfidfStore(path)
+        return TfidfStore(path, cards=cards)
+    return TfidfStore(path, cards=cards)

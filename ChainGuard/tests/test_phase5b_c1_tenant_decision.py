@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.api import app
 from src.orchestrator import DecisionOrchestrator
@@ -20,6 +20,7 @@ from src.webapi.database import SessionLocal
 from src.webapi.entity_mapping import upsert_entities
 from src.webapi.models import (
     CustomerEntity,
+    DecisionDetail,
     Incident,
     InventoryEntity,
     Job,
@@ -33,7 +34,11 @@ from src.webapi.models import (
     Tenant,
     TenantConfig,
     User,
+    Role,
+    ExperienceCard,
+    Task,
 )
+from src.webapi.experience import retrieve_tenant_experience
 from src.webapi.seed import seed
 
 
@@ -455,3 +460,77 @@ def test_web_real_closed_loop_persists_tenant_context_and_uses_worker_session() 
             "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
         }
     }, ensure_ascii=False))
+
+
+def test_phase5b_experience_loop_persists_reuses_and_isolates_tenants() -> None:
+    suffix = uuid.uuid4().hex
+    tenant_id = "tenant-demo"
+    with SessionLocal() as db:
+        incident_id = _import_complete_scenario(db, tenant_id, suffix)
+
+    def wait_for(job_id: str, headers: dict[str, str]) -> dict:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            body = client.get(f"/api/v1/jobs/{job_id}", headers=headers).json()
+            if body["status"] in {"succeeded", "failed"}:
+                return body
+            time.sleep(0.05)
+        raise AssertionError("decision job timed out")
+
+    headers = _headers()
+    first = client.post(f"/api/v1/incidents/{incident_id}/proposals:generate", headers=headers)
+    assert first.status_code == 202
+    first_job = wait_for(first.json()["jobId"], headers)
+    assert first_job["status"] == "succeeded", first_job
+    cards = client.get("/api/v1/experiences", headers=headers)
+    assert cards.status_code == 200
+    created = [item for item in cards.json()["data"] if item["source"]["jobId"] == first.json()["jobId"]]
+    assert len(created) == 1
+    assert created[0]["scenario"] and created[0]["recommendedPattern"]
+    assert created[0]["outcome"]["state"] == "decision_generated"
+
+    second = client.post(f"/api/v1/incidents/{incident_id}/proposals:generate", headers=headers)
+    assert second.status_code == 202
+    second_job = wait_for(second.json()["jobId"], headers)
+    assert second_job["status"] == "succeeded", second_job
+    proposals = client.get(f"/api/v1/proposals?incidentId={incident_id}", headers=headers).json()["data"]
+    assert proposals and all(item["historyExperience"]["matched"] for item in proposals)
+    assert all(item["historyExperience"]["count"] >= 1 for item in proposals)
+    assert client.get(f"/api/v1/incidents/{incident_id}/decision-detail", headers=headers).json()["experience_references"]["reference_count"] >= 1
+
+    # Retrying a completed worker is intentionally idempotent for its source job.
+    jobs._run_decision_job(first.json()["jobId"], AuthContext("u-scm_lead", tenant_id, "供应链负责人", "scm_lead", ()))
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(ExperienceCard).where(
+            ExperienceCard.tenant_id == tenant_id,
+            ExperienceCard.source_job_id == first.json()["jobId"],
+        )) == 1
+        context = db.scalar(select(DecisionDetail).where(
+            DecisionDetail.tenant_id == tenant_id, DecisionDetail.incident_id == incident_id,
+        ).order_by(DecisionDetail.created_at.desc())).payload["context"]
+        other_tenant = f"tenant-experience-other-{suffix}"
+        role = Role(id=f"role-experience-{suffix}", tenant_id=other_tenant, code="scm_lead", name="供应链负责人", builtin=False, permissions=["decision:view", "case:view"])
+        user = User(id=f"user-experience-{suffix}", tenant_id=other_tenant, account=f"experience-{suffix}", password_hash="unused", name="隔离租户用户", phone="", email="", dept_id="dept", role_id=role.id, role_code="scm_lead", status="active", data_scope="all")
+        db.add(Tenant(id=other_tenant, name="隔离租户", industry="制造", scale="small", status="active", plan="trial", trial_end_at="", demo_data_flag=False))
+        db.flush(); db.add(role); db.flush(); db.add(user); db.commit()
+        assert retrieve_tenant_experience(db, other_tenant, context).reference_count == 0
+        other_headers = {"Authorization": f"Bearer {create_tokens(user)['token']}"}
+    isolated = client.get("/api/v1/experiences", headers=other_headers)
+    assert isolated.status_code == 200 and isolated.json() == {"data": [], "total": 0, "success": True}
+
+
+def test_last_execution_task_closes_the_tenant_experience_card() -> None:
+    suffix = uuid.uuid4().hex
+    incident_id = f"inc-experience-complete-{suffix}"
+    card_id, task_id = f"exp-complete-{suffix}", f"task-complete-{suffix}"
+    with SessionLocal() as db:
+        db.add(Incident(id=incident_id, tenant_id="tenant-demo", code=incident_id, title="经验执行完成", type="manual", level="low", status="executing", owner="", source_risk_ids=[], loss=0, cost=0))
+        db.add(ExperienceCard(id=card_id, tenant_id="tenant-demo", title="执行闭环", content={}, status="confirmed", source_job_id=f"job-complete-{suffix}", source_incident_id=incident_id, source_proposal_id=None, dedupe_key=f"decision:complete:{suffix}", outcome={}, metrics={}, references=[]))
+        db.add(Task(id=task_id, tenant_id="tenant-demo", title="完成复盘", source="test", incident_id=incident_id, assignee="u-scm_lead", role_code="scm_lead", status="pending", due_at="", priority="中", checklist=[]))
+        db.commit()
+    response = client.patch(f"/api/v1/tasks/{task_id}", headers=_headers(), json={"status": "completed"})
+    assert response.status_code == 200
+    with SessionLocal() as db:
+        card = db.get(ExperienceCard, card_id)
+        assert card.status == "completed"
+        assert card.outcome["state"] == "execution_completed"
