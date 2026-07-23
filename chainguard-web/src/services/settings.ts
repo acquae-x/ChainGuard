@@ -227,7 +227,7 @@ export async function getErpMappingSourceFields(resource: string) {
 }
 
 // ---------------------------------------------------------------- 审批链配置
-// 规格 codex_frontend_spec/02 §审批链配置页。此前该页只弹成功提示、不落库，现改为真实持久化。
+// 审批链配置：此前该页只弹成功提示、不落库，现改为真实持久化。
 
 export type ApprovalChainLevel = { approver: string; countersign: string[] };
 

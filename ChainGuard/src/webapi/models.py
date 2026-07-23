@@ -479,7 +479,6 @@ class DataRecord(TenantRecord, Base):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 5B / C2 第一批：结构化业务实体表（7 张业务表 + tenant_configs）
-# 契约来源：codex_landing_spec/11_Phase5B_前置产出.md v2 §②。
 # 公共列继承 TenantRecord（id/tenant_id/created_at/updated_at）并附加 extra JSON；
 # 未知源列进入 extra；跨业务表关联一律带 tenant_id（tenant-aware 复合外键）。
 # ─────────────────────────────────────────────────────────────────────────────

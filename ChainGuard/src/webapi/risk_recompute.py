@@ -1,6 +1,6 @@
 """A03 库存风险重算：把已有引擎函数接到租户实体上，不新写任何评分公式。
 
-设计约束（codex_landing_spec/phase5b_a03_实现范围.md §1.1）：
+设计约束：
 - 分数一律由 ``src.inventory_monitor.calculate_inventory_risk`` 算出，本模块不做任何算术加权；
 - 阈值/权重经 ``TenantContextBuilder`` 解析，与 C1 决策链路同源，保证"解释里的阈值"
   与"生成方案时用的阈值"是同一个值；

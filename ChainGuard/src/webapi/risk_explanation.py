@@ -1,6 +1,6 @@
 """A03 实时风险解释：为一条真实风险回答"为什么现在是这个等级、由哪些数据触发"。
 
-三条硬约束（codex_landing_spec/phase5b_a03_实现范围.md §1.2）：
+三条硬约束：
 - **不调用 LLM**。叙述直接取 ``calculate_inventory_risk`` 返回的 explanation[]，
   其余全是结构化字段，数值一律由代码算出。
 - **不新写评分公式**。阈值/权重经 ``TenantContextBuilder`` 解析，与 C1 决策链路同源。

@@ -1,6 +1,5 @@
 # ChainGuard 5B / C2 共用映射源（唯一事实源）
-# 契约来源：codex_landing_spec/11_Phase5B_前置产出.md v2 §②「数据流三合一与唯一映射源」。
-# CSV 导入向导与 ERP 同步（scripts/erp_sync.py 编排 + RestErpConnector 规范化）共同消费本文件；
+# 数据流三合一：CSV 导入向导与 ERP 同步（scripts/erp_sync.py 编排 + RestErpConnector 规范化）共同消费本文件；
 # 禁止在 router/脚本/builder 各维护第二套字段口径。
 # 规则：
 #   - fields: {源列: 目标实体列}，直存或重命名；目标列类型由实体模型决定，adapter 自动做类型/时间转换。

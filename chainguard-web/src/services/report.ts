@@ -1,4 +1,4 @@
-// 报表服务（规格 codex_frontend_spec/04 §L）。api 模式对接 /reports/*，mock 模式走内置演练数据。
+// 报表服务。api 模式对接 /reports/*，mock 模式走内置演练数据。
 // 口径提醒：后端对"不可测量"的指标返回 null（而非 0），页面必须显示"数据缺失"而不是 0。
 import { pick } from './dataMode';
 import { apiGet } from '../utils/request';

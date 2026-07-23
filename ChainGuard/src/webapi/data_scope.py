@@ -1,6 +1,5 @@
 """行级数据范围求值与强制执行。
 
-规格：codex_frontend_spec/02_角色权限体系.md §3。
 四档范围：
     all    —— 全企业，不加任何过滤
     dept   —— 本部门**及其所有子部门**（按 departments.parent_id 闭包展开）

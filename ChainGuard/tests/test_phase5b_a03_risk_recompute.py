@@ -1,6 +1,5 @@
 """A03 步骤 2/3 验收：风险重算的身份、幂等、状态机与 seed 去硬编码。
 
-对位 codex_landing_spec/phase5b_a03_实现范围.md §4.1 的 B1/B2/B12/B17–B23。
 """
 
 from __future__ import annotations

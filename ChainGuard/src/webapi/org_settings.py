@@ -1,4 +1,4 @@
-"""审批链与数据范围配置（规格：codex_frontend_spec/02_角色权限体系.md §3、§审批链配置页）。
+"""审批链与数据范围配置。
 
 存储复用 `TenantConfig`（config_type = approval_chain / data_scope），因此不需要新迁移，
 并且天然获得版本号 + 单 active 约束 + 审计可追溯。

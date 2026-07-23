@@ -1,6 +1,6 @@
 """Phase 5B / C2 第一批：8 张结构化业务实体表（7 业务表 + tenant_configs）。
 
-契约来源：codex_landing_spec/11_Phase5B_前置产出.md v2 §②。
+本批次必须成立的约束：
 - 所有新表含 id/tenant_id/extra/created_at/updated_at，tenant_id 建索引；
 - 租户内业务唯一键；跨业务表关联为 tenant-aware 复合外键（含 tenant_id）；
 - tenant_configs 同一 (tenant, config_type) 只能一个 active 版本：部分唯一索引

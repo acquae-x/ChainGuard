@@ -1,6 +1,6 @@
 """C02/C03 供应链节点健康：租户当前 C2 实体数据下，四类节点各自处于什么状态、为什么。
 
-四条硬约束（codex_landing_spec/phase5b_c02_c03_实现范围.md）：
+四条硬约束：
 - **只有物料节点是引擎算出来的**。物料健康严格走 ``calculate_inventory_risk`` →
   ``measure_material``，阈值经 ``TenantContextBuilder`` 解析，与 A03 解释、C1 决策链路同源。
   仓库/供应商/订单**没有评分模型**，本批也不新写——给它们编一套加权分就是新算法，越界。

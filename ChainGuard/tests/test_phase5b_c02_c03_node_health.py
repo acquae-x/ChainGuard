@@ -1,7 +1,5 @@
 """C02/C03 供应链节点健康视图验收。
 
-对位 codex_landing_spec/phase5b_c02_c03_实现范围.md §3.1 的 N1–N31。
-
 贯穿全篇的纪律：
 - 物料节点的健康必须与既有引擎 (calculate_inventory_risk → measure_material) **逐值一致**，
   而不是"看起来差不多"；

@@ -1,4 +1,4 @@
-// 前端权限出口（对应 Phase 2 §2.3 + codex_frontend_spec/02 能力矩阵）。
+// 前端权限出口：菜单/按钮/字段级门禁统一从后端下发的 permissions 推导。
 // 唯一数据来源：后端 /auth/me 返回的 currentUser.permissions（权限码）。
 // 本文件不得出现 role === 'xxx' 的硬编码角色判断——菜单/按钮/字段一律消费权限码。
 const has = (permissions: string[], code: string) => permissions.includes(code);

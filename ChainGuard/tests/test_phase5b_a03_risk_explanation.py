@@ -1,6 +1,5 @@
 """A03 步骤 4 验收：风险解释接口。
 
-对位 codex_landing_spec/phase5b_a03_实现范围.md §4.1 的 B3–B11、B13、B14、B16、B24。
 """
 
 from __future__ import annotations
