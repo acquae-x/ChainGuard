@@ -14,6 +14,9 @@ outputs/
 output/
 ChainGuard/output/
 .claude/
+.cursor/
+.idea/
+.vscode/
 .agents/
 tools/
 
@@ -33,7 +36,7 @@ chainguard-web/playwright-report/
 _demo_run.db
 _alembic_check.db
 
-# 开发期日志（Codex/agent 运行残留），不应进版本库与源码包
+# 开发期工具日志，不应进版本库与源码包
 .codex-*.log
 *.out.log
 *.err.log
