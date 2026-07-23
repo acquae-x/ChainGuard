@@ -147,6 +147,26 @@ function readOutcome(jsonPath) {
 mkdirSync(WORKSPACE, { recursive: true });
 mkdirSync(ARTIFACTS, { recursive: true });
 
+// 演示企业库自举。demo_assets 下的 CSV/PDF/xlsx 都在版本库里，唯独 *.db 被
+// .gitignore 排除；而 erp-integration / erp-mapping 的 mock ERP
+// （ChainGuard/scripts/mock_erp_server.py，默认就读这个库）缺了它起不来。
+//
+// 干净检出上的症状是 "Process from config.webServer was not able to start.
+// Exit code: 1"——只字不提缺的是数据库，而且只挂这两个套件（其余套件不起 mock ERP），
+// 看起来更像 ERP 功能坏了。实测排查代价远大于这几行。
+//
+// 此前唯一的兜底是 CI 里一行 generate，等于把这个前置条件藏在流水线里：
+// 本地 clone 下来直接跑门禁必踩，而 CI 永远绿，缺陷因此没有暴露渠道。
+const DEMO_DB = resolve(API_DIR, 'demo_assets/enterprise/database/chainguard_enterprise_demo.db');
+if (!existsSync(DEMO_DB)) {
+  console.log(`=== 演示企业库缺失，正在生成：${relative(WEB_DIR, DEMO_DB)} ===`);
+  // --db-only：只重建库，不碰 demo_assets 下那 60+ 个受版本控制的资产。
+  if (run(PYTHON, ['scripts/generate_enterprise_demo_data.py', '--db-only'], { cwd: API_DIR }) !== 0) {
+    console.error('演示企业库生成失败；erp-* 套件必然起不来，提前终止而不是让它们以 webServer 错误收场。');
+    process.exit(1);
+  }
+}
+
 const results = [];
 for (const suite of suites) {
   console.log(`\n=== [${suite.name}] provisioning ===`);
