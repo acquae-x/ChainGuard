@@ -1398,11 +1398,37 @@ def build_manifest(root: Path, data: dict[str, list[dict[str, Any]]]) -> None:
     write_json(root / "manifest.json", manifest)
 
 
-def generate(output_root: Path) -> None:
+DB_RELATIVE_PATH = Path("enterprise") / "database" / "chainguard_enterprise_demo.db"
+
+
+def _resolve_output_root(output_root: Path) -> Path:
     resolved = output_root.resolve()
     project_root = Path(__file__).resolve().parents[1]
     if resolved != project_root / "demo_assets" and project_root not in resolved.parents:
         raise ValueError(f"Output must stay inside project root: {project_root}")
+    return resolved
+
+
+def generate_db_only(output_root: Path) -> Path:
+    """只重建 SQLite 库，其余资产一律不碰。
+
+    干净检出（clone / worktree / CI）跑不了测试：demo_assets 下的 CSV/PDF/xlsx 都在
+    版本库里，唯独 *.db 被 .gitignore 排除，于是 24 个用例以 scanned=0 失败——注意
+    是空结果而不是报错，很容易被误判成代码回归。
+
+    整体 generate() 能补上这个库，但它 rmtree 后重写全部资产，会把 60+ 个受控文件
+    变成 modified（PDF 每次生成的字节都不同），代价远大于收益，还容易被误提交。
+    数据生成是确定性的（固定 SEED 与 AS_OF、random.Random(SEED)），所以单独重建库
+    与整体生成得到的库等价。
+    """
+    resolved = _resolve_output_root(output_root)
+    db_path = resolved / DB_RELATIVE_PATH
+    write_sqlite(db_path, build_data())
+    return db_path
+
+
+def generate(output_root: Path) -> None:
+    resolved = _resolve_output_root(output_root)
     if resolved.exists():
         shutil.rmtree(resolved)
     resolved.mkdir(parents=True)
@@ -1448,7 +1474,17 @@ def main() -> None:
         default=Path(__file__).resolve().parents[1] / "demo_assets",
         help="Output directory inside the project root.",
     )
+    parser.add_argument(
+        "--db-only",
+        action="store_true",
+        help=(
+            "只重建 SQLite 库（干净检出跑测试所需），不重写 CSV/PDF/xlsx 等受控资产。"
+        ),
+    )
     args = parser.parse_args()
+    if args.db_only:
+        print(f"Rebuilt demo database at {generate_db_only(args.output)}")
+        return
     generate(args.output)
     print(f"Generated demo assets at {args.output.resolve()}")
 
