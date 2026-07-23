@@ -50,4 +50,3 @@ class Settings:
 
 
 settings = Settings()
-# phase2-sync-probe

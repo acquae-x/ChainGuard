@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from src.file_store import atomic_write_text, file_lock
 from src.intake_review import DEFAULT_KEY_FIELDS, build_history_counts, signature_of
+from src.observability import log_event
 
 
 def tabular_file_signature(path: str | Path, resource_type: str) -> tuple[str, int]:
@@ -66,7 +68,17 @@ def load_history(data_source: Any) -> dict[str, int]:
     path = history_path_for(data_source)
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError) as error:
+        # 文件存在但读不出来 ≠ 还没有历史。此前两者都返回 {}，效果是整个租户的
+        # 去重计数被静默清零、重复导入检测失效且无任何痕迹。至少要留下证据。
+        log_event(
+            "signature_history_unreadable",
+            path=str(path),
+            exception=type(error).__name__,
+            message=str(error),
+        )
         return {}
     if not isinstance(raw, dict):
         return {}
@@ -90,16 +102,17 @@ def update_history(
 ) -> dict[str, int]:
     """Accumulate record signatures into the persistent history and return all counts."""
     delta = build_history_counts(records, key_fields or DEFAULT_KEY_FIELDS)
-    current = load_history(data_source)
     if not delta:
-        return current
-    merged = merge_counts(current, delta)
+        return load_history(data_source)
     path = history_path_for(data_source)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    # 累加计数是读-改-写：并发导入（导入作业跑在后台线程）不加锁会互相覆盖，
+    # 表现为去重计数偏低——而计数偏低只会让重复数据被放行，不会报错。
+    with file_lock(path):
+        merged = merge_counts(load_history(data_source), delta)
+        atomic_write_text(
+            path,
+            json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True),
+        )
     return merged
 
 

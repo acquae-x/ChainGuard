@@ -115,7 +115,13 @@ def healthz() -> dict[str, str]:
 
 @app.get("/readyz")
 def readyz() -> dict[str, str]:
-    """数据库就绪探针。"""
+    """就绪探针：数据库 + 令牌签名密钥。
+
+    签名密钥必须在这里检查，不能只靠 `auth/security.py::_token` 的运行期守卫。
+    少配 JWT_SECRET 的部署，数据库是通的、/healthz 是绿的、/readyz 原本也是绿的，
+    于是滚动发布判定成功——直到第一个用户登录才 500，且此时旧副本已经下线。
+    就绪探针的职责就是让这种配置错误在**接流量之前**暴露。
+    """
     from sqlalchemy import text
     try:
         with engine.connect() as connection:
@@ -123,6 +129,16 @@ def readyz() -> dict[str, str]:
     except Exception as error:
         log_event("readiness_failed", exception=type(error).__name__, message=str(error))
         raise HTTPException(status_code=503, detail="数据库未就绪") from error
+
+    # 与 _token() 的取键逻辑保持一致：RS256 用私钥签名，其余算法用对称密钥。
+    signing_key = (
+        settings.jwt_rs256_private_key
+        if settings.jwt_algorithm == "RS256"
+        else settings.jwt_secret
+    )
+    if not signing_key:
+        log_event("readiness_failed", reason="jwt_signing_key_missing", algorithm=settings.jwt_algorithm)
+        raise HTTPException(status_code=503, detail="令牌签名密钥未配置")
     return {"status": "ready"}
 
 
@@ -139,7 +155,10 @@ def health(role: str = Depends(require("admin"))) -> dict[str, object]:
     }
 
 
-@app.get("/metrics", deprecated=True)
+# 不是弃用端点：config/prometheus.yml 按 metrics_path=/metrics 实际抓取，
+# config/alerts.yml 的告警规则全部挂在这里导出的指标上。此前误标 deprecated，
+# 等于在 OpenAPI 里告诉运维"这个要没了"——而它是唯一的监控接入点。
+@app.get("/metrics")
 def metrics(role: str = Depends(require("admin"))) -> PlainTextResponse:
     # Refresh the gauge at scrape time too, so restarts do not report a stale zero.
     from src.webapi.database import SessionLocal
