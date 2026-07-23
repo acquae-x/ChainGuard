@@ -27,7 +27,6 @@
 | 客户 | `/data/customer` | canDataCustomer | ✅ | — | ✅ | — | — | ✅ | — | — | ✅ |
 | 订单 | `/data/order` | canDataOrder | ✅ | — | ✅ | — | — | ✅ | — | — | ✅ |
 | 库存 | `/data/inventory` | canDataInventory | ✅ | — | ✅ | — | ✅ | — | — | — | ✅ |
-| 物流 | `/data/logistics` | canDataLogistics | ✅ | — | ✅ | — | — | — | — | — | — |
 | 数据导入 | `/data/import` | canData；写操作 canImport | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
 | 案例库 | `/case/list` | canCase | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ |
 | 经验卡片 | `/case/experience` | canCase | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ |

@@ -9,8 +9,20 @@ SQLAlchemy>=2.0,<3
 alembic>=1.13,<2
 PyJWT>=2.8,<3
 bcrypt>=4.1,<5
+# 凭证静态加密（Fernet/MultiFernet）。此前它只经 pdfplumber → pdfminer.six 传递安装，
+# 未显式声明——上游哪天不再依赖它，src/security/encryption.py 就会整条不可用。
+cryptography>=42,<50
 slowapi>=0.1.9,<1
 # PostgreSQL 生产环境驱动；SQLite 开发模式不会建立 PostgreSQL 连接。
 psycopg[binary]>=3.1,<4
 pdfplumber>=0.10
+reportlab>=4.0
+# P1-4：XLSX 导入在服务端先归一化为 CSV 再预检/落库，openpyxl 是运行时依赖
+openpyxl>=3.1
+# 文档导入：DOCX 文本与表格提取；旧版 .doc 无可靠解析器时进入人工处理。
+python-docx>=1.1
+# Phase 5B 图片 OCR：纯本地 CPU 推理，默认模型支持中英文；仅在图片预检时按需加载。
+rapidocr>=3.4,<4
+onnxruntime>=1.20,<2
 psutil  # optional - memory detection, degrades gracefully if absent
+PyYAML>=6,<7  # 5B C2：erp_mapping.yaml 单一映射源解析

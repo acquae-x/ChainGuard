@@ -3,12 +3,18 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import multiprocessing
 import os
+import queue
+import re
+import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
+
+from src.observability import log_event
 
 
 class ExtractBackend(Protocol):
@@ -28,6 +34,10 @@ class FileExtraction:
     rows: int
     needs_manual: bool
     note: str = ""
+    confidence: float | None = None
+    elapsed_seconds: float | None = None
+    error_code: str | None = None
+    column_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,39 +106,288 @@ class LLMVisionBackend:
 
 
 class OcrEngineBackend:
-    name = "ocr_engine"
+    """Local Chinese/English OCR backed by RapidOCR and ONNX Runtime.
+
+    The heavy engine is imported and initialized only inside a bounded child
+    process.  API startup and non-image imports therefore do not load models,
+    while a timed-out native inference can be terminated instead of lingering
+    in the request worker.
+    """
+
+    name = "rapidocr_local"
+
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float | None = None,
+        min_confidence: float | None = None,
+        max_pixels: int | None = None,
+    ) -> None:
+        self.timeout_seconds = timeout_seconds if timeout_seconds is not None else _env_float(
+            "CHAINGUARD_OCR_TIMEOUT_SECONDS", 20.0, minimum=0.1
+        )
+        self.min_confidence = min_confidence if min_confidence is not None else _env_float(
+            "CHAINGUARD_OCR_MIN_CONFIDENCE", 0.75, minimum=0.0, maximum=1.0
+        )
+        self.max_pixels = max_pixels if max_pixels is not None else _env_int(
+            "CHAINGUARD_OCR_MAX_PIXELS", 25_000_000, minimum=1
+        )
+        self.last_metadata: dict[str, Any] = {}
 
     def available(self) -> bool:
+        if os.environ.get("CHAINGUARD_OCR_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
+            self.last_metadata = {
+                "error_code": "OCR_DISABLED",
+                "message": "本地 OCR 已通过配置禁用；需要人工处理。",
+            }
+            return False
         try:
-            return (
-                importlib.util.find_spec("paddleocr") is not None
-                or importlib.util.find_spec("pytesseract") is not None
+            available = (
+                importlib.util.find_spec("rapidocr") is not None
+                and importlib.util.find_spec("onnxruntime") is not None
             )
         except Exception:
             return False
+        if not available:
+            self.last_metadata = {
+                "error_code": "OCR_ENGINE_UNAVAILABLE",
+                "message": "本地 RapidOCR/ONNX Runtime 不可用；需要人工处理。",
+            }
+        return available
 
     def extract(self, file_path: str | Path) -> str | None:
+        started = time.perf_counter()
+        path = Path(file_path)
+        self._current_file_name = path.name
+        self.last_metadata = {}
         try:
-            if importlib.util.find_spec("paddleocr") is not None:
-                from paddleocr import PaddleOCR  # type: ignore
+            from PIL import Image, UnidentifiedImageError
 
-                engine = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
-                result = engine.ocr(str(file_path), cls=True)
-                text_parts: list[str] = []
-                for page in result or []:
-                    for item in page or []:
-                        if len(item) >= 2 and item[1]:
-                            text_parts.append(str(item[1][0]))
-                return "\n".join(part for part in text_parts if part).strip() or None
+            with Image.open(path) as image:
+                width, height = image.size
+                image.verify()
+            if width <= 0 or height <= 0 or width * height > self.max_pixels:
+                return self._fail(
+                    "OCR_IMAGE_LIMIT",
+                    f"图片像素数超出 OCR 安全限制（上限 {self.max_pixels}）；需要人工处理。",
+                    started,
+                )
+        except (OSError, ValueError, UnidentifiedImageError):
+            return self._fail("OCR_IMAGE_DAMAGED", "图片损坏或格式无效；需要人工处理。", started)
+        except Exception as error:
+            return self._fail("OCR_IMAGE_DAMAGED", "图片无法安全解码；需要人工处理。", started, error)
 
-            if importlib.util.find_spec("pytesseract") is not None:
-                import pytesseract  # type: ignore
+        context = multiprocessing.get_context("spawn")
+        result_queue = context.Queue(maxsize=1)
+        process = context.Process(target=_rapidocr_worker, args=(str(path), result_queue), daemon=True)
+        try:
+            process.start()
+            process.join(self.timeout_seconds)
+            if process.is_alive():
+                process.terminate()
+                process.join(1.0)
+                if process.is_alive() and hasattr(process, "kill"):
+                    process.kill()
+                    process.join(1.0)
+                return self._fail(
+                    "OCR_TIMEOUT",
+                    f"本地 OCR 超过 {self.timeout_seconds:g} 秒超时；需要人工处理。",
+                    started,
+                )
+            try:
+                payload = result_queue.get(timeout=1.0)
+            except queue.Empty:
+                return self._fail("OCR_ENGINE_FAILED", "本地 OCR 未返回结果；需要人工处理。", started)
+        except Exception as error:
+            return self._fail("OCR_ENGINE_FAILED", "本地 OCR 启动失败；需要人工处理。", started, error)
+        finally:
+            result_queue.close()
+            result_queue.join_thread()
 
-                text = pytesseract.image_to_string(str(file_path))
-                return text.strip() or None
-        except Exception:
+        if payload.get("error"):
+            return self._fail("OCR_ENGINE_FAILED", "本地 OCR 识别失败；需要人工处理。", started)
+        texts = _reconstruct_ocr_lines(payload)
+        scores = [float(value) for value in payload.get("scores") or []]
+        if not texts or not scores:
+            return self._fail("OCR_EMPTY", "图片为空白或未识别到文字；需要人工处理。", started)
+        confidence = min(scores)
+        elapsed = round(time.perf_counter() - started, 6)
+        if confidence < self.min_confidence:
+            self.last_metadata = {
+                "confidence": round(confidence, 6),
+                "elapsed_seconds": elapsed,
+                "error_code": "OCR_LOW_CONFIDENCE",
+                "message": (
+                    f"OCR 最低文本置信度 {confidence:.3f} 低于阈值 "
+                    f"{self.min_confidence:.3f}；需要人工处理。"
+                ),
+            }
+            log_event(
+                "ocr_manual_required", file_name=path.name, backend=self.name,
+                error_code="OCR_LOW_CONFIDENCE", confidence=round(confidence, 6),
+                elapsed_seconds=elapsed,
+            )
             return None
+        normalized_text, quality_error = _validate_ocr_table(texts)
+        if quality_error:
+            error_code, message = quality_error
+            return self._fail(error_code, message, started, confidence=confidence)
+        self.last_metadata = {
+            "confidence": round(confidence, 6),
+            "elapsed_seconds": elapsed,
+            "line_count": len(texts),
+            "column_count": len(_split_text_line(normalized_text.splitlines()[0])),
+        }
+        log_event(
+            "ocr_succeeded", file_name=path.name, backend=self.name,
+            confidence=round(confidence, 6), line_count=len(texts), elapsed_seconds=elapsed,
+        )
+        return normalized_text
+
+    def _fail(
+        self,
+        error_code: str,
+        message: str,
+        started: float,
+        error: Exception | None = None,
+        confidence: float | None = None,
+    ) -> None:
+        elapsed = round(time.perf_counter() - started, 6)
+        self.last_metadata = {
+            "elapsed_seconds": elapsed,
+            "error_code": error_code,
+            "message": message,
+        }
+        if confidence is not None:
+            self.last_metadata["confidence"] = round(confidence, 6)
+        log_event(
+            "ocr_manual_required", file_name=getattr(self, "_current_file_name", "-"), backend=self.name,
+            error_code=error_code, exception=type(error).__name__ if error else None,
+            elapsed_seconds=elapsed,
+        )
         return None
+
+
+def _rapidocr_worker(file_path: str, result_queue: Any) -> None:
+    """Run native OCR in an isolated process; only pickle small safe results."""
+    try:
+        from rapidocr import RapidOCR  # type: ignore
+
+        output = RapidOCR()(file_path, text_score=0.0)
+        raw_boxes = getattr(output, "boxes", None)
+        result_queue.put({
+            "texts": list(getattr(output, "txts", ()) or ()),
+            "scores": [float(value) for value in (getattr(output, "scores", ()) or ())],
+            "boxes": raw_boxes.tolist() if raw_boxes is not None else [],
+        })
+    except Exception as error:
+        result_queue.put({"error": type(error).__name__})
+
+
+def _reconstruct_ocr_lines(payload: dict[str, Any]) -> list[str]:
+    """Rebuild visual rows from OCR boxes instead of trusting detector order.
+
+    RapidOCR may return a whole CSV row as one box or split the same visual row
+    into several boxes.  In the latter case, joining every detection with a
+    newline destroys the column structure.  Boxes on the same baseline are
+    therefore ordered left-to-right and separated as columns.
+    """
+    texts = [str(value).strip() for value in payload.get("texts") or []]
+    boxes = payload.get("boxes") or []
+    detections: list[dict[str, Any]] = []
+    for index, text in enumerate(texts):
+        if not text or index >= len(boxes):
+            continue
+        try:
+            points = boxes[index]
+            xs = [float(point[0]) for point in points]
+            ys = [float(point[1]) for point in points]
+            detections.append({
+                "text": text,
+                "left": min(xs),
+                "center_y": (min(ys) + max(ys)) / 2,
+                "height": max(max(ys) - min(ys), 1.0),
+            })
+        except (TypeError, ValueError, IndexError):
+            return [value for value in texts if value]
+    if len(detections) != len([value for value in texts if value]):
+        return [value for value in texts if value]
+
+    rows: list[dict[str, Any]] = []
+    for detection in sorted(detections, key=lambda item: (item["center_y"], item["left"])):
+        match = next((
+            row for row in rows
+            if abs(detection["center_y"] - row["center_y"])
+            <= max(detection["height"], row["height"]) * 0.6
+        ), None)
+        if match is None:
+            rows.append({
+                "center_y": detection["center_y"],
+                "height": detection["height"],
+                "items": [detection],
+            })
+        else:
+            match["items"].append(detection)
+            count = len(match["items"])
+            match["center_y"] = ((match["center_y"] * (count - 1)) + detection["center_y"]) / count
+            match["height"] = max(match["height"], detection["height"])
+
+    lines: list[str] = []
+    for row in sorted(rows, key=lambda item: item["center_y"]):
+        parts = [item["text"] for item in sorted(row["items"], key=lambda item: item["left"])]
+        line = parts[0]
+        for part in parts[1:]:
+            line += part if line.endswith((",", "，", "\t")) or part.startswith((",", "，", "\t")) else f",{part}"
+        lines.append(line)
+    return lines
+
+
+def _validate_ocr_table(lines: list[str]) -> tuple[str, tuple[str, str] | None]:
+    """Reject high-confidence garbage and incomplete table structures safely."""
+    normalized_lines = [line.replace("，", ",").strip() for line in lines if line.strip()]
+    text = "\n".join(normalized_lines)
+    compact = re.sub(r"\s", "", text)
+    suspicious_count = sum(compact.count(marker) for marker in ("?", "�", "锟斤拷", "烫烫", "屯屯"))
+    if re.search(r"[?？�]{2,}", compact) or (compact and suspicious_count / len(compact) >= 0.08):
+        return "", (
+            "OCR_GARBLED_TEXT",
+            "OCR 结果疑似乱码（出现连续问号、替换字符或异常编码文本）；不能作为预检通过依据。"
+            "请重新上传包含真实中文像素的清晰图片，或改用人工录入。",
+        )
+
+    parsed_rows = [_split_text_line(line) for line in normalized_lines]
+    column_counts = [len(values) for values in parsed_rows]
+    if len(parsed_rows) < 2 or not column_counts or column_counts[0] < 2 or any(
+        count != column_counts[0] for count in column_counts[1:]
+    ):
+        return "", (
+            "OCR_STRUCTURE_INCOMPLETE",
+            "OCR 结果未形成至少两行且列数一致的表格，列分隔符可能缺失或文本行重建不完整；"
+            "不能作为预检通过依据。请重新上传清晰、端正且保留表头/分隔符的图片，或改用人工录入。",
+        )
+    if any(not value.strip() for values in parsed_rows for value in values):
+        return "", (
+            "OCR_STRUCTURE_INCOMPLETE",
+            "OCR 结果存在空白列，表格结构不完整；不能作为预检通过依据。"
+            "请重新上传清晰、完整的图片，或改用人工录入。",
+        )
+    return text, None
+
+
+def _env_float(name: str, default: float, *, minimum: float, maximum: float | None = None) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    value = max(value, minimum)
+    return min(value, maximum) if maximum is not None else value
+
+
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    try:
+        return max(int(os.environ.get(name, str(default))), minimum)
+    except (TypeError, ValueError):
+        return default
 
 
 class TextLayerBackend:
@@ -166,6 +425,36 @@ class TextLayerBackend:
         return None
 
 
+class WordTextBackend:
+    """Extract paragraphs and tables from modern Word documents."""
+
+    name = "word_text"
+
+    def available(self) -> bool:
+        try:
+            return importlib.util.find_spec("docx") is not None
+        except Exception:
+            return False
+
+    def extract(self, file_path: str | Path) -> str | None:
+        path = Path(file_path)
+        if path.suffix.lower() != ".docx":
+            return None
+        try:
+            from docx import Document  # type: ignore
+
+            document = Document(str(path))
+            lines = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+            for table in document.tables:
+                for row in table.rows:
+                    values = [cell.text.strip() for cell in row.cells]
+                    if any(values):
+                        lines.append("\t".join(values))
+            return "\n".join(lines).strip() or None
+        except Exception:
+            return None
+
+
 def detect_kind(file_path: str | Path) -> str:
     """Classify file kind by extension."""
     suffix = Path(file_path).suffix.lower()
@@ -175,6 +464,8 @@ def detect_kind(file_path: str | Path) -> str:
         return "excel"
     if suffix == ".pdf":
         return "pdf"
+    if suffix in {".doc", ".docx"}:
+        return "word"
     if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
         return "image"
     return "unknown"
@@ -182,17 +473,22 @@ def detect_kind(file_path: str | Path) -> str:
 
 def default_backends() -> list[ExtractBackend]:
     """Build cascaded extraction backends with their own availability probes."""
-    return [LLMVisionBackend(), OcrEngineBackend(), TextLayerBackend()]
+    # Text-bearing PDF/DOCX remains cheap and deterministic. Images then use
+    # local OCR first, with the optional remote backend only as a final fallback.
+    return [TextLayerBackend(), WordTextBackend(), OcrEngineBackend(), LLMVisionBackend()]
 
 
-def extract_with_cascade(
+def _extract_with_cascade_details(
     file_path: str | Path,
     backends: list[ExtractBackend] | None = None,
-) -> tuple[str | None, str]:
-    """Try available backends in order and return extracted text plus method."""
+) -> tuple[str | None, str, dict[str, Any]]:
+    last_metadata: dict[str, Any] = {}
     for backend in backends or default_backends():
         try:
             if not backend.available():
+                metadata = getattr(backend, "last_metadata", None)
+                if metadata:
+                    last_metadata = dict(metadata)
                 continue
         except Exception:
             continue
@@ -200,9 +496,21 @@ def extract_with_cascade(
             text = backend.extract(file_path)
         except Exception:
             text = None
+        metadata = getattr(backend, "last_metadata", None)
+        if metadata:
+            last_metadata = dict(metadata)
         if text:
-            return text, backend.name
-    return None, "manual_required"
+            return text, backend.name, last_metadata
+    return None, "manual_required", last_metadata
+
+
+def extract_with_cascade(
+    file_path: str | Path,
+    backends: list[ExtractBackend] | None = None,
+) -> tuple[str | None, str]:
+    """Try available backends in order and return extracted text plus method."""
+    text, method, _ = _extract_with_cascade_details(file_path, backends)
+    return text, method
 
 
 def ingest_files(
@@ -242,13 +550,18 @@ def ingest_files(
                 )
             continue
 
-        if kind in {"excel", "pdf", "image"}:
-            text, method_used = extract_with_cascade(path, backends)
+        if kind in {"excel", "pdf", "image", "word"}:
+            text, method_used, metadata = _extract_with_cascade_details(path, backends)
             rows = _text_to_rows(text or "")
             if rows:
                 normalized[f"{stem}_intake"] = rows
                 extractions.append(
-                    FileExtraction(path.name, kind, method_used, len(rows), False)
+                    FileExtraction(
+                        path.name, kind, method_used, len(rows), False,
+                        confidence=metadata.get("confidence"),
+                        elapsed_seconds=metadata.get("elapsed_seconds"),
+                        column_count=metadata.get("column_count"),
+                    )
                 )
             else:
                 extractions.append(
@@ -258,7 +571,10 @@ def ingest_files(
                         "manual_required",
                         0,
                         True,
-                        "Unrecognized; manual entry required",
+                        str(metadata.get("message") or "未识别到可导入内容；需要人工处理。"),
+                        confidence=metadata.get("confidence"),
+                        elapsed_seconds=metadata.get("elapsed_seconds"),
+                        error_code=metadata.get("error_code") or "EXTRACTION_EMPTY",
                     )
                 )
             continue

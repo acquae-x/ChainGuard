@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
 
-from src.config_loader import load_risk_weights
+from src.config_loader import load_risk_weights, load_thresholds
 from src.game_model import _PAYOFF_WEIGHTS_DEFAULTS
-from src.parameter_calibration import calibrate_inventory_risk_weights, calibrate_trigger_threshold
 
 
 @dataclass(frozen=True)
@@ -33,22 +32,31 @@ class WeightManager:
         self,
         historical_data: Iterable[dict] | None = None,
     ) -> WeightSet:
-        records = list(historical_data or [])
-        raw = calibrate_inventory_risk_weights(records)
-        sample_size = int(raw.get("_sample_size", 0))
-        note = str(raw.get("_calibration_note", ""))
-        values = {k: float(v) for k, v in raw.items() if not k.startswith("_")}
-        source: Literal["expert", "calibrated"] = (
-            "expert" if "返回专家默认权重" in note else "calibrated"
-        )
+        """返回决策实际使用的库存风险权重——**始终是专家先验**。
+
+        这里过去会调 `calibrate_inventory_risk_weights` 并把结果直接用于决策，
+        存在两个严重问题：
+
+        1. 那个函数用事后结果当特征、与标签构成目标泄漏（详见
+           `src/feature_reconstruction.py` 模块说明），算出的权重不可信；
+        2. 更要命的是它**自动生效、没有任何人工审批**，与产品对外承诺的
+           "校准只给建议、人工确认后才影响决策"直接矛盾。
+
+        现在：主决策流水线只用专家先验。数据驱动权重必须走
+        `webapi/calibration_governance` 的治理流程——经样本外验证 + 管理员确认后
+        写入租户配置，由 `TenantContextBuilder` 读取生效。本类不再自行校准。
+        """
+        _ = historical_data  # 保留入参以兼容既有调用点；权重不再依赖它
+        expert = load_risk_weights()["inventory_risk_weights"]
+        values = {key: float(value) for key, value in expert.items()}
         _validate_plain_values(values)
         _validate_normalized(values, "inventory_risk_weights")
         return WeightSet(
             values=values,
-            source=source,
-            sample_size=sample_size,
-            method=str(raw.get("_method", "pearson_correlation")),
-            note=note or "库存风险权重由历史样本校准或专家默认配置提供",
+            source="expert",
+            sample_size=0,
+            method="expert_yaml",
+            note="主流水线使用专家先验；数据驱动权重需经校准治理流程人工确认后生效",
         )
 
     def resolve_decision_score_weights(
@@ -91,15 +99,22 @@ class WeightManager:
     ) -> dict[str, Any]:
         """Resolve inventory_risk_trigger threshold.
 
-        historical_data: iterable of record dicts, or None (treated as empty).
-        inventory_weights: the calibrated or expert weights used to compute
-                           proxy risk_index (must contain the 4 inventory risk keys).
-        Returns calibrate_trigger_threshold() result dict.
-        NOTE: Does not call _validate_normalized() - result is a single float, not
-              a weight vector.
+        与权重同理：触发阈值也不再由主流水线自行校准。
+
+        旧实现调 `calibrate_trigger_threshold`（取失败样本风险指数的 P25），
+        既依赖泄漏口径的代理特征，又只优化召回、不计误报代价，且同样自动生效。
+        数据驱动阈值现在走治理流程（成本敏感优化 + 人工确认），见
+        `src/supervised_calibration.calibrate_trigger_threshold_cost_sensitive`。
         """
-        records = list(historical_data) if historical_data is not None else []
-        return calibrate_trigger_threshold(records, inventory_weights)
+        _ = (historical_data, inventory_weights)
+        expert_trigger = load_thresholds()["inventory_warning"]["inventory_risk_trigger"]
+        return {
+            "value": float(expert_trigger),
+            "_source": "expert",
+            "_sample_size": 0,
+            "_method": "expert_yaml",
+            "_note": "主流水线使用专家阈值；数据驱动阈值需经校准治理流程人工确认后生效",
+        }
 
 
 def _validate_plain_values(values: dict[str, float]) -> None:

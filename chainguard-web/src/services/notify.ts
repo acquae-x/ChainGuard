@@ -4,7 +4,7 @@ import { pick } from './dataMode';
 import { apiGet, apiPost, apiRequest } from '../utils/request';
 
 export type NotificationKind = 'risk' | 'approval' | 'task';
-export type NotificationItem = { id: string; kind: NotificationKind; title: string; target: string; read: boolean };
+export type NotificationItem = { id: string; kind: NotificationKind | string; title: string; target: string; read: boolean; createdAt?: string };
 
 // 已读标记：后端 Phase 1 未提供 mark-read 端点，前端本地乐观维护（ADR §4 缺口-A，列 TODO）。
 const readIds = new Set<string>();
@@ -20,6 +20,7 @@ export async function getNotifications() {
         title: item.title,
         target: item.target,
         read: item.read ?? readIds.has(item.id),
+        createdAt: item.createdAt ?? item.created_at,
       }));
       return { data, unread: data.filter((item) => !item.read).length };
     },

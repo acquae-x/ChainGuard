@@ -29,11 +29,17 @@ def test_calibrate_thresholds_returns_default_thresholds():
     assert thresholds["debate"]["score_gap_trigger"] == 15
 
 
-def test_evaluate_decision_outcomes_returns_mock_result():
+def test_evaluate_decision_outcomes_reports_no_data_instead_of_inventing_numbers():
+    """无样本时必须返回 None，不得编造 average_score 82 / success_rate 0.76。
+
+    与 P0-2 同源：不可测量就说不可测量，捏造的"演示数字"会被下游当成真实历史表现。
+    """
     result = evaluate_decision_outcomes(historical_decisions=[])
 
-    assert result["status"] == "simulated"
-    assert result["average_score"] > 0
+    assert result["status"] == "no_data"
+    assert result["sample_size"] == 0
+    assert result["average_score"] is None
+    assert result["success_rate"] is None
     assert result["key_findings"]
 
 

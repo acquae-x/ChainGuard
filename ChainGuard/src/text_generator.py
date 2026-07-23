@@ -1,23 +1,92 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import socket
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
+# 数值一致性校验用：匹配文本里的数字（含小数、千分位逗号）
+_NUMBER_PATTERN = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+# 附在每个提示词末尾的数值纪律。
+#
+# 实测（deepseek-chat，8 次真实调用）：只写"不得新增数字"时仍有 88% 的返回被
+# 数值校验拦下，编造的清一色是**阈值**——"寻找成本评分不低于 60 的方案"这类。
+# 根因是 suggested_revision 这种字段的语义在诱导模型给目标值。因此这里不止说
+# "不许"，而是明确给出替代写法：只描述方向，不给数字。
+_NUMBER_DISCIPLINE = (
+    "\n严格约束（违反则整段作废）：\n"
+    "1. 只能引用上面已给出的数字，一个都不能新增、修改或推算。\n"
+    "2. 禁止提出任何目标值、阈值、区间或百分比，包括『不低于X』『控制在X以内』\n"
+    "   『提升至X』『降低到X』这类表述。需要表达改进方向时只用定性描述，\n"
+    "   例如『选择成本分值更高的方案』，而不是『选择成本分值不低于60的方案』。\n"
+    "3. 不要自行给论点编号，编号由程序处理。"
+)
+# 浮点比较容差：仅用于消化 28 与 28.0 这类写法差异，不做量纲换算
+_NUMBER_TOLERANCE = 1e-6
+
+OLLAMA_ENDPOINT = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "qwen2.5"
+# DeepSeek 是 OpenAI 兼容接口，因此走 chat/completions 而非 Ollama 的 /api/generate
+DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODEL = "deepseek-chat"
+
 
 class TextGenerator:
+    """把代码算好的结论翻译成自然语言。
+
+    两条后端可选，行为完全一致地受同一套安全约束：
+
+      - ``ollama``   本地模型（默认 qwen2.5），离线可用
+      - ``deepseek`` 远程 API，需要 DEEPSEEK_API_KEY
+
+    不变的安全属性（接入新后端时**不得**削弱）：
+
+      1. 模型返回必须是 JSON 且通过 ``_matches_schema`` 结构校验才被采用；
+      2. 任何异常/超时/结构不符一律落确定性模板，不抛给调用方；
+      3. 每段输出自带 ``llm_used`` 与 ``model_name``，界面据此区分
+         "算法结论"与"AI 生成解释"。
+
+    后端选择顺序：显式 provider 参数 > CHAINGUARD_LLM_PROVIDER 环境变量 >
+    有 DEEPSEEK_API_KEY 则 deepseek > 否则 ollama。
+    显式传 endpoint 时固定按 ollama 处理（既有测试用不可达地址验证模板兜底，
+    不能因为环境里恰好有 key 就改走远程）。
+    """
+
     def __init__(
         self,
-        endpoint: str = "http://localhost:11434/api/generate",
-        model: str = "qwen2.5",
+        endpoint: str | None = None,
+        model: str | None = None,
         timeout: int = 15,
+        provider: str | None = None,
+        api_key: str | None = None,
     ) -> None:
-        self.endpoint = endpoint
-        self.model = model
+        self.provider = self._resolve_provider(provider, endpoint)
         self.timeout = timeout
+        if self.provider == "deepseek":
+            self.endpoint = endpoint or os.getenv("DEEPSEEK_API_URL") or DEEPSEEK_ENDPOINT
+            self.model = model or os.getenv("DEEPSEEK_MODEL") or DEEPSEEK_MODEL
+            self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY") or ""
+        else:
+            self.endpoint = endpoint or OLLAMA_ENDPOINT
+            self.model = model or OLLAMA_MODEL
+            self.api_key = ""
+
+    @staticmethod
+    def _resolve_provider(provider: str | None, endpoint: str | None) -> str:
+        if provider:
+            return provider.strip().lower()
+        configured = (os.getenv("CHAINGUARD_LLM_PROVIDER") or "").strip().lower()
+        if configured:
+            return configured
+        # 显式给了 endpoint 却没指定 provider：按本地 Ollama 处理（见类注释）
+        if endpoint:
+            return "ollama"
+        return "deepseek" if os.getenv("DEEPSEEK_API_KEY") else "ollama"
 
     def generate_rebuttal_content(
         self,
@@ -127,20 +196,76 @@ class TextGenerator:
         template: dict[str, Any],
         schema: dict[str, type],
     ) -> dict[str, Any]:
+        rejected_reason = ""
         try:
-            parsed = self._call_ollama_json(prompt)
-            if self._matches_schema(parsed, schema):
+            parsed = self._call_model_json(prompt)
+            if not self._matches_schema(parsed, schema):
+                rejected_reason = "schema_mismatch"
+            elif not self._numbers_consistent(parsed, prompt):
+                # 模型写出了输入里没有的数字：整段作废，绝不放行
+                rejected_reason = "number_mismatch"
+            else:
                 result = dict(parsed)
                 result["llm_used"] = True
                 result["model_name"] = self.model
                 return result
         except Exception:
-            pass
+            # 网络异常、超时、非 JSON——一律静默落模板。
+            # 这里刻意不外抛：表达层失败绝不能让整条决策链失败。
+            rejected_reason = "call_failed"
 
         result = dict(template)
         result["llm_used"] = False
         result["model_name"] = "template"
+        if rejected_reason:
+            # 落模板的原因要可观测，否则"为什么没用上大模型"只能靠猜
+            result["fallback_reason"] = rejected_reason
         return result
+
+    def _call_model_json(self, prompt: str) -> dict[str, Any]:
+        if self.provider == "deepseek":
+            return self._call_deepseek_json(prompt)
+        return self._call_ollama_json(prompt)
+
+    def _call_deepseek_json(self, prompt: str) -> dict[str, Any]:
+        if not self.api_key:
+            raise ValueError("DEEPSEEK_API_KEY 未配置")
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    # 数值由代码算好后写在 prompt 里，模型只负责组织语言。
+                    # 这条边界同时写进 system 与各 _build_*_prompt，双重约束。
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是供应链决策系统的表达层。只能把给定结论改写成通顺中文，"
+                            "必须原样使用输入中的数值与实体名称，禁止新增、修改或推算任何数字。"
+                            "只输出一个 JSON 对象，不要输出其它内容。"
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                # 低温度：表达层要的是稳定复述，不是创造性
+                "temperature": 0.2,
+                "stream": False,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        text = str(payload["choices"][0]["message"]["content"])
+        return json.loads(self._extract_json_text(text))
 
     def _call_ollama_json(self, prompt: str) -> dict[str, Any]:
         self._ensure_local_endpoint_available()
@@ -200,6 +325,58 @@ class TextGenerator:
         if not isinstance(payload, dict):
             return False
         return all(isinstance(payload.get(key), value_type) for key, value_type in schema.items())
+
+    # ----------------------------------------------------------------- 数值一致性
+    #
+    # 结构校验只管字段类型，管不了模型有没有把数字写错。而本系统对外的核心承诺是
+    # "所有数值由代码计算，LLM 只负责翻译成人话，绝不改数"——那就必须由代码强制，
+    # 不能只写在提示词里请求模型配合。
+    #
+    # 规则：生成文本里出现的每一个数字，都必须在权威输入（提示词，其中的数值全部
+    # 由代码算出）中出现过。出现输入里没有的数字 = 模型自行编造或推算，整段作废、
+    # 落模板。
+    #
+    # 刻意选择严格而非宽松：误判的代价是这一段文案退回模板（措辞变死板，
+    # 数值仍然正确、llm_used 如实标记为 False），漏判的代价是答辩现场
+    # AI 解释里的数字与算法结论对不上。两者不对等，因此宁可多退。
+
+    @staticmethod
+    def _collect_numbers(value: Any, sink: set[float]) -> None:
+        """递归收集任意结构里出现的数字。"""
+        if isinstance(value, bool):
+            return  # bool 是 int 的子类，但它不是业务数值
+        if isinstance(value, (int, float)):
+            sink.add(round(float(value), 6))
+            return
+        if isinstance(value, str):
+            for token in _NUMBER_PATTERN.findall(value):
+                try:
+                    sink.add(round(float(token.replace(",", "")), 6))
+                except ValueError:
+                    continue
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                TextGenerator._collect_numbers(key, sink)
+                TextGenerator._collect_numbers(item, sink)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                TextGenerator._collect_numbers(item, sink)
+
+    @classmethod
+    def _numbers_consistent(cls, generated: dict[str, Any], authoritative: str) -> bool:
+        """生成文本中的数字必须都来自权威输入。"""
+        allowed: set[float] = set()
+        cls._collect_numbers(authoritative, allowed)
+
+        produced: set[float] = set()
+        cls._collect_numbers(generated, produced)
+
+        for number in produced:
+            if not any(abs(number - candidate) <= _NUMBER_TOLERANCE for candidate in allowed):
+                return False
+        return True
 
     @staticmethod
     def _rebuttal_template(
@@ -363,7 +540,13 @@ class TextGenerator:
             f"事件：{context_data.get('event_title', '当前事件')}\n"
             f"物料：{context_data.get('material_name', '关键物料')}\n"
             f"A类关键订单数：{context_data.get('critical_orders_count', 0)}\n"
-            "返回 JSON，键名必须为 rebuttal_points, suggested_revision, accepted_tradeoff。"
+            # 必须写明类型：只说键名时模型会把 rebuttal_points 返回成一个整段字符串，
+            # 结构校验判失败 → 白白落模板。实测 deepseek-chat 与 qwen2.5 都会这样。
+            "返回 JSON，字段与类型必须严格如下：\n"
+            "  rebuttal_points: 字符串数组（3 条，每条一句独立论点）\n"
+            "  suggested_revision: 字符串\n"
+            "  accepted_tradeoff: 字符串\n"
+            + _NUMBER_DISCIPLINE
         )
 
     @staticmethod
@@ -384,8 +567,13 @@ class TextGenerator:
             f"A类关键订单数：{critical_orders_count}\n"
             f"最高分方案：{json.dumps(top_proposals, ensure_ascii=False)}\n"
             f"最终评分：{final_score:.1f}\n"
-            "返回 JSON，键名必须为 final_strategy, execution_plan, expected_effect, "
-            "rejected_opinions, manual_confirmation_points。"
+            "返回 JSON，字段与类型必须严格如下：\n"
+            "  final_strategy: 字符串\n"
+            "  execution_plan: 字符串数组（每条一个执行步骤）\n"
+            "  expected_effect: 对象（键为效果维度，值为字符串描述）\n"
+            "  rejected_opinions: 字符串数组\n"
+            "  manual_confirmation_points: 字符串数组\n"
+            + _NUMBER_DISCIPLINE
         )
 
     @staticmethod
@@ -402,6 +590,10 @@ class TextGenerator:
             f"场景描述：{scenario_desc}\n"
             f"事件：{event_title}\n"
             f"策略：{strategy_desc}\n"
-            "返回 JSON，键名必须为 failed_reason, improvement_strategy, recommended_pattern。"
+            "返回 JSON，字段与类型必须严格如下：\n"
+            "  failed_reason: 字符串\n"
+            "  improvement_strategy: 字符串\n"
+            "  recommended_pattern: 字符串\n"
+            + _NUMBER_DISCIPLINE
         )
 

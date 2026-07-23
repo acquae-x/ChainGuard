@@ -4,9 +4,14 @@
   "private": true,
   "description": "ChainGuard 企业级供应链中断应急决策 SaaS 前端",
   "scripts": {
-    "dev": "max dev",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=6144 max dev",
+    "dev:clean": "node -e \"require('fs').rmSync('src/.umi',{recursive:true,force:true})\" && npm run dev",
     "build": "max build",
-    "postbuild": "node scripts/generate-route-access-map.cjs"
+    "postbuild": "node scripts/generate-route-access-map.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:gate": "node scripts/run-acceptance-gate.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^5.3.7",
@@ -19,7 +24,16 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.14.12",
-    "typescript": "^5.5.4"
+    "@vitejs/plugin-react": "^4.7.0",
+    "cross-env": "^7.0.3",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
   }
 }

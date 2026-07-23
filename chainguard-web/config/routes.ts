@@ -7,7 +7,9 @@ const routes = [
       { path: '/user/login', component: '@/pages/User/Login' },
       { path: '/user/register', component: '@/pages/User/Register' },
       { path: '/user/join', component: '@/pages/User/Join' },
-      { path: '/user/reset', component: '@/pages/User/Reset' }
+      { path: '/user/reset', component: '@/pages/User/Reset' },
+      { path: '/user/sso-callback', component: '@/pages/User/SsoCallback' },
+      { path: '/user/profile', component: '@/pages/User/Profile' }
     ]
   },
   { path: '/onboarding', component: '@/pages/Onboarding' },
@@ -45,8 +47,8 @@ const routes = [
       { path: '/decision', redirect: '/decision/list' },
       { path: '/decision/generate/:incidentId', name: '方案生成', hideInMenu: true, component: '@/pages/Decision/Generate' },
       { path: '/decision/list', name: '方案列表', component: '@/pages/Decision/List' },
-      { path: '/decision/approval/:id', hideInMenu: true, component: '@/pages/Decision/Approval' },
-      { path: '/decision/approval', name: '审批中心', component: '@/pages/Decision/Approval' }
+        { path: '/decision/approval/:id', hideInMenu: true, component: '@/pages/Decision/Approval' },
+        { path: '/decision/approval', name: '审批中心', component: '@/pages/Decision/Approval' }
     ]
   },
   {
@@ -73,7 +75,6 @@ const routes = [
       { path: '/data/customer', name: '客户', access: 'canDataCustomer', component: '@/pages/Data/Customer' },
       { path: '/data/order', name: '订单', access: 'canDataOrder', component: '@/pages/Data/Order' },
       { path: '/data/inventory', name: '库存', access: 'canDataInventory', component: '@/pages/Data/Inventory' },
-      { path: '/data/logistics', name: '物流', access: 'canDataLogistics', component: '@/pages/Data/Logistics' },
       { path: '/data/import', name: '数据导入', component: '@/pages/Data/Import' }
     ]
   },
@@ -94,10 +95,10 @@ const routes = [
     icon: 'BarChartOutlined',
     access: 'canReport',
     routes: [
-      { path: '/report', redirect: '/report/executive' },
-      { path: '/report/executive', name: '经营看板', component: '@/pages/Report/Executive' },
-      { path: '/report/operation', name: '运营看板', component: '@/pages/Report/Operation' },
-      { path: '/report/response', name: '应急效果', component: '@/pages/Report/Response' }
+      { path: '/report', component: '@/pages/Report/index' },
+      { path: '/report/executive', name: '经营看板', access: 'canReportExecutive', component: '@/pages/Report/Executive' },
+      { path: '/report/operation', name: '运营看板', access: 'canReportOperation', component: '@/pages/Report/Operation' },
+      { path: '/report/response', name: '应急效果', access: 'canReportResponse', component: '@/pages/Report/Response' }
     ]
   },
   {

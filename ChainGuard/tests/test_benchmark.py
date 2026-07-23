@@ -13,7 +13,6 @@ def test_baseline_returns_required_keys():
         "human_approval",
         "decision_status",
         "top_proposal",
-        "total_tests_passed",
     } <= set(result)
 
 

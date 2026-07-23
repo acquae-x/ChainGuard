@@ -40,6 +40,7 @@ export async function getApprovalDetail(id: string) {
   return pick(
     async () => {
       const res = await apiGet<any>(`/approvals/${id}`);
+      try { res.decisionDetail = await apiGet<any>(`/incidents/${res.approval.incidentId}/decision-detail`); } catch { /* detail unavailable for legacy approval */ }
       const riskLevel = res.approval?.riskLevel as 'high' | 'medium' | 'low';
       return { ...res, alert: res.alert || buildAlert(riskLevel, res.approval?.costImpact || 0) };
     },
@@ -51,8 +52,8 @@ export async function getApprovalDetail(id: string) {
       const alternative = options.find((item) => item.tag === 'alternative') || proposal;
       const baseline = options.find((item) => item.tag === 'invalid') || proposal;
       const riskLevel = approval.riskLevel as 'high' | 'medium' | 'low';
-      const needsFinance = riskLevel === 'high' || (riskLevel === 'medium' && approval.costImpact > 50000);
-      const alert = buildAlert(riskLevel, approval.costImpact);
+      const needsFinance = riskLevel === 'high' || (riskLevel === 'medium' && (approval.costImpact ?? 0) > 50000);
+      const alert = buildAlert(riskLevel, approval.costImpact ?? 0);
       const chain = riskLevel === 'high'
         ? ['供应链负责人提交', '老板/总经理终批', `财务${approval.countersigned ? '已会签' : '并行会签'}`]
         : riskLevel === 'medium' && needsFinance
@@ -66,7 +67,7 @@ export async function getApprovalDetail(id: string) {
 }
 
 // 审批动作统一走 POST /approvals/{id}/{action}
-type ApprovalAction = 'approve' | 'reject' | 'recalc' | 'transfer' | 'submit' | 'withdraw' | 'countersign';
+type ApprovalAction = 'approve' | 'reject' | 'recalc' | 'transfer' | 'submit' | 'withdraw' | 'countersign' | 'ratify_approve' | 'ratify_object';
 
 async function runAction(id: string, action: ApprovalAction, values?: any) {
   return pick(
@@ -104,3 +105,5 @@ export async function recalcRequest(id: string, values: any) {
 export async function transfer(id: string, values: any) {
   return runAction(id, 'transfer', values);
 }
+export async function ratifyApprove(id: string) { return runAction(id, 'ratify_approve', {}); }
+export async function ratifyObject(id: string, values: any) { return runAction(id, 'ratify_object', values); }

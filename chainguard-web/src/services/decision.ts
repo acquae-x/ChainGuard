@@ -2,7 +2,7 @@
 import { currentUser } from './user';
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
-import { apiGet, apiPatch, apiPost } from '../utils/request';
+import { apiGet, apiPatch, apiPost, getToken } from '../utils/request';
 
 const actor = async () => (await currentUser())?.currentUser;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +65,13 @@ export async function getProposals() {
   );
 }
 
+export async function getExperienceCards() {
+  return pick(
+    async () => (await apiGet<{ data: API.ExperienceCard[] }>('/experiences')).data,
+    async () => [],
+  );
+}
+
 export async function saveDraft(incidentId: string, proposalId?: string) {
   return pick(
     async () => {
@@ -81,4 +88,40 @@ export async function getDraft(incidentId: string) {
     () => apiGet(`/incidents/${incidentId}/draft`),
     async () => workflowStore.getDraft(incidentId),
   );
+}
+
+// 决策就绪度：后端在推演前就能判断上下文数据是否齐备（blocking）以及哪些字段是估算的（degraded）。
+// 这个信号此前完全没被前端消费，用户可能对着数据不全的事件生成方案而不自知。
+export type DecisionReadiness = {
+  ready: boolean;
+  level: string;
+  blocking: { code: string; message: string }[];
+  degraded: string[];
+  checks?: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
+};
+
+export async function getDecisionReadiness(incidentId: string) {
+  return pick<DecisionReadiness>(
+    () => apiGet(`/incidents/${incidentId}/decision-readiness`),
+    async () => ({ ready: true, level: 'complete', blocking: [], degraded: [] }),
+  );
+}
+
+export async function getDecisionDetail(incidentId: string) {
+  return pick(() => apiGet(`/incidents/${incidentId}/decision-detail`), async () => ({ proposals: [], conflict: {}, rebuttal: {}, arbitration: {}, constraint_analysis: {} }));
+}
+
+export async function exportDecisionDetail(incidentId: string, format: 'json' | 'pdf') {
+  const response = await fetch(`/api/v1/incidents/${incidentId}/decision-detail/export?format=${format}`, { headers: { Authorization: `Bearer ${getToken() || ''}` }, credentials: 'include' });
+  if (!response.ok) {
+    // P0-3/P2-13：透出后端业务错误文案（如 PDF 依赖未安装），由调用方以 message 呈现
+    let detailMessage = `导出失败（${response.status}）`;
+    try {
+      const body = await response.json();
+      if (body?.message) detailMessage = body.message;
+    } catch { /* 非 JSON 错误体保持默认文案 */ }
+    throw new Error(detailMessage);
+  }
+  const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `decision-${incidentId}.${format}`; link.click(); URL.revokeObjectURL(link.href);
 }

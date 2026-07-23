@@ -4,7 +4,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { Button, Drawer, Form, Input, Modal, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ObjectPeek, RiskTag, StatusTag } from '@/components';
+import { ObjectPeek, RiskExplanationDrawer, RiskTag, StatusTag } from '@/components';
 import { createIncidentFromRisks, getRisks, ignoreRisk, markRiskWatching } from '@/services/risk';
 
 type RiskFilters = {
@@ -26,6 +26,7 @@ const filterLabels: Record<keyof RiskFilters, string> = {
 export default function RiskListPage() {
   const access = useAccess();
   const [drawer, setDrawer] = useState<API.Risk>();
+  const [explainRiskId, setExplainRiskId] = useState<string>();
   const [ignoreTarget, setIgnoreTarget] = useState<API.Risk>();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [filters, setFilters] = useState<RiskFilters>({});
@@ -46,15 +47,15 @@ export default function RiskListPage() {
     { title: '发现时间', dataIndex: 'foundAt', valueType: 'dateTime' },
     { title: '状态', dataIndex: 'status', render: (_, row) => <StatusTag status={row.status} /> },
     { title: '操作', valueType: 'option', render: (_, row) => {
-      const actions: ReactNode[] = [];
+      // A03：解释入口只需 risk:view（列表可见即可解释），不新增权限码。
+      const actions: ReactNode[] = [<Button key="explain" type="link" onClick={() => setExplainRiskId(row.id)}>风险解释</Button>];
       if (access.canCreateIncident) actions.push(<Button key="create" type="link" onClick={() => setDrawer(row)}>创建应急事件</Button>);
       if (access.canManageRisk) actions.push(
         <Button key="watch" type="link" onClick={async () => { await markRiskWatching(row.id); actionRef.current?.reload(); message.success('已标记观察'); }}>标记观察</Button>,
         <Button key="ignore" type="link" danger onClick={() => setIgnoreTarget(row)}>忽略</Button>,
       );
-      return actions.length ? actions : row.incidentId
-        ? [<Button key="view" type="link" onClick={() => history.push(`/incident/${row.incidentId}?risk=${row.id}`)}>查看关联事件</Button>]
-        : '-';
+      if (row.incidentId) actions.push(<Button key="view" type="link" onClick={() => history.push(`/incident/${row.incidentId}?risk=${row.id}`)}>查看关联事件</Button>);
+      return actions;
     } },
   ];
 
@@ -105,6 +106,7 @@ export default function RiskListPage() {
         history.push(`/incident/${created.id}`);
       }}>合并创建一个事件</Button> : null}
     />
+    <RiskExplanationDrawer riskId={explainRiskId} open={!!explainRiskId} onClose={() => setExplainRiskId(undefined)} />
     <Drawer title="高级筛选" width={420} open={advancedOpen} onClose={() => setAdvancedOpen(false)}>
       <Form form={advancedForm} layout="vertical" initialValues={filters} onFinish={(values) => { setFilters((current) => ({ ...current, ...values })); setAdvancedOpen(false); }}>
         <Form.Item name="material" label="物料"><Input allowClear /></Form.Item>

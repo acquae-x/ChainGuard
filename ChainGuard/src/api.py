@@ -49,11 +49,12 @@ app.include_router(api_router)
 
 
 def _countersign_scheduler() -> None:
-    """Run the first lightweight background scan every five minutes."""
-    from src.webapi.routers.business import release_expired_countersigns
+    """Run workflow timeout and overdue-task scans every five minutes."""
+    from src.webapi.routers.business import release_expired_countersigns, release_overdue_tasks
     while True:
         try:
             release_expired_countersigns()
+            release_overdue_tasks()
         except Exception as error:
             log_event("countersign_scheduler_failed", exception=type(error).__name__)
         time.sleep(300)
@@ -61,6 +62,9 @@ def _countersign_scheduler() -> None:
 
 @app.on_event("startup")
 def start_countersign_scheduler() -> None:
+    if settings.scheduler_disabled:
+        log_event("countersign_scheduler_disabled")
+        return
     threading.Thread(target=_countersign_scheduler, name="chainguard-countersign-scheduler", daemon=True).start()
 
 def _load_api_keys() -> dict[str, str]:
@@ -137,6 +141,11 @@ def health(role: str = Depends(require("admin"))) -> dict[str, object]:
 
 @app.get("/metrics", deprecated=True)
 def metrics(role: str = Depends(require("admin"))) -> PlainTextResponse:
+    # Refresh the gauge at scrape time too, so restarts do not report a stale zero.
+    from src.webapi.database import SessionLocal
+    from src.webapi.jobs import sync_jobs_pending_metric
+    with SessionLocal() as db:
+        sync_jobs_pending_metric(db)
     return PlainTextResponse(Metrics.render(), media_type="text/plain; version=0.0.4")
 
 
@@ -378,3 +387,40 @@ def _risk_index(
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+# --------------------------------------------------------------------------
+# 演示/单机部署：直接托管构建好的前端
+#
+# 目的是让答辩现场只跑一个进程、一个端口：不需要 umi dev（首屏要现编译、
+# 默认堆下会 OOM、崩溃后 src/.umi 还会残留损坏产物），也不需要反向代理，
+# 因而不存在前后端端口错配和 CORS 这两类现场事故。
+#
+# 仅当构建产物存在时才启用，因此对开发与 CI 完全无影响（那里没有 dist）。
+# 路由注册在所有 API 路由之后，FastAPI 按注册顺序匹配，兜底路由不会遮蔽
+# /api/v1、/healthz、/readyz、/docs 等任何既有路径。
+# --------------------------------------------------------------------------
+
+def _web_dist() -> Path | None:
+    configured = os.getenv("CHAINGUARD_WEB_DIST")
+    candidate = Path(configured) if configured else Path(__file__).resolve().parents[2] / "chainguard-web" / "dist"
+    return candidate if (candidate / "index.html").is_file() else None
+
+
+_WEB_DIST = _web_dist()
+
+if _WEB_DIST is not None:
+    from fastapi.responses import FileResponse
+
+    @app.get("/", include_in_schema=False)
+    def _spa_root() -> FileResponse:
+        return FileResponse(_WEB_DIST / "index.html")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa_fallback(full_path: str) -> FileResponse:
+        """静态文件命中就返回文件，否则回 index.html 交给前端路由。"""
+        target = (_WEB_DIST / full_path).resolve()
+        # 防目录穿越：请求路径必须仍落在 dist 内，否则一律回 index.html
+        if target.is_file() and target.is_relative_to(_WEB_DIST.resolve()):
+            return FileResponse(target)
+        return FileResponse(_WEB_DIST / "index.html")

@@ -2,12 +2,12 @@
 // API 模式的容量/文件可用性预检以服务端结果为准，前端仅保留字段映射交互预览。
 // api 模式：基础资料表读写走 /data/{type}；导入 commit 走后端多步流水线
 // upload → preflight → confirm → execute → 轮询进度（保留原始 File 上传，服务端解析落库）。
-// logistics（物流）后端无对应 resource_type，保留 mock。
 import * as XLSX from 'xlsx';
 import { customers, inventories, materials, orders, suppliers } from './mockData';
 import { appendAudit } from './workflowStore';
 import { isApiMode, pick } from './dataMode';
 import { apiGet, apiPost } from '../utils/request';
+import { normalizeImportHistoryJob } from './importHistory';
 
 const API_RESOURCE_TYPES = new Set(['material', 'supplier', 'customer', 'order', 'inventory']);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -16,6 +16,7 @@ export type ImportType = 'material' | 'supplier' | 'customer' | 'order' | 'inven
 export type ImportFieldType = 'string' | 'number' | 'date' | 'enum';
 export type ImportField = {
   key: string;
+  apiKey?: string;
   label: string;
   aliases: string[];
   type: ImportFieldType;
@@ -74,12 +75,12 @@ const importDefinitions: Record<ImportType, { label: string; sheetName: string; 
     label: '物料',
     sheetName: '物料模板',
     fields: [
-      { key: 'id', label: '物料编号', aliases: ['物料编码', '编码', 'sku', 'materialcode'], type: 'string', required: true, unique: true },
-      { key: 'name', label: '物料名称', aliases: ['名称', '品名', 'materialname'], type: 'string', required: true },
+      { key: 'id', apiKey: 'material_id', label: '物料编号', aliases: ['物料编码', '编码', 'sku', 'materialcode'], type: 'string', required: true, unique: true },
+      { key: 'name', apiKey: 'material_name', label: '物料名称', aliases: ['名称', '品名', 'materialname'], type: 'string', required: true },
       { key: 'category', label: '分类', aliases: ['物料分类', '类别', 'category'], type: 'string', required: true },
       { key: 'stock', label: '库存数量', aliases: ['库存', '现有库存', 'stock'], type: 'number' },
       { key: 'safety', label: '安全库存', aliases: ['安全库存数量', 'safetystock'], type: 'number' },
-      { key: 'cost', label: '单位成本', aliases: ['成本', '单价', 'cost'], type: 'number' }
+      { key: 'cost', apiKey: 'standard_cost', label: '单位成本', aliases: ['成本', '单价', 'cost'], type: 'number' }
     ],
     sample: { 物料编号: 'MAT-001', 物料名称: 'MCU-A9', 分类: '芯片', 库存数量: 1200, 安全库存: 3000, 单位成本: 18.5 }
   },
@@ -157,19 +158,18 @@ function similarity(left: string, right: string) {
   return 1 - matrix[left.length][right.length] / Math.max(left.length, right.length);
 }
 
-const logisticsRows: any[] = [{ id: 'log-1', line: '沪深干线', eta: '2026-07-11', status: 'watching' }];
-
 export async function getDataTable(type: string) {
   return pick(
     async () => {
-      // logistics 无后端资源，回退 mock
+      // 后端没有对应 resource_type 的类型一律返回空集，不回退 mock：
+      // 演示行和真实主数据在界面上长得一模一样，回退等于把演示数据冒充成租户数据。
       if (!API_RESOURCE_TYPES.has(type)) {
-        return { data: logisticsRows, total: logisticsRows.length, success: true };
+        return { data: [], total: 0, success: true, unavailable: true };
       }
       return apiGet(`/data/${type}`);
     },
     async () => {
-      const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories, logistics: logisticsRows };
+      const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories };
       return { data: map[type] || [], total: (map[type] || []).length, success: true };
     },
   );
@@ -192,16 +192,19 @@ async function createRecordMock(type: string, values: { name: string; remark?: s
   const id = `${type}-${Date.now()}`;
   const name = values.name?.trim();
   if (!name) throw new Error('名称不能为空');
-  const record: Record<string, any> = (
+  const record: Record<string, any> | null = (
     type === 'material' ? { id, name, category: '未分类', stock: 0, safety: 0, cost: 0 }
     : type === 'supplier' ? { id, name, status: '正常', leadTime: 7, supplierPrice: 0 }
     : type === 'customer' ? { id, name, customerLevel: 'C', contract: values.remark || '—', owner: '销售/客服' }
     : type === 'order' ? { id, orderNo: name, customer: '—', dueAt: new Date().toISOString().slice(0, 10), amount: 0, profit: 0, status: 'pending' }
     : type === 'inventory' ? { id, warehouse: name, material: '—', quantity: 0, supportHours: 0, status: 'new' }
-    : { id, line: name, eta: new Date().toISOString().slice(0, 10), status: 'watching' }
+    // 原先这里的兜底分支是物流线路的形状（物流已下架）。未知类型不再静默套用
+    // 某一种形状，否则会凭空造出一条谁也说不清归属的记录。
+    : null
   );
-  const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories, logistics: logisticsRows };
-  (map[type] || logisticsRows).unshift(record);
+  if (!record) throw new Error(`未知的资料类型：${type}`);
+  const map: Record<string, any[]> = { material: materials, supplier: suppliers, customer: customers, order: orders, inventory: inventories };
+  map[type].unshift(record);
   appendAudit('新建资料', type, id, name, { remark: values.remark || '' });
   return record;
 }
@@ -227,7 +230,7 @@ export async function getFieldMapping(type: ImportType, headers: string[] = []) 
       .filter((field) => !used.has(field.key))
       .map((field) => ({
         field,
-        score: Math.max(...[field.label, field.key, ...field.aliases].map((name) => similarity(sourceName, normalize(name))))
+        score: Math.max(...[field.label, field.key, field.apiKey, ...field.aliases].filter(Boolean).map((name) => similarity(sourceName, normalize(name))))
       }))
       .sort((a, b) => b.score - a.score);
     const best = ranked[0];
@@ -235,6 +238,37 @@ export async function getFieldMapping(type: ImportType, headers: string[] = []) 
     return { source, target: best?.score >= 0.45 ? best.field.key : undefined, confidence: best?.score || 0 };
   });
   return { type, fields: definition.fields, matches };
+}
+
+const enterpriseRequiredTargets: Partial<Record<ImportType, string[]>> = {
+  material: ['material_id'],
+};
+
+/**
+ * Enterprise OCR/Word/PDF review reuses the same aliases and fuzzy matcher as
+ * the spreadsheet wizard, while returning the canonical keys expected by the
+ * existing confirm API's fieldMapping contract.
+ */
+export async function getEnterpriseFieldMapping(type: string, headers: string[] = []) {
+  if (type !== 'material') return { type, fields: [] as ImportField[], matches: [] as FieldMatch[] };
+  const importType = type as ImportType;
+  const result = await getFieldMapping(importType, headers);
+  const definition = importDefinitions[importType];
+  const supportedTargets = new Set(['material_id', 'material_name', 'category', 'standard_cost']);
+  const mappingFields = definition.fields.filter((field) => supportedTargets.has(field.apiKey || field.key));
+  const targetByUiKey = new Map(mappingFields.map((field) => [field.key, field.apiKey || field.key]));
+  const required = new Set(enterpriseRequiredTargets[importType] || []);
+  return {
+    type,
+    fields: mappingFields.map((field) => {
+      const key = field.apiKey || field.key;
+      return { ...field, key, required: required.has(key) };
+    }),
+    matches: result.matches.map((match) => ({
+      ...match,
+      target: match.target ? targetByUiKey.get(match.target) : undefined,
+    })),
+  };
 }
 
 export async function getImportTemplate(type: ImportType) {
@@ -322,6 +356,20 @@ export async function commitImport(values: CommitParams): Promise<ImportCommitRe
         preflight = { status: 'failed', result: { error: '预检执行失败' } };
       }
       const preflightFailed = preflight?.status === 'failed' || preflight?.result?.canProceed === false;
+      // P1-4：磁盘不足与解析失败都是硬闸门，"仍要导入"不适用
+      const hardBlocked = preflight?.result?.verdict === 'INSUFFICIENT_DISK' || preflight?.result?.verdict === 'PARSE_ERROR';
+      if (hardBlocked) {
+        return {
+          ok: false,
+          batchId: jobId,
+          success: 0,
+          failed: values.validation.total,
+          total: values.validation.total,
+          attempted: 0,
+          preflightBlocked: true,
+          preflightReport: preflight?.result ?? preflight,
+        };
+      }
       if (preflightFailed && !values.force) {
         return {
           ok: false,
@@ -385,18 +433,10 @@ export async function getImportHistory() {
     async () => {
       const res = await apiGet<any>('/imports');
       const list: any[] = Array.isArray(res) ? res : res.data || [];
-      const data = list.map((job) => ({
-        id: job.id,
-        type: job.importType || job.type || '-',
-        success: job.result?.success ?? job.result?.imported ?? 0,
-        failed: job.result?.failed ?? 0,
-        operator: job.operator || '-',
-        time: job.createdAt || job.updatedAt || '-',
-        status: job.status,
-      }));
+      const data = list.map(normalizeImportHistoryJob);
       return { data };
     },
-    async () => ({ data: importBatches }),
+    async () => ({ data: importBatches.map(normalizeImportHistoryJob) }),
   );
 }
 

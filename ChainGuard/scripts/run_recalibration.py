@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.drift_monitor import load_historical_decisions, run_recalibration_cycle
+from src.drift_monitor import load_historical_decisions, run_recalibration_cycle  # noqa: E402 - 需先完成上面的 sys.path 引导
 
 
 def main() -> None:

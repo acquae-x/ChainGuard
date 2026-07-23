@@ -37,6 +37,7 @@ type RequestOptions = {
   data?: unknown;
   params?: Record<string, unknown>;
   headers?: Record<string, string>;
+  timeoutMs?: number;
   skipAuth?: boolean;
   // 静默模式：不弹全局 message（用于探针 / 调用方自行处理）
   silent?: boolean;
@@ -55,7 +56,12 @@ function normalizeError(err: any): ApiError {
     error.httpStatus = response.status;
     // 开发代理在后端不可达时会返回 502/503/504，而非浏览器层面的无响应错误。
     // 这同样属于后端不可用，应触发显式降级黄条。
-    error.isNetwork = [502, 503, 504].includes(response.status);
+    //
+    // 但 503 也被后端用于业务级拒绝（如 CG-2802 凭证加密未启用），那种响应带完整的
+    // {code,message,traceId} 错误信封。把它也判成网络故障会告诉管理员"后端服务暂不
+    // 可用、数据可能为离线演示数据"——后端其实是健康的，真正该做的是去配加密密钥。
+    // 因此：带错误码的响应一律按业务错误处理，只有裸的 502/503/504 才算后端不可达。
+    error.isNetwork = [502, 503, 504].includes(response.status) && !body.code;
     return error;
   }
   // 无响应 → 网络错误 / 超时
@@ -77,7 +83,7 @@ async function core<T>(url: string, options: RequestOptions, attempt = 0): Promi
       data: options.data,
       params: options.params,
       headers,
-      timeout: TIMEOUT,
+      timeout: options.timeoutMs ?? TIMEOUT,
     });
   } catch (raw: any) {
     const error = normalizeError(raw);
@@ -118,6 +124,9 @@ export function apiPost<T = any>(url: string, data?: unknown, options: RequestOp
 }
 export function apiPatch<T = any>(url: string, data?: unknown, options: RequestOptions = {}) {
   return core<T>(url, { ...options, method: 'PATCH', data });
+}
+export function apiPut<T = any>(url: string, data?: unknown, options: RequestOptions = {}) {
+  return core<T>(url, { ...options, method: 'PUT', data });
 }
 export function apiDelete<T = any>(url: string, options: RequestOptions = {}) {
   return core<T>(url, { ...options, method: 'DELETE' });

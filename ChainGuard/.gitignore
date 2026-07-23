@@ -11,7 +11,13 @@ tests/_runtime_tmp/
 *.bak
 *.db-journal
 *.db
+# 验收脚本生成的一次性租户库（phase5b_*_<uuid>.sqlite 等）
+*.sqlite
+*.sqlite-journal
+data/confirmation_test_*.jsonl
 mt_probe.db
+data/audit_log.jsonl
 data/audit_log.*.jsonl
 demo_assets/enterprise/database/chainguard_enterprise_demo.*.db
 backups/
+output/

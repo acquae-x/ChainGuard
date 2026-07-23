@@ -24,7 +24,7 @@ class _Metrics:
 
     def _setup_backend(self) -> None:
         try:
-            from prometheus_client import CollectorRegistry, Counter, Histogram, generate_latest
+            from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
         except Exception:
             self._prometheus = False
             self._decisions: dict[str, int] = {}
@@ -32,6 +32,7 @@ class _Metrics:
             self._latency_count = 0
             self._latency_sum = 0.0
             self._http: dict[tuple[str, str, str], int] = {}
+            self._jobs_pending = 0
             return
 
         self._prometheus = True
@@ -65,6 +66,11 @@ class _Metrics:
             "chainguard_http_latency_ms",
             "HTTP request latency in milliseconds.",
             ["method", "path"],
+            registry=self._registry,
+        )
+        self._jobs_pending_gauge = Gauge(
+            "chainguard_jobs_pending",
+            "Current ChainGuard jobs in pending or running state.",
             registry=self._registry,
         )
 
@@ -104,6 +110,14 @@ class _Metrics:
             key = (method, path, str(status))
             self._http[key] = self._http.get(key, 0) + 1
 
+    def set_jobs_pending(self, count: int) -> None:
+        value = max(int(count), 0)
+        with self._lock:
+            if self._prometheus:
+                self._jobs_pending_gauge.set(value)
+            else:
+                self._jobs_pending = value
+
     def render(self) -> str:
         with self._lock:
             if self._prometheus:
@@ -141,6 +155,11 @@ class _Metrics:
             ])
             for (method, path, status), count in sorted(self._http.items()):
                 lines.append(f'chainguard_http_requests_total{{method="{_escape_label(method)}",path="{_escape_label(path)}",status="{_escape_label(status)}"}} {count}')
+            lines.extend([
+                "# HELP chainguard_jobs_pending Current ChainGuard jobs in pending or running state.",
+                "# TYPE chainguard_jobs_pending gauge",
+                f"chainguard_jobs_pending {self._jobs_pending}",
+            ])
             return "\n".join(lines) + "\n"
 
 

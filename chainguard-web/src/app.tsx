@@ -1,12 +1,10 @@
 import { history } from '@umijs/max';
-import { Button, Dropdown, Tag, message } from 'antd';
-import { LogoutOutlined, PlusOutlined, QuestionCircleOutlined, SwapOutlined, UserOutlined } from '@ant-design/icons';
 import type { RunTimeLayoutConfig } from '@umijs/max';
+import { App } from 'antd';
 import theme from './theme';
-import { currentUser, logout, switchDemoRole } from './services/user';
-import { roleNames } from './services/mockData';
-import { DegradeBanner, GlobalSearch, NotificationBell } from './components';
-import { isApiMode } from './services/dataMode';
+import { currentUser } from './services/user';
+import { DegradeBanner } from './components';
+import HeaderActions from './components/HeaderActions';
 
 export async function getInitialState(): Promise<{ currentUser?: API.User; tenant?: API.Tenant; token?: string }> {
   const result = await currentUser();
@@ -16,7 +14,6 @@ export async function getInitialState(): Promise<{ currentUser?: API.User; tenan
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   const user = initialState?.currentUser;
   const tenant = initialState?.tenant;
-  const canCreateIncident = user?.permissions.includes('risk:event:create');
   return {
     title: 'ChainGuard',
     logo: false,
@@ -28,44 +25,16 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       if (!user && !history.location.pathname.startsWith('/user')) {
         history.push('/user/login');
       }
+      if (user?.mustChangePassword && history.location.pathname !== '/user/profile') history.push('/user/profile');
     },
-    actionsRender: () => [
-      <GlobalSearch key="search" />,
-      canCreateIncident ? <Button key="create" type="primary" icon={<PlusOutlined />} onClick={() => history.push('/risk/list')}>上报异常</Button> : null,
-      <NotificationBell key="notice" />,
-      !isApiMode() ? <Button key="help" type="text" icon={<QuestionCircleOutlined />} onClick={() => history.push('/onboarding')}>演练</Button> : null,
-      <Tag key="tenant" color="blue">{tenant?.name}</Tag>,
-      <Dropdown key="user" trigger={['click']} menu={{
-        items: [
-          { key: 'profile', icon: <UserOutlined />, label: '个人设置' },
-          !isApiMode() && tenant?.demoDataFlag ? {
-            key: 'switch-role',
-            icon: <SwapOutlined />,
-            label: '切换角色（仅演示模式）',
-            children: (Object.entries(roleNames) as [API.RoleCode, string][]).map(([code, label]) => ({ key: `role:${code}`, label }))
-          } : null,
-          { type: 'divider' },
-          { key: 'logout', icon: <LogoutOutlined />, label: '退出' }
-        ],
-        onClick: async ({ key }) => {
-          if (key === 'profile') message.info('个人设置即将开放');
-          if (key === 'logout') {
-            await logout();
-            history.push('/user/login');
-          }
-          if (key.startsWith('role:')) {
-            await switchDemoRole(key.slice(5) as API.RoleCode);
-            window.location.assign('/dashboard');
-          }
-        }
-      }}><Button type="text">{user?.name || '未登录'}</Button></Dropdown>
-    ],
-    // 降级提示黄条：演示数据模式 / 后端不可用（Phase 2 §2.2）
+    // P1-3：顶栏操作区整体交给响应式 HeaderActions，窄屏收纳到「更多」，禁止横向溢出。
+    actionsRender: () => [<HeaderActions key="actions" user={user} tenant={tenant} />],
+    // P1-14：全局挂载 antd App，提供 message/Modal/notification 上下文，页面改用 App.useApp() 后不再触发静态方法警告。
     childrenRender: (children) => (
-      <>
+      <App component={false}>
         <DegradeBanner />
         {children}
-      </>
+      </App>
     ),
   };
 };

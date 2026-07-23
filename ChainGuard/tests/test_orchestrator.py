@@ -39,7 +39,9 @@ def test_run_demo_preserves_fixed_case_risk_and_scores():
     scores = _proposal_scores(result)
 
     assert 0 <= result.inventory_risk["inventory_risk_index"] <= 100
-    assert result.risk_weights["_inventory_weight_source"] == "calibrated"
+    # 演示流水线必须用专家先验：数据驱动权重需经校准治理流程人工确认后才生效，
+    # 不能像过去那样在后台自动套用（且那套权重还是泄漏口径算出来的）
+    assert result.risk_weights["_inventory_weight_source"] == "expert"
     for agent_name in ("采购 Agent", "物流 Agent", "财务 Agent"):
         assert 0 <= scores[agent_name] <= 100
 

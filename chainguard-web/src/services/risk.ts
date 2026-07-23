@@ -2,7 +2,7 @@
 import { currentUser } from './user';
 import { appendAudit, workflowStore } from './workflowStore';
 import { pick } from './dataMode';
-import { apiGet, apiPatch, apiPost } from '../utils/request';
+import { apiGet, apiPatch, apiPost, apiPut } from '../utils/request';
 
 const actor = async () => (await currentUser())?.currentUser;
 
@@ -71,11 +71,76 @@ export async function markRiskWatching(riskId: string) {
   );
 }
 
-// 预警规则暂无后端端点，保留 mock（ADR §4 缺口，列 TODO）。
+// A03 实时风险解释：api 模式打后端真实解释；mock 模式保持独立，不共用数据源。
+export async function getRiskExplanation(riskId: string) {
+  return pick(
+    () => apiGet(`/risks/${riskId}/explanation`),
+    async () => {
+      const risk = workflowStore.listRisks().find((item) => item.id === riskId);
+      if (!risk) throw new Error('风险不存在');
+      // mock 模式没有结构化实体，如实返回"不可解释"，不在演示态编造驱动因素。
+      return {
+        available: false,
+        code: 'CG-A035',
+        message: 'mock 模式没有结构化实体数据，风险解释仅在 api 模式可用。',
+        risk: { id: risk.id, code: risk.code, level: risk.level, score: risk.score, rule: risk.rule, status: risk.status, foundAt: risk.foundAt, objectName: risk.objectName, type: risk.type },
+        verdict: null,
+        drivers: [],
+        deltas: null,
+        evidence: [],
+        provenance: { scope: 'resource_type', batches: [] },
+        decisionLink: null,
+        limitations: [{ code: 'CG-A035', message: 'mock 模式没有结构化实体数据，风险解释仅在 api 模式可用。' }],
+      };
+    },
+  );
+}
+
+// A04 影响范围：这条风险波及了哪些真实业务对象。mock 模式无结构化实体，如实说不可用，
+// 不用 mockData 里那批没有外键关系的记录去凑一个"看起来像影响范围"的东西。
+export async function getRiskImpactScope(riskId: string) {
+  return pick(
+    () => apiGet(`/risks/${riskId}/impact-scope`),
+    async () => {
+      const risk = workflowStore.listRisks().find((item) => item.id === riskId);
+      if (!risk) throw new Error('风险不存在');
+      return {
+        available: false,
+        code: 'CG-A046',
+        message: 'mock 模式没有结构化实体关系，影响范围仅在 api 模式可用。',
+        scopeOf: { kind: 'risk', id: risk.id, code: risk.code, name: risk.objectName },
+        seeds: [],
+        summary: { total: 0, direct: 0, indirect: 0, byType: {} },
+        groups: [],
+        traversal: { maxHops: 2, relations: [], note: null },
+        limitations: [{ code: 'CG-A046', message: 'mock 模式没有结构化实体关系，影响范围仅在 api 模式可用。' }],
+        generatedAt: null,
+      };
+    },
+  );
+}
+
+export async function recomputeRisks() {
+  return pick(
+    () => apiPost('/risks/recompute', {}),
+    async () => ({ created: 0, updated: 0, resolved: 0, recurred: 0, unchanged: workflowStore.listRisks().length, skipped: [], skippedCount: 0 }),
+  );
+}
+
+// 后端 GET/PUT /risk-rules 早已存在（设置页的风险规则卡片一直在用），
+// 这里的注释"暂无后端端点"已经过期：监控规则页因此长期显示三条写死的规则，
+// 与设置页读到的真实规则对不上；更糟的是 updateRule 是空操作，切换开关会
+// 弹出"规则已更新并写入审计"，但既没落库也没有审计记录。
 export async function getRules() {
-  return { data: [{ id: 'rule-1', name: '安全库存预警线', threshold: '20%', enabled: true }, { id: 'rule-2', name: '交期延误容忍天数', threshold: '3 天', enabled: true }, { id: 'rule-3', name: '单一供应商依赖占比', threshold: '60%', enabled: true }] };
+  return pick(
+    () => apiGet<{ data: any[] }>('/risk-rules'),
+    async () => ({ data: [] }),
+  );
 }
 
 export async function updateRule(values: any) {
-  return { ok: true, values };
+  return pick(
+    () => apiPut<any>(`/risk-rules/${values.id}`, values),
+    async () => ({ ok: true, values }),
+  );
 }

@@ -1,7 +1,8 @@
 import { approvals as seedApprovals, auditLogs as seedAuditLogs, incident as seedIncident, inventories, materials, orders, proposals as seedProposals, risks as seedRisks, suppliers, tasks as seedTasks } from './mockData';
 
 type Actor = Pick<API.User, 'id' | 'name' | 'roleCode'>;
-type ApprovalRecord = API.Approval & { ccRoleCodes?: API.RoleCode[]; transferredTo?: string; countersigned?: boolean; experienceSaved?: boolean };
+type ApprovalHistory = { action: string; reason?: string; createdAt: string; actor: string };
+type ApprovalRecord = API.Approval & { ccRoleCodes?: API.RoleCode[]; transferredTo?: string; countersigned?: boolean; experienceSaved?: boolean; history?: ApprovalHistory[] };
 type ExperienceCard = { id: string; title: string; trigger: string; action: string; constraint: string; outcome: string; status: string; approvalId?: string };
 
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -128,7 +129,8 @@ export const workflowStore = {
     const proposal = state.proposals.find((item) => item.id === proposalId);
     if (!proposal) throw new Error('方案不存在');
     proposal.modified = true;
-    proposal.totalCost = Math.round(proposal.totalCost * 1.04);
+    // P0-2：成本缺失（null）时不可凭空推 4% 浮动
+    proposal.totalCost = proposal.totalCost === null || proposal.totalCost === undefined ? null : Math.round(proposal.totalCost * 1.04);
     appendAudit('重算方案', 'proposal', proposalId, proposal.name, { overrides }, actor);
     return proposal;
   },
@@ -156,7 +158,7 @@ export const workflowStore = {
     return approval;
   },
 
-  updateApproval(id: string, action: 'approve' | 'reject' | 'recalc' | 'transfer' | 'submit' | 'withdraw' | 'countersign', values: Record<string, unknown> = {}, actor?: Actor) {
+  updateApproval(id: string, action: 'approve' | 'reject' | 'recalc' | 'transfer' | 'submit' | 'withdraw' | 'countersign' | 'ratify_approve' | 'ratify_object', values: Record<string, unknown> = {}, actor?: Actor) {
     const approval = state.approvals.find((item) => item.id === id);
     if (!approval) throw new Error('审批单不存在');
     const incident = state.incidents.find((item) => item.id === approval.incidentId);
@@ -190,6 +192,14 @@ export const workflowStore = {
     if (action === 'submit') approval.status = 'pending';
     if (action === 'withdraw') { approval.status = 'withdrawn'; if (incident) incident.status = 'planning'; }
     if (action === 'countersign') approval.countersigned = true;
+    if (action === 'ratify_approve' || action === 'ratify_object') {
+      approval.history = [...(approval.history || []), {
+        action,
+        reason: typeof values.reason === 'string' ? values.reason : undefined,
+        createdAt: now(),
+        actor: actorOf(actor).name,
+      }];
+    }
     appendAudit(`审批${action}`, 'approval', id, proposal?.name || approval.summary, { ...values, incidentId: approval.incidentId }, actor);
     return approval;
   },
@@ -214,13 +224,21 @@ export const workflowStore = {
     return state.drafts[incidentId];
   },
 
+  // A04：影响范围由实体间真实外键算出，mock 数据集没有这些关系。
+  // 与其把四张互不相干的演示表并排摆出来假装是"影响范围"，不如如实说 mock 模式不支持。
   getImpact(id: string) {
+    const message = 'mock 模式没有结构化实体关系，影响范围仅在 api 模式可用。';
     return {
-      id,
-      materials: materials.map((item) => ({ ...item, shortage: Math.max(item.safety - item.stock, 0) })),
-      orders,
-      suppliers,
-      inventory: inventories
+      available: false,
+      code: 'CG-A046',
+      message,
+      scopeOf: { kind: 'incident', id, code: id, name: '' },
+      seeds: [],
+      summary: { total: 0, direct: 0, indirect: 0, byType: {} },
+      groups: [],
+      traversal: { maxHops: 2, relations: [], note: null },
+      limitations: [{ code: 'CG-A046', message }],
+      generatedAt: null
     };
   }
 };

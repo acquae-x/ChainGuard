@@ -48,8 +48,6 @@ export default function access(initialState: { currentUser?: API.User } | undefi
     canDataCustomer: any(permissions, ['data:manage', 'data:customer:manage', 'data:view']),
     canDataOrder: any(permissions, ['data:manage', 'data:order:manage', 'data:view']),
     canDataInventory: any(permissions, ['data:manage', 'data:inventory:manage', 'data:view']),
-    // 物流数据无独立权限码，暂以 data:manage 门禁（见 ADR §5 已知取舍）
-    canDataLogistics: has(permissions, 'data:manage'),
     canImport: any(permissions, DATA_IMPORT) && !readonly,
     // 数据导出与审计导出分开控制：auditor 仅可导出审计日志（02 文档能力矩阵「导出数据 auditor=✅(审计)」）
     canExport: any(permissions, ['data:export', 'audit:export']),
@@ -57,6 +55,11 @@ export default function access(initialState: { currentUser?: API.User } | undefi
     canExportAudit: has(permissions, 'audit:export'),
     canCase: has(permissions, 'case:view'),
     canReport: any(permissions, REPORT_VIEW),
+    // 三张报表各有独立后端权限（report:executive / report:operation / report:view），
+    // 菜单必须逐页收敛，否则用户会看到点进去就 403 的入口。settings:manage 在后端可越权查看，这里对齐。
+    canReportExecutive: any(permissions, ['report:executive', 'settings:manage']),
+    canReportOperation: any(permissions, ['report:operation', 'settings:manage']),
+    canReportResponse: any(permissions, REPORT_VIEW),
     // 系统设置菜单：具备系统配置 / 审批流配置 / 审计查看任一即可见
     canSettings: any(permissions, ['settings:manage', 'settings:approval', 'audit:view']),
     canSettingsAdmin: has(permissions, 'settings:manage'),
