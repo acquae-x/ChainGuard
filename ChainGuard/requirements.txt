@@ -13,6 +13,9 @@ bcrypt>=4.1,<5
 # 未显式声明——上游哪天不再依赖它，src/security/encryption.py 就会整条不可用。
 cryptography>=42,<50
 slowapi>=0.1.9,<1
+# 多 worker 部署的共享限流计数桶（RATE_LIMIT_STORAGE_URI=redis://...）。
+# limits 只在解析 redis:// scheme 时才导入它，SQLite 开发模式下不建立任何连接。
+redis>=5,<7
 # PostgreSQL 生产环境驱动；SQLite 开发模式不会建立 PostgreSQL 连接。
 psycopg[binary]>=3.1,<4
 pdfplumber>=0.10

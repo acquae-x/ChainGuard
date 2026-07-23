@@ -52,6 +52,60 @@ def test_compose_mounts_writable_data_volume():
     assert "appdata:/app/data" in content, "api 服务需为 /app/data 挂可写卷"
 
 
+def _api_service_block(content: str) -> str:
+    return content.split("\n  api:", 1)[1].split("\n  web:", 1)[0]
+
+
+def test_compose_persists_workspace_volume():
+    """1-1 回归：.workspace 只存在于镜像层,不挂卷则每次容器重建静默清零。
+
+    落在这里的是租户校准注册表(calibration_registry/<digest>/model_registry.json)
+    与导入暂存。丢失不会报错——代码会重建一个空注册表,漂移检测从零开始,
+    故障形态是"基线悄悄消失"而不是任何可见异常,因此必须由测试守住。
+    """
+    content = COMPOSE.read_text(encoding="utf-8")
+
+    assert "workspace:/app/.workspace" in _api_service_block(content), (
+        "api 服务必须为 /app/.workspace 挂持久卷"
+    )
+    volumes = content.split("\nvolumes:", 1)[1]
+    assert "\n  workspace:" in volumes, "workspace 必须声明为命名卷"
+
+
+def test_workspace_paths_the_application_writes_are_under_the_mounted_root():
+    """卷挂在 /app/.workspace,因此所有落盘路径都必须在这个前缀之下。
+
+    锁的是"挂载点覆盖了真实写入路径"这个契约:任何一处改成别的根目录,
+    持久化就会重新失效,而且同样没有任何可见异常。
+    """
+    from src.webapi.calibration_governance import _registry_path
+
+    registry = _registry_path("tenant-example")
+    assert registry.parts[0] == ".workspace"
+    assert registry.parts[1] == "calibration_registry"
+
+    imports_source = (PROJECT_ROOT / "src" / "webapi" / "routers" / "imports_settings.py").read_text(encoding="utf-8")
+    assert 'Path(".workspace") / "imports"' in imports_source
+
+
+def test_backup_covers_workspace_alongside_appdata():
+    """校准基线与 appdata 同属丢了不可重建的状态,备份范围必须一致。"""
+    backup = (PROJECT_ROOT / "scripts" / "backup-postgres.sh").read_text(encoding="utf-8")
+    content = COMPOSE.read_text(encoding="utf-8")
+
+    assert "tar -C /workspace" in backup
+    assert "workspace:/workspace:ro" in content
+
+
+def test_dockerfile_prepares_workspace_subdirectories_for_the_mounted_volume():
+    """命名卷首次创建时会继承镜像内该路径的属主,chown 必须在建目录之后。"""
+    content = DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "/app/.workspace/calibration_registry" in content
+    assert "/app/.workspace/imports" in content
+    assert "chown -R appuser:appgroup /app" in content
+
+
 def test_compose_has_full_stack_services():
     content = COMPOSE.read_text(encoding="utf-8")
 

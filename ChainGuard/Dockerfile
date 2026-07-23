@@ -20,7 +20,10 @@ COPY --chown=appuser:appgroup alembic ./alembic
 COPY --chown=appuser:appgroup src ./src
 COPY --chown=appuser:appgroup config ./config
 COPY --chown=appuser:appgroup data ./data
-RUN mkdir -p /app/.workspace/imports && chown -R appuser:appgroup /app
+# calibration_registry 与 imports 都由应用按需创建子目录，但父目录必须先存在且属
+# appuser——docker-compose 把命名卷 workspace 挂在 /app/.workspace 上，Docker 用镜像
+# 里该路径的属主初始化空卷，这里的 chown 决定了挂卷后容器内是否可写。
+RUN mkdir -p /app/.workspace/imports /app/.workspace/calibration_registry && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 8000

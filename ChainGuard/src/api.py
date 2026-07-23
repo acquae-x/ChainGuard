@@ -67,6 +67,15 @@ def start_countersign_scheduler() -> None:
         return
     threading.Thread(target=_countersign_scheduler, name="chainguard-countersign-scheduler", daemon=True).start()
 
+
+@app.on_event("startup")
+def recover_stale_jobs_on_startup() -> None:
+    """回收上次进程遗留的 pending/running 作业；多 worker 下实现是幂等的。"""
+    from src.webapi.job_recovery import recover_stale_jobs_on_startup as _recover
+
+    _recover()
+
+
 def _load_api_keys() -> dict[str, str]:
     """
     Parse CHAINGUARD_API_KEYS env var into a key-to-role mapping.

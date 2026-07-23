@@ -33,7 +33,9 @@ export async function login(params: LoginParams): Promise<API.LoginResult> {
     const res = await apiPost<{ token: string; currentUser: API.User; tenant: API.Tenant }>(
       '/auth/login',
       { account: params.account, password: params.password },
-      { skipAuth: true },
+      // 登录页 catch 会把 401/423/429 的真实错误常驻或 toast 展示；网络层若再弹一次，
+      // 429 会出现两个完全相同的“请求过于频繁”提示。
+      { skipAuth: true, silent: true },
     );
     setToken(res.token);
     return { token: res.token, currentUser: res.currentUser, tenant: res.tenant };

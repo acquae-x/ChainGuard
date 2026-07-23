@@ -21,6 +21,37 @@ services:
         max-file: "5"
     restart: unless-stopped
 
+  # 限流计数桶的共享存储。api 默认 --workers 4，进程内计数会把限流额度放大 4 倍
+  # （见 src/webapi/limits.py 模块注释），因此 Redis 属于安全依赖而非可选加速。
+  redis:
+    image: redis:7-alpine
+    # appendonly everysec：计数桶允许丢最后一秒，但整段丢失会让重启后出现一个
+    # 完全不限流的窗口。
+    # maxmemory + allkeys-lru 是取舍后的选择：计数键都自带 TTL，256mb 可容纳百万级
+    # 键，正常状态远达不到上限；真到了上限，淘汰旧计数（限流短暂放宽）优于
+    # noeviction 下写入报错把整个 API 打成 500。
+    command:
+      - "redis-server"
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--maxmemory"
+      - "256mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - redisdata:/data
+    mem_limit: 512m
+    cpus: 0.5
+    logging: *json-logging
+    restart: unless-stopped
+
   migrate:
     build:
       context: .
@@ -32,6 +63,11 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
       SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:?请在 .env 设置 SEED_DEMO_PASSWORD}
+      # 未设置时 src/webapi/limits.py 会因"非 SQLite 后端 + 无共享存储"拒绝启动，
+      # 这是刻意的：多 worker 下静默退回进程内存等同于关掉限流。
+      RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:-redis://redis:6379/0}
+      # 启动期判死遗留 pending/running 作业的阈值，须显著大于决策作业 60s 的执行超时预算。
+      JOB_RECOVERY_STALE_MINUTES: ${JOB_RECOVERY_STALE_MINUTES:-15}
       PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
@@ -49,11 +85,18 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     expose:
       - "8000"
     volumes:
       # /app/data 在容器内有审计/经验卡 jsonl 写入,挂命名卷保持可写并持久化
       - appdata:/app/data
+      # /app/.workspace 存租户校准注册表（calibration_registry/<digest>/model_registry.json）
+      # 与导入暂存（imports/）。它是镜像层里的目录,不挂卷则每次容器重建都随镜像层
+      # 一起消失——所有租户的校准基线与漂移历史会静默清零,且因为代码会自动重建空
+      # 注册表,故障形态是"漂移检测悄悄从零开始"而不是报错。
+      - workspace:/app/.workspace
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
       interval: 10s
@@ -90,6 +133,8 @@ services:
     volumes:
       - ./backups/postgres:/backups
       - appdata:/appdata:ro
+      # 校准基线与 appdata 同属"丢了不可重建"的业务状态,备份范围必须一致
+      - workspace:/workspace:ro
     restart: unless-stopped
     logging: *json-logging
 
@@ -122,3 +167,7 @@ services:
 volumes:
   pgdata:
   appdata:
+  # 租户校准注册表与导入暂存；见 api 服务上的挂载注释。
+  workspace:
+  # 限流计数桶的 AOF 落盘。
+  redisdata:

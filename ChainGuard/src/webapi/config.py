@@ -42,6 +42,15 @@ class Settings:
     sso_http_timeout: float = float(os.getenv("SSO_HTTP_TIMEOUT", "10"))
     countersign_timeout_hours: float = float(os.getenv("COUNTERSIGN_TIMEOUT_HOURS", "4"))
     scheduler_disabled: bool = os.getenv("CHAINGUARD_DISABLE_SCHEDULER", "false").lower() in {"1", "true", "yes", "on"}
+    # 限流计数桶的存储位置。空 = 未配置，由 limits.resolve_rate_limit_storage_uri
+    # 按数据库后端决定"退回进程内存"还是"拒绝启动"——默认镜像是 --workers 4，
+    # 进程内计数会把 5/minute 实际放大成 20/minute。
+    rate_limit_storage_uri: str = os.getenv("RATE_LIMIT_STORAGE_URI", "").strip()
+    # 启动期回收上次进程遗留的 pending / running 作业。阈值必须显著大于决策作业自身的
+    # 60s 执行超时预算，否则会误杀正在正常执行的作业（多 worker 下别的进程
+    # 正在跑的作业，对本进程而言同样只是一行 status=running）。
+    job_recovery_stale_minutes: float = float(os.getenv("JOB_RECOVERY_STALE_MINUTES", "15"))
+    job_recovery_disabled: bool = os.getenv("CHAINGUARD_DISABLE_JOB_RECOVERY", "false").lower() in {"1", "true", "yes", "on"}
     cors_origins: tuple[str, ...] = tuple(
         value.strip() for value in os.getenv(
             "CORS_ORIGINS", "http://localhost:8000,http://localhost:8080"
