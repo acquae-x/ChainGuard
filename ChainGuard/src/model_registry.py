@@ -7,6 +7,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from src.file_store import atomic_write_text, file_lock
+from src.observability import log_event
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY_PATH = "data/model_registry.json"
@@ -45,19 +48,22 @@ class ModelRegistry:
             registered_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
             notes=notes,
         )
-        records = self.load_all()
-        records.append(record)
-        self._write_all(records)
+        # 读-改-写必须整体在临界区内，否则并发调用会互相覆盖（lost update）。
+        with file_lock(self.path):
+            records = self.load_all()
+            records.append(record)
+            self._write_all(records)
         return record
 
     def promote_stable(self, version_id: str) -> None:
-        records = self.load_all()
-        if not any(record.version_id == version_id for record in records):
-            raise KeyError(version_id)
+        with file_lock(self.path):
+            records = self.load_all()
+            if not any(record.version_id == version_id for record in records):
+                raise KeyError(version_id)
 
-        for record in records:
-            record.is_stable = record.version_id == version_id
-        self._write_all(records)
+            for record in records:
+                record.is_stable = record.version_id == version_id
+            self._write_all(records)
 
     def get_stable(self) -> VersionRecord | None:
         stable_records = [
@@ -80,26 +86,27 @@ class ModelRegistry:
         return float(new_metrics[metric]) > float(stable.metrics[metric])
 
     def rollback(self) -> VersionRecord | None:
-        records = self.load_all()
-        current_index = next(
-            (
-                index
-                for index in range(len(records) - 1, -1, -1)
-                if records[index].is_stable
-            ),
-            None,
-        )
-        if current_index is None:
-            return None
+        with file_lock(self.path):
+            records = self.load_all()
+            current_index = next(
+                (
+                    index
+                    for index in range(len(records) - 1, -1, -1)
+                    if records[index].is_stable
+                ),
+                None,
+            )
+            if current_index is None:
+                return None
 
-        previous_records = records[:current_index]
-        if not previous_records:
-            return None
+            previous_records = records[:current_index]
+            if not previous_records:
+                return None
 
-        previous = previous_records[-1]
-        for record in records:
-            record.is_stable = record.version_id == previous.version_id
-        self._write_all(records)
+            previous = previous_records[-1]
+            for record in records:
+                record.is_stable = record.version_id == previous.version_id
+            self._write_all(records)
         return previous
 
     def load_all(self) -> list[VersionRecord]:
@@ -107,6 +114,7 @@ class ModelRegistry:
             return []
 
         records: list[VersionRecord] = []
+        corrupt = 0
         for line in self.path.read_text(encoding="utf-8").splitlines():
             text = line.strip()
             if not text:
@@ -127,15 +135,24 @@ class ModelRegistry:
                     )
                 )
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                continue
+                # 跳过坏行仍是对的（单条损坏不该让整个注册表不可读），但**不能静默**：
+                # 此前坏行无声消失，丢数据与"本来就没有数据"在现象上完全不可区分。
+                corrupt += 1
+        if corrupt:
+            log_event(
+                "model_registry_corrupt_lines",
+                path=str(self.path),
+                corrupt_lines=corrupt,
+                loaded_records=len(records),
+            )
         return records
 
     def _write_all(self, records: list[VersionRecord]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        """全量落盘。调用方必须已持有 ``file_lock(self.path)``。"""
         text = "\n".join(
             json.dumps(record.to_dict(), ensure_ascii=False)
             for record in records
         )
         if text:
             text += "\n"
-        self.path.write_text(text, encoding="utf-8")
+        atomic_write_text(self.path, text)
