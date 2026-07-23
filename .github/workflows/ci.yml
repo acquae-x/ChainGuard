@@ -15,7 +15,7 @@ jobs:
       JWT_SECRET: ci-only-signing-key-not-for-deployment
       SEED_DEMO_PASSWORD: ci-demo-password
       DATABASE_URL: sqlite:///./ci.db
-      # tests/conftest.py 会 setdefault 同名变量，这里显式给出是为了让"CI 跑的是
+      # ChainGuard/conftest.py 会 setdefault 同名变量，这里显式给出是为了让"CI 跑的是
       # 真加密路径"成为一件可读的事，而不是依赖 conftest 的隐式兜底。
       CHAINGUARD_ENCRYPTION_KEY: ci-only-encryption-key-not-for-deployment
     steps:
@@ -24,15 +24,21 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      # 规则与豁免项落在 ChainGuard/ruff.toml，本地 `ruff check` 与此处判定一致。
-      # 覆盖面从 src/webapi + 单个测试文件扩到全部 src / tests / scripts。
-      - run: ruff check src tests scripts
+      # 规则与豁免项落在 ChainGuard/ruff.toml，本地 `ruff check .` 与此处判定一致。
+      #
+      # 必须是 `.` 而不是枚举目录。此前写的是 `src tests scripts`，而 app.py 与
+      # conftest.py 都在 ChainGuard/ 根目录，三个目录一个都不沾——app.py 里一个
+      # F821（模块级函数引用了从未导入的 csv，演示页上传路径必然 NameError）
+      # 因此活到了发布前：不是 lint 漏报，是根本没被 lint。
+      # 枚举目录的写法每加一个顶层文件就静默丢一次覆盖，不留痕迹。
+      - run: ruff check .
       - run: alembic upgrade head
       # basetemp 由 pytest.ini 指定为 test_tmp/pytest。此前这里 mkdir 的是 .tmp/pytest
       # ——那是改配置前的旧路径，等于建了个没人用的空目录。
       - run: mkdir -p test_tmp/pytest
-      # 演示企业库 *.db 不入库（.gitignore 排除），场景/监控/校准类测试依赖它，CI 现场确定性生成（固定 SEED）
-      - run: python scripts/generate_enterprise_demo_data.py
+      # 这里刻意不预生成演示企业库：ChainGuard/conftest.py 在收集阶段自己补齐它。
+      # 预生成会让 CI 永远走"库已存在"分支，自举代码在流水线里从不被执行——
+      # 而干净检出正是它唯一要解决的场景，等于把回归挡在了检测范围之外。
       - run: pytest -q
 
   # PostgreSQL 是 requirements.txt 里声明的生产驱动，但 tests/test_phase5b_c2_postgres.py
@@ -126,9 +132,9 @@ jobs:
         working-directory: chainguard-web
       - run: npx max setup
         working-directory: chainguard-web
-      # data-import 套件的 provisioning 读 demo_assets/enterprise/csv
-      - run: python scripts/generate_enterprise_demo_data.py
-        working-directory: ChainGuard
+      # 同上：门禁脚本自己补齐演示企业库（erp-* 套件的 mock ERP 依赖它），
+      # 预生成会掩盖自举路径。data-import 套件读的 demo_assets/enterprise/csv
+      # 本来就在版本库里，不需要生成。
       # 门禁自己按套件建 GUID 库并跑 alembic；判定读 JSON reporter，
       # 各套件跳过数必须与申报的 expectedSkips 一致，否则失败。
       - run: npm run test:e2e:gate
