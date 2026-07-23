@@ -10,6 +10,15 @@
 *.md   text eol=lf
 *.txt  text eol=lf
 *.http text eol=lf
+# Shell 脚本必须是 LF：CRLF 会让 Linux/macOS 报
+# `bad interpreter: /usr/bin/env bash^M`，脚本完全无法执行。
+# 此前只有 * text=auto 兜底，在 Windows 上检出/打包即变成 CRLF。
+*.sh   text eol=lf
+
+# PowerShell 脚本用 CRLF。文件开头的 UTF-8 BOM 属于内容、git 原样保留——
+# 它是必需的：Windows PowerShell 5.1 按 ANSI(GBK) 读取无 BOM 的 .ps1，
+# 中文会乱码并连带吃掉引号，直接 ParserError。
+*.ps1  text eol=crlf
 
 # 二进制文件，git 不做行尾处理
 *.png  binary

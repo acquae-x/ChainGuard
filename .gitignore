@@ -32,3 +32,8 @@ chainguard-web/playwright-report/
 .playwright-cli/
 _demo_run.db
 _alembic_check.db
+
+# 开发期日志（Codex/agent 运行残留），不应进版本库与源码包
+.codex-*.log
+*.out.log
+*.err.log

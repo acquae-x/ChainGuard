@@ -105,12 +105,16 @@ ChainGuard/
     test_*.py
 ```
 
+> **想直接看完整产品（FastAPI + React 前端）？** 回到仓库根目录执行
+> `.\start-demo.ps1`（Windows）或 `./start-demo.sh`（Linux/macOS），
+> 一条命令完成依赖、迁移、播种、构建与启动。本文以下内容是**决策内核的
+> Streamlit 演示**，用于单独查看决策链的每一步。
+
 ## 安装方式
 
-建议在项目目录下执行：
+在本目录（仓库的 `ChainGuard/` 子目录）下执行：
 
 ```powershell
-cd /d D:\github_projects\Chainguard\ChainGuard
 pip install -r requirements.txt
 ```
 
@@ -123,7 +127,6 @@ pip install -r requirements-dev.txt
 ## 运行方式
 
 ```powershell
-cd /d D:\github_projects\Chainguard\ChainGuard
 streamlit run app.py
 ```
 
