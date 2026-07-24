@@ -223,6 +223,17 @@ class AuditLog(TenantRecord, Base):
     target_name: Mapped[str] = mapped_column(String(255))
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     ip: Mapped[str] = mapped_column(String(64), default="")
+    prev_hash: Mapped[str] = mapped_column(String(64))
+    entry_hash: Mapped[str] = mapped_column(String(64))
+
+
+class AuditChainState(Base):
+    """Per-tenant audit-chain anchor used to detect even tail-row deletion."""
+
+    __tablename__ = "audit_chain_states"
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    head_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ExperienceCard(TenantRecord, Base):

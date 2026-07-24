@@ -10,6 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..auth import AuthContext, get_current_user, require_permission
+from ..audit_chain import verify_audit_chain
 from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
@@ -552,6 +553,11 @@ def audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("audit:vie
     result = page(items, current, page_size)
     result["data"] = localize_record_times(result["data"], tenant_zone(db, ctx.tenant_id))
     return result
+
+
+@router.get("/audit-logs/verify")
+def verify_audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("audit:view"))], db: Annotated[Session, Depends(get_db)]):
+    return verify_audit_chain(db, ctx.tenant_id).as_dict()
 
 
 def build_dashboard_kpis(db: Session, ctx: AuthContext, *, now: datetime | None = None) -> dict[str, Any]:

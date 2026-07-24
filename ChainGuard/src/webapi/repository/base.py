@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import AuthContext
+from ..audit_chain import append_to_chain
 from ..data_scope import apply_scope, is_visible
 from ..errors import ApiError
 from ..models import AuditLog
@@ -70,5 +71,4 @@ def add_audit(db: Session, ctx: AuthContext, action: str, target_type: str, targ
     # 存储用 UTC 规范时间；显示时按租户时区本地化。用 datetime.now().astimezone()
     # 会把服务器进程时区写进审计（生产容器 TZ 各异），同一事件在不同主机读出不同偏移。
     log = AuditLog(id=f"audit-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, time=utc_now_iso(), user_id=ctx.user_id, user_name=ctx.name, role_code=ctx.role_code, action=action, target_type=target_type, target_id=target_id, target_name=target_name, detail=detail, ip=ip)
-    db.add(log)
-    return log
+    return append_to_chain(db, log)
