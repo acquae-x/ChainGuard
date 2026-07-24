@@ -36,12 +36,18 @@ def approval_required(result: dict[str, Any]) -> bool:
     inventory_risk = result.get("inventory_risk") or {}
     debate_result = result.get("debate_result") or {}
     constraint_analysis = result.get("constraint_analysis") or {}
+    challenger = result.get("challenger") or (result.get("rebuttal") or {}).get("challenger") or {}
 
     risk_index = float(inventory_risk.get("inventory_risk_index") or 0.0)
     converged = bool(debate_result.get("converged", True))
     feasible_count = int(constraint_analysis.get("feasible_count", 1) or 0)
 
-    return risk_index > RISK_APPROVAL_THRESHOLD or not converged or feasible_count == 0
+    return (
+        risk_index > RISK_APPROVAL_THRESHOLD
+        or not converged
+        or feasible_count == 0
+        or bool(challenger.get("requires_manual_review", False))
+    )
 
 
 def build_audit_entry(

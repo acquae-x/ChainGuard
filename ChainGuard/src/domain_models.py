@@ -14,6 +14,7 @@ class DecisionResult:
     conflict: dict[str, Any]
     rebuttal: dict[str, Any]
     arbitration: dict[str, Any]
+    decision_confidence: dict[str, Any]
     experience_card: dict[str, Any]
     constraint_analysis: dict[str, Any]
     debate_result: dict[str, Any]

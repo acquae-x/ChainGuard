@@ -6,6 +6,7 @@ from src.agents import generate_all_proposals
 from src.arbitrator import arbitrate
 from src.audit import AuditLog, build_audit_entry
 from src.config_loader import load_thresholds
+from src.decision_confidence import ConfidenceCalibrator
 from src.conflict_detector import detect_conflict
 from src.constraint_solver import ConstraintSolver
 from src.data_source import DataSource, demo_source
@@ -54,8 +55,11 @@ class DecisionOrchestrator:
         try:
             thresholds = load_thresholds()
             context = load_demo_context()
-            risk_weights = self._resolve_risk_weights()
-            return self._run_context(context, risk_weights, thresholds, data_source=ds)
+            history_records = self._load_history_records()
+            risk_weights = self._resolve_risk_weights(history_records)
+            return self._run_context(
+                context, risk_weights, thresholds, data_source=ds, history_records=history_records,
+            )
         except Exception as error:
             self._log_error_audit(context, error, data_source=ds)
             raise
@@ -72,8 +76,11 @@ class DecisionOrchestrator:
         try:
             thresholds = load_thresholds()
             context = loader.load_context(event_id)
-            risk_weights = self._resolve_risk_weights()
-            return self._run_context(context, risk_weights, thresholds, data_source=ds)
+            history_records = self._load_history_records()
+            risk_weights = self._resolve_risk_weights(history_records)
+            return self._run_context(
+                context, risk_weights, thresholds, data_source=ds, history_records=history_records,
+            )
         except Exception as error:
             self._log_error_audit(context, error, data_source=ds)
             raise
@@ -98,8 +105,16 @@ class DecisionOrchestrator:
             copy.deepcopy(thresholds),
             data_source=None,
             allow_file_state=False,
+            history_records=list(context.get("historical_decisions") or []),
         )
         return self._attach_tenant_economics(result)
+
+    @staticmethod
+    def _load_history_records() -> list[dict[str, Any]]:
+        try:
+            return HistoryPipeline().load_outcomes()
+        except Exception:
+            return []
 
     @staticmethod
     def _resolve_risk_weights(
@@ -159,6 +174,7 @@ class DecisionOrchestrator:
         *,
         data_source: DataSource | None,
         allow_file_state: bool = True,
+        history_records: list[dict[str, Any]] | None = None,
     ) -> DecisionResult:
         ds = data_source
         calibrated_trigger = risk_weights.get("_trigger_threshold_value")
@@ -222,6 +238,15 @@ class DecisionOrchestrator:
             payoffs,
             constraint_analysis_obj,
         ).to_dict()
+        confidence_calibrator = ConfidenceCalibrator().fit(history_records or [])
+        decision_confidence = confidence_calibrator.assess(arbitration)
+        challenger = rebuttal.get("challenger") or {}
+        decision_confidence["challenger_status"] = challenger.get("status", "not_run")
+        # The experiment has no approved release threshold; confidence is an
+        # operator-facing estimate, never an unattended release decision.
+        decision_confidence["auto_approval_eligible"] = False
+        if challenger.get("requires_manual_review", False):
+            decision_confidence["recommended_disposition"] = "manual_review"
         try:
             explanation = DecisionExplainer().explain(
                 {
@@ -246,6 +271,8 @@ class DecisionOrchestrator:
             "debate_result": debate_result,
             "constraint_analysis": constraint_analysis,
             "experience_confidence": retrieval_result.confidence_adjustment,
+            "decision_confidence": decision_confidence,
+            "rebuttal": rebuttal,
         }
         audit_entry_obj = build_audit_entry(audit_context)
         if allow_file_state:
@@ -264,6 +291,7 @@ class DecisionOrchestrator:
             conflict=conflict,
             rebuttal=rebuttal,
             arbitration=arbitration,
+            decision_confidence=decision_confidence,
             experience_card=experience_card,
             constraint_analysis=constraint_analysis,
             debate_result=debate_result,
