@@ -19,7 +19,8 @@ from src.webapi.database import engine
 from src.webapi.errors import install_error_handlers
 from src.webapi.limits import limiter
 from src.webapi.middleware import request_context
-from src.webapi.routers import api_router
+from src.webapi.routers import api_router, api_v2_router
+from src.webapi.versioning import DEPRECATED_ENDPOINTS, DeprecationHeadersMiddleware
 
 
 app = FastAPI(
@@ -38,8 +39,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.middleware("http")(request_context)
+app.add_middleware(DeprecationHeadersMiddleware, policies=DEPRECATED_ENDPOINTS)
 install_error_handlers(app)
 app.include_router(api_router)
+app.include_router(api_v2_router)
 
 
 durable_job_worker = None

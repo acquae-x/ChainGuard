@@ -26,6 +26,7 @@ from ..risk_explanation import explain_risk
 from ..risk_recompute import recompute_inventory_risks
 from ..schemas import IncidentCreate, PatchRequest
 from ..tenant_time import as_utc, local_month_key, localize_iso, localize_record_times, start_of_day, start_of_week, tenant_zone, utc_now_iso
+from ..versioning import V1_TOP_RISKS_DEPRECATION
 
 
 router = APIRouter(tags=["business"])
@@ -690,8 +691,23 @@ def dashboard_my_nodes(
     )
 
 
-@router.get("/dashboard/top-risks")
-def top_risks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in sorted(list_tenant_records(db, Risk, ctx.tenant_id, ctx), key=lambda x: x.score, reverse=True)[:10]]
+def top_risks_payload(ctx: AuthContext, db: Session) -> list[dict]:
+    return [
+        serialize(item)
+        for item in sorted(
+            list_tenant_records(db, Risk, ctx.tenant_id, ctx),
+            key=lambda item: item.score,
+            reverse=True,
+        )[:10]
+    ]
+
+
+@router.get("/dashboard/top-risks", **V1_TOP_RISKS_DEPRECATION.openapi_kwargs())
+def top_risks(
+    ctx: Annotated[AuthContext, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    return top_risks_payload(ctx, db)
 @router.get("/dashboard/my-tasks")
 def my_tasks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in list_tenant_records(db, Task, ctx.tenant_id, ctx) if x.role_code == ctx.role_code]
 @router.get("/dashboard/pending-approvals")
