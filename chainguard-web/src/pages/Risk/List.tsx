@@ -38,15 +38,15 @@ export default function RiskListPage() {
   useEffect(() => { actionRef.current?.reload(); }, [filters]);
 
   const columns: ProColumns<API.Risk>[] = [
-    { title: '风险编号', dataIndex: 'code', copyable: true },
-    { title: '等级', dataIndex: 'level', render: (_, row) => <RiskTag level={row.level} /> },
-    { title: '类型', dataIndex: 'type' },
-    { title: '对象', dataIndex: 'objectName', render: (_, row) => <ObjectPeek type={row.objectType} name={row.objectName} /> },
-    { title: '风险指数', dataIndex: 'score', render: (_, row) => <Progress percent={row.score} size="small" status={row.score > 85 ? 'exception' : 'active'} /> },
-    { title: '触发规则', dataIndex: 'rule' },
-    { title: '发现时间', dataIndex: 'foundAt', valueType: 'dateTime' },
-    { title: '状态', dataIndex: 'status', render: (_, row) => <StatusTag status={row.status} /> },
-    { title: '操作', valueType: 'option', render: (_, row) => {
+    { title: '风险编号', dataIndex: 'code', copyable: true, width: 180, ellipsis: true },
+    { title: '等级', dataIndex: 'level', width: 110, render: (_, row) => <RiskTag level={row.level} /> },
+    { title: '类型', dataIndex: 'type', width: 100 },
+    { title: '对象', dataIndex: 'objectName', width: 190, ellipsis: true, render: (_, row) => <ObjectPeek type={row.objectType} name={row.objectName} /> },
+    { title: '风险指数', dataIndex: 'score', width: 150, render: (_, row) => <Progress percent={row.score} size="small" status={row.score > 85 ? 'exception' : 'active'} /> },
+    { title: '触发规则', dataIndex: 'rule', width: 240, ellipsis: true },
+    { title: '发现时间', dataIndex: 'foundAt', width: 180, valueType: 'dateTime' },
+    { title: '状态', dataIndex: 'status', width: 110, render: (_, row) => <StatusTag status={row.status} /> },
+    { title: '操作', valueType: 'option', width: 360, fixed: 'right', render: (_, row) => {
       // A03：解释入口只需 risk:view（列表可见即可解释），不新增权限码。
       const actions: ReactNode[] = [<Button key="explain" type="link" onClick={() => setExplainRiskId(row.id)}>风险解释</Button>];
       if (access.canCreateIncident) actions.push(<Button key="create" type="link" onClick={() => setDrawer(row)}>创建应急事件</Button>);
@@ -87,6 +87,8 @@ export default function RiskListPage() {
       actionRef={actionRef}
       rowKey="id"
       columns={columns}
+      scroll={{ x: 1620 }}
+      tableLayout="fixed"
       request={async (params) => {
         const query = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => value && query.set(key, Array.isArray(value) ? value.join(',') : String(value)));
