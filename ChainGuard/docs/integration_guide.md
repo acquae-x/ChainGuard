@@ -144,7 +144,7 @@ docker-compose.yml
 .dockerignore
 ```
 
-Start the Streamlit UI and FastAPI service with Docker Compose:
+Start the React web UI and FastAPI service with Docker Compose:
 
 ```bash
 git clone <repo-url>
@@ -155,19 +155,19 @@ docker compose up --build
 Service URLs:
 
 ```text
-Streamlit UI: http://localhost:8501
-FastAPI REST: http://localhost:8000
+Web UI (React via nginx): http://localhost:8080
+FastAPI REST: http://localhost:8000 (behind the web service; direct-exposed only if you publish the port)
 Swagger UI: http://localhost:8000/docs
 FastAPI liveness (when port 8000 is directly exposed): http://localhost:8000/healthz
 ERP Mock API: http://localhost:8765
 ```
 
-The `docker-compose.yml` file defines two services:
+The `docker-compose.yml` file serves the UI through the `web` service (nginx serving the built React app and reverse-proxying `/api/`):
 
 | Service | Command | Port |
 |---|---|---|
-| `streamlit` | `streamlit run app.py --server.port=8501 --server.address=0.0.0.0` | `8501:8501` |
-| `api` | `uvicorn src.api:app --host 0.0.0.0 --port 8000` | `8000:8000` |
+| `web` | nginx serving `chainguard-web/dist` + proxy to `api` | `8080:8080` |
+| `api` | `uvicorn src.api:app --host 0.0.0.0 --port 8000 --workers 4` | internal `8000` |
 
 Both services mount the same persistent data volume:
 

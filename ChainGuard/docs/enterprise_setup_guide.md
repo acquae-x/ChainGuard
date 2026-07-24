@@ -9,9 +9,9 @@ FastAPI `api`, and the browser-facing `web` service. `web` is published on
 `http://localhost:8080` by default (override with `WEB_PORT`); `api` listens on
 container port `8000` only and is intentionally not host-published.
 
-The repository still includes `app.py` and the `streamlit` dependency for
-legacy/local analysis tooling. Streamlit is not the production UI and is not
-started by `docker compose up`.
+The production UI is `chainguard-web` (React), served by the `web` service. The
+former Streamlit analysis app (`app.py`) has been removed; its decision-core
+computations live in `src/` and are surfaced through `/api/v1` and the React UI.
 
 Create a deployment-specific `.env` alongside `docker-compose.yml`:
 
@@ -122,10 +122,13 @@ actual_cost >= 0
 
 ## §3 UI Steps And Render Functions
 
-> Legacy local-analysis note: `app.py` is not part of the Compose product path.
-> The production UI is `chainguard-web`, served by the `web` service.
+> The production UI is `chainguard-web` (React), served by the `web` service.
+> The former Streamlit renderers described below have been removed.
 
-The Streamlit UI in `app.py` renders the decision flow through 11 actual `render_step_*` functions. The function names below must stay aligned with the code.
+The decision chain has 11 stages. They were originally shown by Streamlit
+`render_step_*` functions (now removed); the **same content** is today surfaced
+by the React `DecisionTrace` component and the `/api/v1` incident
+decision-detail payload. The table maps each stage to the payload it draws from.
 
 | Step | Function | What the UI displays | Key data source |
 |---|---|---|---|
@@ -141,7 +144,9 @@ The Streamlit UI in `app.py` renders the decision flow through 11 actual `render
 | Step 10 | `render_step_10_explanation` | Explanation summary for arbitration, debate, and constraints; also shows whether LLM enhancement was used | `result.explanation` |
 | Step 11 | `render_step_11_audit` | Audit status, inventory risk index, feasible count, debate convergence, human approval prompt, and full audit JSON | `result.audit_entry` |
 
-After Step 11, `app.py` also renders sensitivity analysis through `render_sensitivity(...)`, using `run_sensitivity("current_stock", [720, 1440, 2160, 3600, 5400, 7200], baseline_context=result.context)`. This is not one of the 11 `render_step_*` functions, but it is part of the current page.
+Beyond the 11 stages, the decision-detail payload also carries a sensitivity
+series (`run_sensitivity("current_stock", ...)`), which the React `DecisionTrace`
+renders as a current-stock-vs-risk-index curve.
 
 The UI has two scenario modes:
 

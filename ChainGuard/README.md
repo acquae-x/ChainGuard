@@ -2,7 +2,9 @@
 
 ## 项目简介
 
-ChainGuard 是供应链中断场景下的复赛版本应急决策系统，使用 Streamlit 展示完整的多 Agent 博弈、约束仲裁、自学习经验检索和审计闭环。系统面向制造企业的供应链、采购、物流、财务和客户交付团队，用于在断供、延期或需求冲击真正扩大前，给出可解释、可审计、可人工确认的应急方案。
+ChainGuard 是供应链中断场景下的应急决策系统，产品形态是 FastAPI 后端 + React（Umi + Ant Design Pro）多租户前端。完整的多 Agent 博弈、约束仲裁、自学习经验检索和审计闭环由本目录 `src/` 下的决策内核实现，Web 层通过 `src/webapi` 暴露为 `/api/v1`。系统面向制造企业的供应链、采购、物流、财务和客户交付团队，用于在断供、延期或需求冲击真正扩大前，给出可解释、可审计、可人工确认的应急方案。
+
+> 本 README 说明的是**决策内核（`src/`）**：它无 Web/数据库依赖，可独立测试与复用。完整产品的启动见仓库根目录 `start-demo.ps1` / `start-demo.sh`。
 
 当前版本支持并演示以下 5 类中断事件：
 
@@ -50,7 +52,6 @@ HistoryPipeline → TrainingDataset → ModelRegistry
 
 ```text
 ChainGuard/
-  app.py
   requirements.txt
   requirements-dev.txt
   README.md
@@ -107,8 +108,7 @@ ChainGuard/
 
 > **想直接看完整产品（FastAPI + React 前端）？** 回到仓库根目录执行
 > `.\start-demo.ps1`（Windows）或 `./start-demo.sh`（Linux/macOS），
-> 一条命令完成依赖、迁移、播种、构建与启动。本文以下内容是**决策内核的
-> Streamlit 演示**，用于单独查看决策链的每一步。
+> 一条命令完成依赖、迁移、播种、构建与启动，单进程单端口 8000。
 
 ## 安装方式
 
@@ -126,23 +126,23 @@ pip install -r requirements-dev.txt
 
 ## 运行方式
 
-```powershell
-streamlit run app.py
-```
-
-如果 `streamlit` 命令不可用，可以使用：
+完整产品（FastAPI + React）从仓库根目录一键启动：
 
 ```powershell
-python -m streamlit run app.py
+.\start-demo.ps1
 ```
 
-如果默认端口 `8501` 被占用，可以换端口：
+单独运行 FastAPI 决策 API（需先配置 `JWT_SECRET` 等环境变量，见 `.env.example`）：
 
 ```powershell
-python -m streamlit run app.py --server.port 8502
+python -m uvicorn src.api:app --port 8000
 ```
 
-## 页面流程
+决策内核本身无 Web 依赖，可作为库直接调用或跑测试单独验证（见文末「测试」）。
+
+## 决策链步骤
+
+以下是决策内核产出的完整链条，现由 React 前端的 `DecisionTrace` 组件呈现（早期曾由已下线的 Streamlit 演示页逐步展示）：
 
 | 步骤 | 内容 |
 | --- | --- |
@@ -157,7 +157,7 @@ python -m streamlit run app.py --server.port 8502
 | Step 9 | 历史经验检索结果（risk_hints, confidence_adjustment） |
 | Step 10 | Qwen/模板解释（llm_used=True/False） |
 | Step 11 | 审计 JSON（decision_id, human_approval_required） |
-| 敏感性 | current_stock 滑动条 → risk_index 变化 |
+| 敏感性 | current_stock → risk_index 变化曲线 |
 
 ## 当前能力清单
 
@@ -191,7 +191,6 @@ python -m streamlit run app.py --server.port 8502
 
 ## 当前限制
 
-- 当前系统仍是 Streamlit 演示应用，不是生产级多用户系统。
 - Qwen/Ollama、sentence-transformers、Chroma 都是可选增强；不可用时会降级到模板或 TF-IDF。
 - Agent 策略、效用、约束和经验检索均可离线运行，但真实企业上线仍需数据脱敏、权限、审批流和部署方案。
 - 经验卡片语料量会影响 `experience_hints` 是否丰富；批量历史决策转经验卡片由后续改进任务继续增强。
@@ -199,8 +198,8 @@ python -m streamlit run app.py --server.port 8502
 ## 测试
 
 ```powershell
-python -m pytest tests -q          # 191 passed
-python -m pytest benchmarks -v -s  # scale benchmark
+python -m pytest tests -q           # 决策内核 + Web 层全量
+python -m pytest benchmarks -v -s   # scale benchmark
 ```
 
 当前测试覆盖配置读取、库存监控、场景加载、Agent 策略、收益模型、约束求解、辩论、仲裁、经验检索、审计、解释器、敏感性分析、历史管道和训练数据基线。
