@@ -1,22 +1,34 @@
 [
-  {
-    "query": "台风 港口 暂停 芯片短缺 库存不足",
-    "relevant_case_ids": ["case-typhoon-001"],
-    "description": "台风导致港口暂停和芯片库存不足"
-  },
-  {
-    "query": "供应商 质量异常 召回 替代料 验证",
-    "relevant_case_ids": ["case-quality-001"],
-    "description": "供应商质量问题与替代料验证"
-  },
-  {
-    "query": "运输 延误 铁路 中断 多式联运 改线",
-    "relevant_case_ids": ["case-transport-001"],
-    "description": "运输延误后切换多式联运"
-  },
-  {
-    "query": "需求 激增 关键客户 订单 分级保障",
-    "relevant_case_ids": ["case-demand-001"],
-    "description": "需求激增时优先保障关键客户"
-  }
+  {"query": "宁波港因台风停摆，核心控制芯片只够维持约36小时，怎样分层保障订单？", "relevant_case_ids": ["EVT-TYPHOON-NB-001-M-AX100"], "description": "台风港口停运与短缺芯片"},
+  {"query": "合肥运输节点堵塞，SUP-025 交付受阻且库存还能支撑165小时，如何改线？", "relevant_case_ids": ["EVT-000006-MAT-0020"], "description": "合肥运输中断"},
+  {"query": "天津供应物料发生质量召回，涉及控制芯片0124，应先做哪些隔离与替代动作？", "relevant_case_ids": ["EVT-000016-MAT-0124"], "description": "天津质量召回"},
+  {"query": "天津港口停止作业，结构件0113的库存尚可维持273小时，应急方案是什么？", "relevant_case_ids": ["EVT-000037-MAT-0113"], "description": "天津港口停运"},
+  {"query": "青岛订单量突然上升，连接器0233出现供需缺口，需要弹性产能和优先级重排。", "relevant_case_ids": ["EVT-000065-MAT-0233"], "description": "青岛需求突增"},
+  {"query": "东莞供应商停产，化工辅料0133需要多源紧急采购并分散风险。", "relevant_case_ids": ["EVT-000113-MAT-0133"], "description": "东莞供应商停产"},
+  {"query": "上海的运输节点中断，功率模块0126应采用替代路线和库存调拨。", "relevant_case_ids": ["EVT-000128-MAT-0126"], "description": "上海运输中断"},
+  {"query": "上海台风影响化工辅料0219，但库存可支撑292小时，怎样安排补货与延期？", "relevant_case_ids": ["EVT-000177-MAT-0219"], "description": "上海台风"},
+  {"query": "宁波发生需求暴涨，事件编号131，建议双供应商分单并锁定安全库存。", "relevant_case_ids": ["CASE-000031"], "description": "宁波需求突增131"},
+  {"query": "苏州需求骤增，编号225，需要为关键订单安排空运和备用供应商。", "relevant_case_ids": ["CASE-000033"], "description": "苏州需求突增225"},
+  {"query": "杭州订单激增，编号211，需要紧急采购并调整生产计划。", "relevant_case_ids": ["CASE-000050"], "description": "杭州需求突增211"},
+  {"query": "上海区域限电事件122，采用铁路替代并延后交货。", "relevant_case_ids": ["CASE-000060"], "description": "上海区域限电122"},
+  {"query": "青岛需求增幅异常，编号179，建议铁路改运和延期交付。", "relevant_case_ids": ["CASE-000085"], "description": "青岛需求突增179"},
+  {"query": "青岛运输节点故障，事件008，寻找铁路替代及延迟交货的经验。", "relevant_case_ids": ["CASE-000107"], "description": "青岛运输中断008"},
+  {"query": "苏州受台风影响，事件013，如何采用关键订单空运和备用补货？", "relevant_case_ids": ["CASE-000108"], "description": "苏州台风013"},
+  {"query": "合肥区域性停电，编号223，需要铁路替代与延期方案。", "relevant_case_ids": ["CASE-000137"], "description": "合肥区域限电223"},
+  {"query": "天津海关查验造成延误，事件058，需要紧急采购并重排生产。", "relevant_case_ids": ["CASE-000152"], "description": "天津海关查验058"},
+  {"query": "东莞港口不能作业，编号042，匹配关键订单空运和备用供应方案。", "relevant_case_ids": ["CASE-000153"], "description": "东莞港口停运042"},
+  {"query": "青岛港关闭，事件170，宁可短时停线也要控制现金成本。", "relevant_case_ids": ["CASE-000156"], "description": "青岛港口停运170"},
+  {"query": "杭州海关检查卡住货物，编号060，应接受短期停线来控制现金支出。", "relevant_case_ids": ["CASE-000169"], "description": "杭州海关查验060"},
+  {"query": "杭州清关延迟，事件220，使用紧急采购和生产计划调整。", "relevant_case_ids": ["CASE-000170"], "description": "杭州海关查验220"},
+  {"query": "合肥物流枢纽中断，编号212，接受短暂停线以降低现金成本。", "relevant_case_ids": ["CASE-000237"], "description": "合肥运输中断212"},
+  {"query": "天津质量召回，事件064，采用双供应商分单并锁定安全库存。", "relevant_case_ids": ["CASE-000246"], "description": "天津质量召回064"},
+  {"query": "宁波港口停运，编号107，采取短期停线和现金成本控制。", "relevant_case_ids": ["CASE-000254"], "description": "宁波港口停运107"},
+  {"query": "杭州海关稽核延迟，事件226，做库存重分配并按客户等级沟通。", "relevant_case_ids": ["CASE-000262"], "description": "杭州海关查验226"},
+  {"query": "东莞发生区域限电，编号085，重分配库存并进行客户分级沟通。", "relevant_case_ids": ["CASE-000273"], "description": "东莞区域限电085"},
+  {"query": "东莞港口关闭，事件141，需要紧急采购和生产计划调整。", "relevant_case_ids": ["CASE-000275"], "description": "东莞港口停运141"},
+  {"query": "天津供应商停止生产，编号232，采用铁路替代并延期交货。", "relevant_case_ids": ["CASE-000279"], "description": "天津供应商停产232"},
+  {"query": "苏州供应商停产，事件040，需要铁路替代和延期交付。", "relevant_case_ids": ["CASE-000281"], "description": "苏州供应商停产040"},
+  {"query": "东莞供应中断，编号112，安排库存重分配与客户分层沟通。", "relevant_case_ids": ["CASE-000287"], "description": "东莞供应商停产112"},
+  {"query": "苏州区域停电，事件205，找到库存重分配和客户等级沟通的案例。", "relevant_case_ids": ["CASE-000289"], "description": "苏州区域限电205"},
+  {"query": "苏州需求快速增加，编号237，使用紧急采购并调整生产排程。", "relevant_case_ids": ["CASE-000320"], "description": "苏州需求突增237"}
 ]
