@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 
 from .env_file import load_env_file
+from .secrets import EnvSecretProvider, SecretProvider
 
 # 必须在 Settings 定义之前执行：下面的字段默认值是在类定义时求值的，
 # 那时 os.getenv 就已经被调用，晚一步加载 .env 就不生效了。
@@ -16,8 +17,10 @@ class Settings:
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./chainguard.db")
     # 部署环境必须通过 .env 注入签名密钥，避免镜像或源码携带可预测密钥。
     jwt_secret: str = os.getenv("JWT_SECRET", "")
+    jwt_secret_previous: str = os.getenv("JWT_SECRET_PREVIOUS", "")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
     jwt_rs256_public_key: str = os.getenv("JWT_RS256_PUBLIC_KEY", "")
+    jwt_rs256_public_key_previous: str = os.getenv("JWT_RS256_PUBLIC_KEY_PREVIOUS", "")
     jwt_rs256_private_key: str = os.getenv("JWT_RS256_PRIVATE_KEY", "")
     access_token_minutes: int = int(os.getenv("ACCESS_TOKEN_MINUTES", "30"))
     refresh_token_days: int = int(os.getenv("REFRESH_TOKEN_DAYS", "7"))
@@ -69,5 +72,20 @@ class Settings:
         ).split(",") if value.strip()
     )
 
+def settings_from_secret_provider(secret_provider: SecretProvider) -> Settings:
+    """Build startup settings from an injected secret source.
 
-settings = Settings()
+    Only secrets use this seam.  Non-secret configuration retains its existing
+    environment-backed defaults, so deploying a future KMS/Vault provider does
+    not alter unrelated configuration behavior.
+    """
+    return Settings(
+        jwt_secret=secret_provider.get("JWT_SECRET"),
+        jwt_secret_previous=secret_provider.get("JWT_SECRET_PREVIOUS"),
+        jwt_rs256_public_key=secret_provider.get("JWT_RS256_PUBLIC_KEY"),
+        jwt_rs256_public_key_previous=secret_provider.get("JWT_RS256_PUBLIC_KEY_PREVIOUS"),
+        jwt_rs256_private_key=secret_provider.get("JWT_RS256_PRIVATE_KEY"),
+    )
+
+
+settings = settings_from_secret_provider(EnvSecretProvider())
