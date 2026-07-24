@@ -37,7 +37,7 @@ from ..org_settings import approval_chain_view, data_scope_view, save_approval_c
 from ..reports import DEFAULT_MONTHS as REPORT_DEFAULT_MONTHS, executive_report as build_executive_report, operation_report as build_operation_report, response_report as build_response_report
 from ..repository import add_audit, get_tenant_record, list_tenant_records, serialize
 from ..notifications import ensure_rules, notify_event
-from ..schemas import PatchRequest
+from ..schemas import PatchRequest, TenantSettingsUpdate
 
 
 router = APIRouter(tags=["imports-settings"])
@@ -832,6 +832,28 @@ def delete_role(item_id: str, ctx: Annotated[AuthContext, Depends(require_permis
 
 @router.get("/settings/tenant")
 def tenant(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return serialize(db.get(Tenant, ctx.tenant_id))
+
+
+@router.patch("/settings/tenant")
+def update_tenant(
+    body: TenantSettingsUpdate,
+    ctx: Annotated[AuthContext, Depends(require_permission("settings:manage"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = db.get(Tenant, ctx.tenant_id)
+    if item is None:
+        raise ApiError(404, "CG-2805", "租户不存在")
+    changes = body.model_dump(exclude_none=True)
+    for field, value in changes.items():
+        value = value.strip()
+        if not value:
+            raise ApiError(422, "CG-2806", f"{field} 不能为空")
+        setattr(item, field, value)
+    if changes:
+        add_audit(db, ctx, "更新企业信息", "tenant", item.id, item.name, changes)
+        db.commit()
+        db.refresh(item)
+    return serialize(item)
 @router.get("/settings/departments")
 def departments(
     ctx: Annotated[AuthContext, Depends(get_current_user)],

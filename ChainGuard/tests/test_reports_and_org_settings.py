@@ -181,6 +181,44 @@ def test_reports_respect_permissions():
     assert response.status_code == 403
 
 
+def test_tenant_settings_persists_timezone_and_rejects_invalid_iana_name():
+    """企业信息页的保存必须真实落库，且时区是唯一的日历统计口径。"""
+    headers = _headers("u-admin")
+    original = client.get("/api/v1/settings/tenant", headers=headers)
+    assert original.status_code == 200
+    before = original.json()
+
+    try:
+        saved = client.patch(
+            "/api/v1/settings/tenant",
+            json={
+                "name": before["name"],
+                "industry": before["industry"],
+                "scale": before["scale"],
+                "timezone": "America/Los_Angeles",
+            },
+            headers=headers,
+        )
+        assert saved.status_code == 200
+        assert saved.json()["timezone"] == "America/Los_Angeles"
+        assert client.get("/api/v1/settings/tenant", headers=headers).json()["timezone"] == "America/Los_Angeles"
+
+        invalid = client.patch("/api/v1/settings/tenant", json={"timezone": "not/a-timezone"}, headers=headers)
+        assert invalid.status_code == 422
+    finally:
+        restored = client.patch(
+            "/api/v1/settings/tenant",
+            json={
+                "name": before["name"],
+                "industry": before["industry"],
+                "scale": before["scale"],
+                "timezone": before["timezone"],
+            },
+            headers=headers,
+        )
+        assert restored.status_code == 200
+
+
 # ------------------------------------------------------------ 演示租户就绪度
 
 

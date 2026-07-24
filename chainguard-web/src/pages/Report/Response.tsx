@@ -1,6 +1,7 @@
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { Card, Col, Row, Select, Statistic, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
+import { useModel } from '@umijs/max';
 import { RiskTag, SensitiveField } from '@/components';
 import { getResponseReport, type ResponseReport } from '@/services/report';
 
@@ -11,6 +12,7 @@ const MISSING = '数据缺失';
 const money = (value: number | null) => (value === null ? MISSING : `¥${value.toLocaleString('zh-CN')}`);
 
 export default function Response() {
+  const { initialState } = useModel('@@initialState');
   const [months, setMonths] = useState(6);
   const [data, setData] = useState<ResponseReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,7 +27,7 @@ export default function Response() {
   return (
     <PageContainer
       title="应急效果"
-      subTitle="每事件复盘：响应时长、方案预估 vs 实际、经验卡片产出"
+      subTitle={`每事件复盘：响应时长、方案预估 vs 实际、经验卡片产出（按 ${data?.window.timezone || initialState?.tenant?.timezone || 'UTC'} 统计）`}
       extra={
         <Select
           value={months}

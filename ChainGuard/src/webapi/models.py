@@ -45,6 +45,8 @@ class Tenant(Base):
     plan: Mapped[str] = mapped_column(String(30), default="trial")
     trial_end_at: Mapped[str] = mapped_column(String(40), default="")
     demo_data_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    # IANA timezone used only for calendar/reporting boundaries; instants stay UTC.
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC", server_default="UTC")
 
 
 class Department(Base):

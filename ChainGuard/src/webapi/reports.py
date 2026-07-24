@@ -9,47 +9,42 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Approval, ExperienceCard, Incident, Proposal, Risk, Task
+from .tenant_time import as_utc, local_month_key, start_of_months_ago, tenant_now, tenant_zone
 
 # 报表默认回看窗口（月）。经营看板按月出数，6 个月够看趋势又不至于稀释当期。
 DEFAULT_MONTHS = 6
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _window_start(months: int) -> datetime:
-    # 用 30 天近似一个月：报表是趋势观察，不做财务期间对齐。
-    return _utcnow() - timedelta(days=30 * max(1, months))
+def _window_start(db: Session, tenant_id: str, months: int, now: datetime | None = None) -> tuple[datetime, str]:
+    """Use inclusive tenant-local calendar months, not UTC rolling 30-day blocks."""
+    zone = tenant_zone(db, tenant_id)
+    return start_of_months_ago(zone, months, now).astimezone(timezone.utc), zone.key
 
 
 def _as_aware(value: datetime | None) -> datetime | None:
     """SQLite 取回的 datetime 可能没有 tzinfo，统一按 UTC 处理后再比较。"""
     if value is None:
         return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return as_utc(value)
 
 
 def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
 
 
-def _month_key(moment: datetime) -> str:
-    return f"{moment.year:04d}-{moment.month:02d}"
-
-
-def _tenant_rows(db: Session, model: Any, tenant_id: str, since: datetime | None = None) -> list[Any]:
+def _tenant_rows(db: Session, model: Any, tenant_id: str, since: datetime | None = None, now: datetime | None = None) -> list[Any]:
     rows = list(db.scalars(select(model).where(model.tenant_id == tenant_id)).all())
     if since is None:
         return rows
-    return [row for row in rows if (_as_aware(row.created_at) or _utcnow()) >= since]
+    fallback = as_utc(now) or datetime.now(timezone.utc)
+    return [row for row in rows if (_as_aware(row.created_at) or fallback) >= since]
 
 
 def _parse_due(value: str) -> datetime | None:
@@ -65,12 +60,13 @@ def _parse_due(value: str) -> datetime | None:
 # ---------------------------------------------------------------- 经营看板 L1
 
 
-def executive_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) -> dict[str, Any]:
+def executive_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS, *, now: datetime | None = None) -> dict[str, Any]:
     """老板视角：系统价值主数字 = 避免损失 - 应急成本。"""
-    since = _window_start(months)
-    incidents = _tenant_rows(db, Incident, tenant_id, since)
-    approvals = _tenant_rows(db, Approval, tenant_id, since)
-    risks = _tenant_rows(db, Risk, tenant_id, since)
+    since, timezone_name = _window_start(db, tenant_id, months, now)
+    zone = tenant_zone(db, tenant_id)
+    incidents = _tenant_rows(db, Incident, tenant_id, since, now)
+    approvals = _tenant_rows(db, Approval, tenant_id, since, now)
+    risks = _tenant_rows(db, Risk, tenant_id, since, now)
 
     avoided_loss = sum(float(item.loss or 0) for item in incidents)
     emergency_cost = sum(float(item.cost or 0) for item in incidents)
@@ -84,7 +80,7 @@ def executive_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
     # 月度序列：避免损失 vs 应急成本，供 ECharts 折线/柱状叠加。
     buckets: dict[str, dict[str, float]] = {}
     for item in incidents:
-        key = _month_key(_as_aware(item.created_at) or _utcnow())
+        key = local_month_key(_as_aware(item.created_at) or tenant_now(zone, now), zone)
         bucket = buckets.setdefault(key, {"avoidedLoss": 0.0, "emergencyCost": 0.0})
         bucket["avoidedLoss"] += float(item.loss or 0)
         bucket["emergencyCost"] += float(item.cost or 0)
@@ -104,7 +100,7 @@ def executive_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
     ]
 
     return {
-        "window": {"months": months, "since": since.isoformat()},
+        "window": {"months": months, "since": since.isoformat(), "timezone": timezone_name},
         "netBenefit": net_benefit,
         "avoidedLoss": round(avoided_loss, 2) if incidents else None,
         "emergencyCost": round(emergency_cost, 2) if incidents else None,
@@ -118,14 +114,14 @@ def executive_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
 # ---------------------------------------------------------------- 运营看板 L2
 
 
-def operation_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) -> dict[str, Any]:
+def operation_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS, *, now: datetime | None = None) -> dict[str, Any]:
     """供应链负责人视角：处理漏斗 + 任务超时。"""
-    since = _window_start(months)
-    risks = _tenant_rows(db, Risk, tenant_id, since)
-    incidents = _tenant_rows(db, Incident, tenant_id, since)
-    proposals = [item for item in _tenant_rows(db, Proposal, tenant_id, since) if not item.archived]
-    approvals = _tenant_rows(db, Approval, tenant_id, since)
-    tasks = _tenant_rows(db, Task, tenant_id, since)
+    since, timezone_name = _window_start(db, tenant_id, months, now)
+    risks = _tenant_rows(db, Risk, tenant_id, since, now)
+    incidents = _tenant_rows(db, Incident, tenant_id, since, now)
+    proposals = [item for item in _tenant_rows(db, Proposal, tenant_id, since, now) if not item.archived]
+    approvals = _tenant_rows(db, Approval, tenant_id, since, now)
+    tasks = _tenant_rows(db, Task, tenant_id, since, now)
 
     approved = [item for item in approvals if item.status == "approved"]
     completed_tasks = [item for item in tasks if item.status in {"done", "completed"}]
@@ -139,9 +135,9 @@ def operation_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
         {"stage": "执行完成", "count": len(completed_tasks)},
     ]
 
-    now = _utcnow()
+    current = as_utc(now) or datetime.now(timezone.utc)
     open_tasks = [item for item in tasks if item.status not in {"done", "completed", "cancelled"}]
-    overdue = [item for item in open_tasks if (due := _parse_due(item.due_at)) and due < now]
+    overdue = [item for item in open_tasks if (due := _parse_due(item.due_at)) and due < current]
     overdue_rate = round(len(overdue) / len(open_tasks), 4) if open_tasks else None
 
     # 按承接角色统计超时，前端展示"按部门超时率"。
@@ -150,7 +146,7 @@ def operation_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
         entry = by_role.setdefault(item.role_code or "unassigned", {"total": 0, "overdue": 0})
         entry["total"] += 1
         due = _parse_due(item.due_at)
-        if due and due < now:
+        if due and due < current:
             entry["overdue"] += 1
     overdue_by_role = [
         {
@@ -172,7 +168,7 @@ def operation_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
     ]
 
     return {
-        "window": {"months": months, "since": since.isoformat()},
+        "window": {"months": months, "since": since.isoformat(), "timezone": timezone_name},
         "funnel": funnel,
         "overdueRate": overdue_rate,
         "overdueByRole": overdue_by_role,
@@ -184,13 +180,14 @@ def operation_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) 
 # ---------------------------------------------------------------- 应急复盘 L3
 
 
-def response_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) -> dict[str, Any]:
+def response_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS, *, now: datetime | None = None) -> dict[str, Any]:
     """应急效果：每事件一张复盘卡，方案预估 vs 实际。"""
-    since = _window_start(months)
-    incidents = _tenant_rows(db, Incident, tenant_id, since)
-    proposals = _tenant_rows(db, Proposal, tenant_id, since)
-    approvals = _tenant_rows(db, Approval, tenant_id, since)
-    cards = _tenant_rows(db, ExperienceCard, tenant_id, since)
+    since, timezone_name = _window_start(db, tenant_id, months, now)
+    zone = tenant_zone(db, tenant_id)
+    incidents = _tenant_rows(db, Incident, tenant_id, since, now)
+    proposals = _tenant_rows(db, Proposal, tenant_id, since, now)
+    approvals = _tenant_rows(db, Approval, tenant_id, since, now)
+    cards = _tenant_rows(db, ExperienceCard, tenant_id, since, now)
 
     proposals_by_incident: dict[str, list[Any]] = {}
     for item in proposals:
@@ -203,7 +200,8 @@ def response_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) -
     )
 
     events: list[dict[str, Any]] = []
-    for incident in sorted(incidents, key=lambda row: _as_aware(row.created_at) or _utcnow(), reverse=True):
+    fallback = as_utc(now) or datetime.now(timezone.utc)
+    for incident in sorted(incidents, key=lambda row: _as_aware(row.created_at) or fallback, reverse=True):
         related = proposals_by_incident.get(incident.id, [])
         adopted = next((item for item in related if not item.archived and not item.draft), None)
 
@@ -225,7 +223,7 @@ def response_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) -
             "title": incident.title,
             "level": incident.level,
             "status": incident.status,
-            "createdAt": (_as_aware(incident.created_at) or _utcnow()).isoformat(),
+            "createdAt": (_as_aware(incident.created_at) or fallback).astimezone(zone).isoformat(),
             "responseHours": response_hours,
             "estimatedCost": estimated_cost,
             "actualCost": actual_cost,
@@ -237,7 +235,7 @@ def response_report(db: Session, tenant_id: str, months: int = DEFAULT_MONTHS) -
     measured = [item["responseHours"] for item in events if item["responseHours"] is not None]
 
     return {
-        "window": {"months": months, "since": since.isoformat()},
+        "window": {"months": months, "since": since.isoformat(), "timezone": timezone_name},
         "events": events,
         "avgResponseHours": _mean(measured),
         "experienceCardTotal": len(cards),

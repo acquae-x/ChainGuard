@@ -35,7 +35,7 @@ export default function Executive() {
   return (
     <PageContainer
       title="经营看板"
-      subTitle="本月供应链风险、成本与经营收益"
+      subTitle={`本月供应链风险、成本与经营收益（按 ${data?.window.timezone || initialState?.tenant?.timezone || 'UTC'} 统计）`}
       extra={
         <Select
           value={months}

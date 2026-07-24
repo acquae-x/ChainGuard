@@ -25,6 +25,7 @@ from ..repository import add_audit, get_tenant_record, list_tenant_records, seri
 from ..risk_explanation import explain_risk
 from ..risk_recompute import recompute_inventory_risks
 from ..schemas import IncidentCreate, PatchRequest
+from ..tenant_time import as_utc, local_month_key, start_of_day, start_of_week, tenant_zone
 
 
 router = APIRouter(tags=["business"])
@@ -551,8 +552,7 @@ def audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("audit:vie
     return page(items, current, page_size)
 
 
-@router.get("/dashboard/kpis")
-def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]):
+def build_dashboard_kpis(db: Session, ctx: AuthContext, *, now: datetime | None = None) -> dict[str, Any]:
     # P1-7：KPI 由真实数据计算，且任务口径与 /tasks、逾期看板一致（无 task:manage 只算本人）。
     risks = list_tenant_records(db, Risk, ctx.tenant_id, ctx)
     approvals = list_tenant_records(db, Approval, ctx.tenant_id)
@@ -564,22 +564,19 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
     # 统一在这里按真实数据算，前端不再保留任何兜底数值。
     from ..onboarding import DECISION_REQUIRED, entity_summary
 
-    def _as_utc(value: datetime | None) -> datetime | None:
-        # SQLite 取回的 DateTime 可能是 naive 的，直接和 aware 值比较会 TypeError。
-        if value is None:
-            return None
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-
     summary = entity_summary(db, ctx.tenant_id)
     real_counts = summary["realCounts"]
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    zone = tenant_zone(db, ctx.tenant_id)
+    current = as_utc(now) or datetime.now(timezone.utc)
+    today_start = start_of_day(zone, current).astimezone(timezone.utc)
+    week_start = start_of_week(zone, current).astimezone(timezone.utc)
     import_jobs = list_tenant_records(db, ImportJob, ctx.tenant_id)
 
     # 采购视角的"待到货延误"：预计到货晚于计划到货的库存行。此前是前端写死的 0。
     arrival_delays = len([
         row for row in list_tenant_records(db, InventoryEntity, ctx.tenant_id)
         if row.planned_arrival_at and row.estimated_arrival_at
-        and _as_utc(row.estimated_arrival_at) > _as_utc(row.planned_arrival_at)
+        and as_utc(row.estimated_arrival_at) > as_utc(row.planned_arrival_at)
     ])
 
     # 金额口径直接复用经营看板（reports.executive_report）的定义，不另立一套：
@@ -598,10 +595,10 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
     # 与租户无关。这里按真实事件/审批按月聚合；没有数据就返回空数组，前端画空态。
     cost_buckets: dict[str, dict[str, float]] = {}
     for item in incidents:
-        moment = _as_utc(item.created_at)
+        moment = as_utc(item.created_at)
         if moment is None:
             continue
-        bucket = cost_buckets.setdefault(f"{moment.year}-{moment.month:02d}", {"avoidedLoss": 0.0, "emergencyCost": 0.0})
+        bucket = cost_buckets.setdefault(local_month_key(moment, zone), {"avoidedLoss": 0.0, "emergencyCost": 0.0})
         bucket["avoidedLoss"] += float(item.loss or 0)
         bucket["emergencyCost"] += float(item.cost or 0)
     monthly_series = [
@@ -611,10 +608,10 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
 
     response_buckets: dict[str, list[float]] = {}
     for item in approvals:
-        moment = _as_utc(item.created_at)
+        moment = as_utc(item.created_at)
         if moment is None or item.status not in {"approved", "rejected"} or item.waiting_hours is None:
             continue
-        response_buckets.setdefault(f"{moment.year}-{moment.month:02d}", []).append(float(item.waiting_hours))
+        response_buckets.setdefault(local_month_key(moment, zone), []).append(float(item.waiting_hours))
     response_series = [
         {"month": key, "avgResponseHours": round(sum(values) / len(values), 2)}
         for key, values in sorted(response_buckets.items()) if values
@@ -622,6 +619,7 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
 
     return {
         "riskCount": len(risks),
+        "todayRiskCount": len([r for r in risks if (moment := as_utc(r.created_at)) and moment >= today_start]),
         "highRiskCount": len([r for r in risks if r.level == "high"]),
         "pendingApprovals": len([a for a in approvals if a.status in {"pending", "submitted"}]),
         "countersign": len([a for a in approvals if a.status == "pending_countersign"]),
@@ -631,7 +629,7 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
         "memberCount": len(list_tenant_records(db, User, ctx.tenant_id)),
         # 决策链路必需但本租户还没有真实数据的资料类型数；与 /onboarding/status 同源。
         "onboardingPending": len([name for name in DECISION_REQUIRED if not real_counts.get(name)]),
-        "weeklyImports": len([j for j in import_jobs if _as_utc(j.created_at) and _as_utc(j.created_at) >= week_ago]),
+        "weeklyImports": len([j for j in import_jobs if (moment := as_utc(j.created_at)) and moment >= week_start]),
         "failedImports": len([j for j in import_jobs if j.status == "failed"]),
         "arrivalDelays": arrival_delays,
         "avoidedLoss": round(avoided_loss, 2) if can_cost and avoided_loss is not None else None,
@@ -639,7 +637,13 @@ def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: A
         "netBenefit": net_benefit if can_profit else None,
         "monthlySeries": monthly_series if can_cost else [],
         "responseSeries": response_series,
+        "timezone": zone.key,
     }
+
+
+@router.get("/dashboard/kpis")
+def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]):
+    return build_dashboard_kpis(db, ctx)
 
 
 @router.get("/dashboard/node-health")

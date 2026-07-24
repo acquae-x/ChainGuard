@@ -2,12 +2,14 @@ import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { Card, Col, Empty, Row, Select, Spin, Statistic } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useEffect, useState } from 'react';
+import { useModel } from '@umijs/max';
 import { ROLE_LABELS } from '@/constants/status';
 import { getOperationReport, type OperationReport } from '@/services/report';
 
 const percent = (value: number | null) => (value === null ? '数据缺失' : `${(value * 100).toFixed(1)}%`);
 
 export default function Operation() {
+  const { initialState } = useModel('@@initialState');
   const [months, setMonths] = useState(6);
   const [data, setData] = useState<OperationReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,7 @@ export default function Operation() {
   return (
     <PageContainer
       title="运营看板"
-      subTitle="风险处置漏斗、任务超时与风险分布"
+      subTitle={`风险处置漏斗、任务超时与风险分布（按 ${data?.window.timezone || initialState?.tenant?.timezone || 'UTC'} 统计）`}
       extra={
         <Select
           value={months}

@@ -53,6 +53,13 @@ export async function getTenant() {
   );
 }
 
+export async function saveTenant(values: Pick<API.Tenant, 'name' | 'industry' | 'scale' | 'timezone'>) {
+  return pick(
+    () => apiPatch<API.Tenant>('/settings/tenant', values),
+    async () => ({ ...tenant, ...values }),
+  );
+}
+
 export async function getAuditLogs() {
   return pick(
     () => apiGet('/audit-logs'),

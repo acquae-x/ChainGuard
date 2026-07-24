@@ -1,21 +1,25 @@
 import ReactECharts from 'echarts-for-react';
-import { useAccess } from '@umijs/max';
+import { useAccess, useModel } from '@umijs/max';
 import { Button, Card, Col, Empty, Row, Space, Table, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KpiCard, RiskTag, StatusTag } from '@/components';
 import { getRiskMatrix, getRisks, recomputeRisks } from '@/services/risk';
+import { getKpis } from '@/services/dashboard';
 import { palette } from '@/theme';
 
 const LEVEL_LABELS: Record<string, string> = { high: '高', medium: '中', low: '低' };
 
 export default function RiskOverviewPage() {
   const access = useAccess();
+  const { initialState } = useModel('@@initialState');
   const [risks, setRisks] = useState<API.Risk[]>([]);
   const [matrix, setMatrix] = useState<any[]>([]);
+  const [todayRiskCount, setTodayRiskCount] = useState(0);
   const [scanning, setScanning] = useState(false);
   const load = useCallback(() => {
     getRisks().then((res) => setRisks(res.data));
     getRiskMatrix().then(setMatrix);
+    getKpis().then((payload: any) => setTodayRiskCount(Number(payload?.todayRiskCount || 0)));
   }, []);
   useEffect(() => { load(); }, [load]);
   // A03：按当前租户实体重算库存风险。同步单次，仅 risk:manage 可见。
@@ -37,13 +41,12 @@ export default function RiskOverviewPage() {
     }
   };
   // P1-6：KPI 从真实风险数据计算，不再硬编码
-  const today = new Date().toISOString().slice(0, 10);
   const kpis = useMemo(() => [
     { title: '高风险数', value: risks.filter((item) => item.level === 'high').length },
     { title: '中风险数', value: risks.filter((item) => item.level === 'medium').length },
     { title: '低风险数', value: risks.filter((item) => item.level === 'low').length },
-    { title: '今日新增', value: risks.filter((item) => (item.foundAt || '').startsWith(today)).length },
-  ], [risks, today]);
+    { title: `今日新增（${initialState?.tenant?.timezone || 'UTC'}）`, value: todayRiskCount },
+  ], [initialState?.tenant?.timezone, risks, todayRiskCount]);
   // P1-6：类型分布由真实数据聚合
   const typeData = useMemo(() => {
     const counts = new Map<string, number>();
