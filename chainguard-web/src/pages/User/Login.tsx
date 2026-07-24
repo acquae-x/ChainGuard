@@ -17,6 +17,10 @@ export default function LoginPage() {
   const [form] = Form.useForm();
   const screens = Grid.useBreakpoint();
   const apiMode = isApiMode();
+  // CSS Grid tracks default to min-content sizing.  The preview card has an
+  // intrinsic width, so without an explicit zero minimum it can push the
+  // login pane outside a 1280px viewport.  Keep both tracks shrinkable.
+  const desktopPadding = screens.xxl ? 56 : screens.lg ? 32 : 20;
 
   // SSO 入口：先探测该账号所属企业是否真的配了 SSO，没配就照实说，不跳假流程。
   const goSso = async () => {
@@ -60,8 +64,8 @@ export default function LoginPage() {
   return (
     <>
       <DegradeBanner />
-      <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: screens.md ? '55% 45%' : '1fr', background: '#F5F6F8' }}>
-        <section style={{ padding: 56, display: screens.md ? 'flex' : 'none', flexDirection: 'column', justifyContent: 'center' }}>
+      <div data-testid="login-page-layout" style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: screens.md ? 'minmax(0, 55%) minmax(0, 45%)' : '1fr', background: '#F5F6F8' }}>
+        <section style={{ minWidth: 0, overflow: 'hidden', padding: desktopPadding, display: screens.md ? 'flex' : 'none', flexDirection: 'column', justifyContent: 'center' }}>
         <Typography.Title level={1}>ChainGuard</Typography.Title>
         <Typography.Title level={3}>供应链中断应急决策系统</Typography.Title>
         <Space direction="vertical" size="middle">
@@ -77,7 +81,7 @@ export default function LoginPage() {
           </div>
         </Card>
         </section>
-        <section style={{ padding: screens.md ? 56 : 20, display: 'flex', alignItems: 'center' }}>
+        <section style={{ minWidth: 0, padding: screens.md ? desktopPadding : 20, display: 'flex', alignItems: 'center' }}>
         <Card style={{ width: '100%' }}>
           <Typography.Title level={3}>登录 ChainGuard</Typography.Title>
           <Tabs items={[

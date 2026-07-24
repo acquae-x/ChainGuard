@@ -70,6 +70,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       # 该模块要求目标库已迁移到 head
       - run: alembic upgrade head
         env:
@@ -80,6 +81,14 @@ jobs:
       - run: pytest tests/test_phase5b_c2_postgres.py -q
         env:
           DATABASE_URL: sqlite:///./ci-pg-harness.db
+      - run: bash scripts/backup-restore-drill.sh
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          POSTGRES_DB: chainguard_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          CHAINGUARD_RESTORE_DRILL: DESTROY_DATABASE
 
   frontend:
     runs-on: ubuntu-latest
