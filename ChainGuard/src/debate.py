@@ -1,5 +1,6 @@
 from typing import Any
 
+from src.challenger import challenge_recommendation
 from src.constraint_solver import ConstraintAnalysis
 from src.evidence import DebateResult, DebateRound, Evidence
 from src.game_model import AgentPayoff, StrategyOption
@@ -96,6 +97,7 @@ def generate_rebuttal(
             "debater": debater_name,
             "target": target_name,
             **text_content,
+            "challenger": challenge_recommendation(target_proposal, context),
         }
 
     lowest_scores = lowest_proposal.get("scores", {})
