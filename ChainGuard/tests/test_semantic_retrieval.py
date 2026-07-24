@@ -1,5 +1,6 @@
 import importlib
 import json
+import types
 import uuid
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from src.vector_store import EmbeddingStore, SimpleKeywordStore, TfidfStore, get
 
 RUNTIME_TMP = Path(__file__).parent / "_runtime_tmp"
 EVAL_PATH = Path(__file__).resolve().parents[1] / "data" / "retrieval_eval.json"
+CARDS_PATH = Path(__file__).resolve().parents[1] / "data" / "experience_cards.json"
 
 
 def _runtime_path(name: str) -> Path:
@@ -124,6 +126,33 @@ def test_embedding_store_falls_back_to_tfidf(monkeypatch):
     assert results[0]["case_id"] == "case-quality-001"
 
 
+def test_embedding_store_passes_an_explicit_cache_folder(monkeypatch):
+    captured = {}
+
+    class FakeModel:
+        def __init__(self, model_name, **kwargs):
+            captured["model_name"] = model_name
+            captured.update(kwargs)
+
+    original_import_module = importlib.import_module
+
+    def fake_import_module(name, package=None):
+        if name == "sentence_transformers":
+            return types.SimpleNamespace(SentenceTransformer=FakeModel)
+        return original_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    store = EmbeddingStore(_runtime_path("semantic_embedding_cache.json"), cache_folder="C:/model-cache")
+
+    assert store.degraded() is False
+    assert captured == {
+        "model_name": "paraphrase-multilingual-MiniLM-L12-v2",
+        "local_files_only": True,
+        "cache_folder": "C:/model-cache",
+    }
+
+
 def test_get_vector_store_tfidf_mode():
     path = _runtime_path("semantic_tfidf_mode.json")
 
@@ -172,15 +201,13 @@ def test_tfidf_ranks_more_specific_card_higher():
 
 
 def test_recall_at_3_tfidf_on_eval_set():
-    path = _runtime_path("semantic_eval_cards.json")
-    _write_cards(path)
     eval_items = json.loads(EVAL_PATH.read_text(encoding="utf-8"))
 
     def recall_at_k(results, relevant_ids, k=3):
         returned_ids = {result.get("case_id") for result in results[:k]}
         return len(returned_ids & set(relevant_ids)) / max(len(relevant_ids), 1)
 
-    store = TfidfStore(path)
+    store = TfidfStore(CARDS_PATH)
     scores = [
         recall_at_k(
             store.search(item["query"]),
@@ -190,4 +217,4 @@ def test_recall_at_3_tfidf_on_eval_set():
         for item in eval_items
     ]
 
-    assert sum(scores) / len(scores) >= 0.5
+    assert sum(scores) / len(scores) >= 0.8

@@ -193,7 +193,12 @@ class ChromaStore:
 
 
 class EmbeddingStore:
-    def __init__(self, path: str | Path = "data/experience_cards.json") -> None:
+    def __init__(
+        self,
+        path: str | Path = "data/experience_cards.json",
+        *,
+        cache_folder: str | Path | None = None,
+    ) -> None:
         self.path = resolve_project_path(path)
         self.fallback = TfidfStore(self.path)
         self._available = False
@@ -203,9 +208,12 @@ class EmbeddingStore:
 
             module = importlib.import_module("sentence_transformers")
             model_class = getattr(module, "SentenceTransformer")
+            model_args: dict[str, Any] = {"local_files_only": True}
+            if cache_folder is not None:
+                model_args["cache_folder"] = str(cache_folder)
             self._model = model_class(
                 "paraphrase-multilingual-MiniLM-L12-v2",
-                local_files_only=True,
+                **model_args,
             )
         except Exception:
             self._model = None
