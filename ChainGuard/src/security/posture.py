@@ -7,7 +7,14 @@ from typing import Any
 from src.security import masking
 from src.security.encryption import encryption_status
 from src.security.masking import mask_payload
-from src.security.rbac import ROLE_PERMISSIONS
+
+
+POSTURE_ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "admin": {"view_decision", "run_decision", "export", "approve", "admin"},
+    "operator": {"view_decision", "run_decision", "export"},
+    "approver": {"view_decision", "approve"},
+    "viewer": {"view_decision"},
+}
 
 
 @dataclass(frozen=True)
@@ -32,7 +39,7 @@ def security_posture(role: str, data_source: Any | None = None) -> SecurityPostu
     status = encryption_status()
     return SecurityPosture(
         role=role,
-        permissions=sorted(ROLE_PERMISSIONS.get(role, set())),
+        permissions=sorted(POSTURE_ROLE_PERMISSIONS.get(role, set())),
         masking_rules={} if role == "admin" else dict(masking.DEFAULT_SENSITIVE_FIELDS),
         encryption_active=bool(status["active"]),
         encryption_note=str(status["note"]),

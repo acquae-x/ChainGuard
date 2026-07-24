@@ -2,23 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import uuid
 from typing import Annotated
 
 import bcrypt
-import jwt
 from fastapi import Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
 from ..errors import ApiError
+from ..jwt_tokens import bearer, decode_typed_token, encode_typed_token
 from ..models import RefreshToken, RevokedToken, Role, User
-
-
-bearer = HTTPBearer(auto_error=False)
 
 
 @dataclass(frozen=True)
@@ -47,10 +43,15 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def _token(user: User, token_type: str, expires: timedelta) -> str:
-    now = datetime.now(timezone.utc)
-    key = settings.jwt_rs256_private_key if settings.jwt_algorithm == "RS256" else settings.jwt_secret
-    if not key: raise RuntimeError("JWT 签名密钥未配置")
-    return jwt.encode({"sub": user.id, "tenantId": user.tenant_id, "role": user.role_code, "type": token_type, "jti": uuid.uuid4().hex, "iat": now, "exp": now + expires}, key, algorithm=settings.jwt_algorithm)
+    return encode_typed_token(
+        {
+            "sub": user.id,
+            "tenantId": user.tenant_id,
+            "role": user.role_code,
+        },
+        token_type=token_type,
+        expires=expires,
+    )
 
 
 def create_tokens(user: User, *, include_refresh: bool = True) -> dict[str, object]:
@@ -64,11 +65,8 @@ def create_tokens(user: User, *, include_refresh: bool = True) -> dict[str, obje
 
 
 def decode_token(token: str, expected_type: str = "access", db: Session | None = None) -> dict:
+    payload = decode_typed_token(token, expected_type)
     try:
-        key = settings.jwt_rs256_public_key if settings.jwt_algorithm == "RS256" else settings.jwt_secret
-        payload = jwt.decode(token, key, algorithms=[settings.jwt_algorithm])
-        if payload.get("type") != expected_type:
-            raise ValueError("token type")
         if db is not None and payload.get("jti") and db.get(RevokedToken, payload["jti"]):
             raise ValueError("token revoked")
         return payload

@@ -21,3 +21,4 @@ data/audit_log.*.jsonl
 demo_assets/enterprise/database/chainguard_enterprise_demo.*.db
 backups/
 output/
+secrets/

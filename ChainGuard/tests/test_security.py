@@ -4,10 +4,7 @@ import sys
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from src.api import app
-from src.domain_models import DecisionResult
 from src.security.encryption import (
     EncryptionUnavailable,
     decrypt_bytes,
@@ -26,30 +23,6 @@ SAMPLE_PAYLOAD = {
     "status": "ok",
     "decision_id": "D-001",
 }
-
-
-def _mock_result() -> DecisionResult:
-    return DecisionResult(
-        risk_weights={},
-        thresholds={},
-        context={
-            "events": [{"supplier_name": "Nested Supplier", "amount": 120000}],
-        },
-        inventory_risk={"inventory_risk_index": 75.0, "warning_level": "yellow"},
-        proposals=[{"vendor_name": "Vendor A", "unit_price": 88.8}],
-        conflict={},
-        rebuttal={},
-        arbitration={},
-        experience_card={},
-        constraint_analysis={},
-        debate_result={},
-        experience_references={},
-        explanation={},
-        audit_entry={
-            "decision_status": "ok",
-            "supplier_name": "Audit Supplier",
-        },
-    )
 
 
 def test_mask_hides_sensitive_for_non_admin():
@@ -155,18 +128,3 @@ def test_key_rotation_reads_previous_key(monkeypatch):
     fresh = encrypt_bytes(b"rotate-me")
     monkeypatch.delenv("CHAINGUARD_ENCRYPTION_KEY_PREVIOUS")
     assert decrypt_bytes(fresh) == b"rotate-me"
-
-
-def test_decision_response_masked_for_non_admin():
-    with patch("src.api._API_KEYS", {"operator-key": "operator"}), patch(
-        "src.api.DecisionOrchestrator"
-    ) as mock_orch:
-        mock_orch.return_value.run_demo.return_value = _mock_result()
-        client = TestClient(app)
-        resp = client.post("/decisions/demo", headers={"X-API-Key": "operator-key"})
-
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert payload["context"]["events"][0]["supplier_name"] == "***"
-    assert payload["proposals"][0]["vendor_name"] == "***"
-    assert payload["audit_entry"]["supplier_name"] == "***"

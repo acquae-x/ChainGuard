@@ -101,17 +101,6 @@ def test_write_and_audit_are_committed_together():
     assert any(item["targetId"] == item_id and item["action"] == "更新事件" for item in logs)
 
 
-def test_500_never_leaks_exception_or_internal_message():
-    with patch("src.api.DecisionOrchestrator") as orchestrator:
-        orchestrator.return_value.run_demo.side_effect = RuntimeError("database-password-secret")
-        response = client.post("/decisions/demo")
-    body = response.text
-    assert response.status_code == 500
-    assert "RuntimeError" not in body
-    assert "database-password-secret" not in body
-    assert set(response.json()) == {"code", "message", "traceId"}
-
-
 def test_decision_mapper_always_returns_three_frontend_proposals():
     mapped = map_decision_result({"proposals": [{"agent_name": "采购 Agent", "proposal_title": "多源联合补货", "proposal": "采购说明", "total_score": 88}]}, "inc-1")
     assert len(mapped) == 3

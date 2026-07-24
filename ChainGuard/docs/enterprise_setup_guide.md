@@ -2,64 +2,57 @@
 
 ## §1 Environment Configuration
 
-ChainGuard currently runs as a Python application with Streamlit UI, FastAPI REST API, and optional Docker deployment. The dependency list must be read from `requirements.txt` rather than inferred.
+ChainGuard's production product is a tenant-aware web application; the dedicated `web` service is its browser UI and FastAPI provides the internal application API.
 
-Current required dependencies in `requirements.txt`:
+Compose starts `postgres`, `redis`, a one-shot `migrate` service, the internal
+FastAPI `api`, and the browser-facing `web` service. `web` is published on
+`http://localhost:8080` by default (override with `WEB_PORT`); `api` listens on
+container port `8000` only and is intentionally not host-published.
 
-```text
-streamlit
-scikit-learn>=1.0
-fastapi>=0.110
-uvicorn>=0.27
-httpx>=0.27
+The repository still includes `app.py` and the `streamlit` dependency for
+legacy/local analysis tooling. Streamlit is not the production UI and is not
+started by `docker compose up`.
+
+Create a deployment-specific `.env` alongside `docker-compose.yml`:
+
+```dotenv
+POSTGRES_DB=chainguard
+POSTGRES_USER=chainguard
+POSTGRES_PASSWORD=<strong-database-password>
+JWT_SECRET=<long-random-signing-secret>
+SEED_DEMO_PASSWORD=<demo-password>
 ```
 
-Dependency meaning:
+Useful optional settings are `WEB_PORT`, `API_WORKERS`, `CORS_ORIGINS`,
+`RATE_LIMIT_STORAGE_URI`, and `REFRESH_COOKIE_SECURE`. `JWT_SECRET` is a
+signing dependency: `/readyz` is unhealthy when it is absent.
 
-| Dependency | Status | Used for |
-|---|---|---|
-| `streamlit` | Required | Main web UI in `app.py` |
-| `scikit-learn>=1.0` | Required | TF-IDF retrieval, vector math, model comparison, classifier baseline |
-| `fastapi>=0.110` | Required | REST service in `src/api.py` |
-| `uvicorn>=0.27` | Required | ASGI runtime for `uvicorn src.api:app` |
-| `httpx>=0.27` | Required | FastAPI `TestClient` dependency |
-
-The file also documents an optional semantic retrieval dependency:
-
-```text
-# Optional for EmbeddingStore; TfidfStore remains the offline fallback.
-# sentence-transformers>=2.2
-```
-
-`sentence-transformers>=2.2` is optional. When it is absent, retrieval can fall back to the scikit-learn based TF-IDF path. Do not treat `scikit-learn` as optional; it is installed by the normal requirements file and is part of the core runtime.
-
-Basic local setup:
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-FastAPI is implemented in `src/api.py` and can be started directly:
-
-```bash
-uvicorn src.api:app --host 0.0.0.0 --port 8000
-```
-
-Docker is implemented through `Dockerfile` and `docker-compose.yml`. The compose stack exposes:
-
-```text
-Streamlit UI: 8501
-FastAPI REST: 8000
-```
-
-Start both application services with:
+Start the product with:
 
 ```bash
 docker compose up --build
 ```
 
+Open `http://localhost:8080` (or `WEB_PORT`) in a browser. If a deployment
+intentionally exposes the internal API, place an authenticated gateway in front
+of it; do not treat it as the primary product entry point.
+
+For a non-Compose local API process, provide an absolute `DATABASE_URL` plus
+`JWT_SECRET`, `SEED_DEMO_PASSWORD`, and `CHAINGUARD_ENCRYPTION_KEY`, then run:
+
+```bash
+uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+When a built frontend exists at `../chainguard-web/dist`, `src.api` can serve
+it for a single-process local demonstration. Compose uses the dedicated `web`
+service instead.
+
 ## §2 Enterprise Data Requirements
+
+> Legacy local-analysis note: this section documents checked-in SQLite fixtures
+> and `ScenarioLoader`, not the production tenant data contract. Production
+> data is PostgreSQL-backed and enters through the UI or `/api/v1`.
 
 Enterprise scenario data is loaded by `src/scenario_loader.py`. The default SQLite demo database path is:
 
@@ -129,6 +122,9 @@ actual_cost >= 0
 
 ## §3 UI Steps And Render Functions
 
+> Legacy local-analysis note: `app.py` is not part of the Compose product path.
+> The production UI is `chainguard-web`, served by the `web` service.
+
 The Streamlit UI in `app.py` renders the decision flow through 11 actual `render_step_*` functions. The function names below must stay aligned with the code.
 
 | Step | Function | What the UI displays | Key data source |
@@ -158,31 +154,45 @@ In demo mode, `DecisionOrchestrator().run_demo()` is used. In enterprise mode, `
 
 ## §4 Enterprise Operation Flow
 
-For local UI operation:
+For the supported product UI, start Compose and open the published `web`
+service:
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+docker compose up --build
+# open http://localhost:8080 (or WEB_PORT)
 ```
 
-For REST operation:
+The FastAPI service is internal to this stack at `api:8000`. For a local
+single-process demonstration, use the isolated-environment command from
+section 1 and keep the API bound to `127.0.0.1` unless a gateway is configured.
 
-```bash
-uvicorn src.api:app --host 0.0.0.0 --port 8000
-```
-
-Implemented FastAPI routes in `src/api.py` include:
+Operational FastAPI routes in `src/api.py` include:
 
 ```text
-GET  /health
-GET  /scenarios
-POST /decisions/demo
-POST /decisions/scenario/{event_id}
-GET  /notifications/pending
-GET  /auth/status
+GET /healthz
+GET /readyz
+GET /metrics
 ```
 
-Authentication is implemented in `src/api.py` with `X-API-Key`. If `CHAINGUARD_API_KEYS` is absent or empty, the API runs in open mode and returns role `admin`. If `CHAINGUARD_API_KEYS` is set with values such as `key1:admin,key2:readonly`, requests must include a valid `X-API-Key` header.
+Tenant business routes live under `/api/v1` and use the JWT tenant/user
+authentication in `src/webapi/auth/security.py`. The former root scenario,
+synchronous decision, pending-notification, and auth-status routes were removed;
+`CHAINGUARD_API_KEYS` and open mode no longer exist.
+
+Prometheus uses a separate token type within the same JWT implementation. Create
+the least-privilege credential with the deployment signing configuration:
+
+```bash
+python scripts/generate_metrics_token.py \
+  --days 30 \
+  --output secrets/prometheus.jwt
+```
+
+`config/prometheus.yml` sends this credential from
+`/run/secrets/chainguard_metrics_token`; compose mounts
+`./secrets/prometheus.jwt` by default. Set
+`CHAINGUARD_METRICS_TOKEN_FILE` when a secret manager provisions a different
+host path. Rotate the file before expiry and restart or reload Prometheus.
 
 For Docker operation:
 
@@ -190,32 +200,29 @@ For Docker operation:
 docker compose up --build
 ```
 
-Current compose services:
+Current Compose application services:
 
-| Service | Port | Command |
+| Service | Host exposure | Role |
 |---|---|---|
-| `streamlit` | `8501:8501` | `streamlit run app.py --server.port=8501 --server.address=0.0.0.0` |
-| `api` | `8000:8000` | `uvicorn src.api:app --host 0.0.0.0 --port 8000` |
+| `web` | `${WEB_PORT:-8080}:8080` | Browser UI and reverse proxy to `api` |
+| `api` | Internal `api:8000` only | Tenant-aware FastAPI API |
+| `migrate` | None | Database migration and demo seed before API startup |
 
-Both services mount:
-
-```text
-./data:/app/data
-```
-
-This preserves runtime files such as `data/experience_cards.json`, `data/model_registry.json`, and `data/audit_log.jsonl` outside the container.
+`api` persists runtime application data through the named `appdata` volume and
+tenant calibration/import state through the named `workspace` volume. Do not
+rely on mutable JSON files as the production source of tenant state.
 
 Recommended enterprise run sequence:
 
-1. Prepare a SQLite database with the tables and fields listed in §2.
-2. Confirm `ScenarioLoader(db_path=...)` can list scenarios from `disruption_events`.
-3. Start the UI on port `8501` or the API on port `8000`.
-4. In the UI, choose enterprise scenario mode and select one event from the latest 50 scenarios.
-5. Review Steps 1-11 and the sensitivity analysis.
-6. Use Step 11 `human_approval_required` and `decision_id` for approval tracking.
-7. Export the decision report JSON from the Streamlit download button when an archive is required.
-
-FastAPI and Docker are implemented now. Automatic ERP writeback is not implemented; external ERP systems can call the REST API and consume JSON results, but writeback must be handled by a separate integration layer.
+1. Set the required deployment `.env` values and provision PostgreSQL and Redis.
+2. Generate `secrets/prometheus.jwt` before enabling the monitoring profile.
+3. Start `docker compose up --build` and open the `web` service on port 8080.
+4. Log in to the tenant product, import or inspect tenant data, then create or
+   select an incident.
+5. Enqueue proposal generation through the persisted workflow and monitor its
+   job, proposals, approvals, tasks, and audit trail in the UI or `/api/v1`.
+6. Use an integration layer for any approved ERP writeback; automatic writeback
+   is not implemented.
 
 ## §5 Fallback Behavior And Limits
 
@@ -224,12 +231,12 @@ ChainGuard is designed to keep the main decision flow available when optional en
 | Missing or limited component | Current behavior | Impact |
 |---|---|---|
 | `sentence-transformers` not installed | Semantic embedding retrieval can fall back to the scikit-learn based `TfidfStore` path | Retrieval remains available with lexical TF-IDF matching |
-| Ollama or Qwen unavailable | Explanation generation uses template output when LLM explanation fails | Step 10 still shows arbitration, debate, and constraint explanations |
-| No historical references | Experience retrieval returns empty references and no risk hints | Step 9 shows no similar cases, while Steps 1-8 still run |
+| Ollama or Qwen unavailable | Explanation generation uses template output when LLM explanation fails | Persisted workflow remains available with degraded explanations |
+| No historical references | Experience retrieval returns empty references and no risk hints | The persisted workflow remains available without similar-case hints |
 | `data/experience_cards.json` missing | Saved-card count is treated as empty until cards are generated | Step 7 can still display the current generated experience card |
 | `data/model_registry.json` missing | `ModelRegistry().get_stable()` returns `None` until a model is registered | Model comparison can create registry records after evaluation |
 | `ConstraintSolver` finds no fully feasible combination | Constraint result can mark `feasible=False` and still return analysis data | Step 8 remains visible for manual review |
-| API key environment not configured | `src.api` uses open mode and `check_api_key(None)` returns `admin` | Existing demos and tests can run without `X-API-Key` |
+| Prometheus metrics JWT missing, expired, or invalid | `/metrics` returns 401/403 without falling back to an application role | Business APIs remain available; monitoring scrapes fail until the token is provisioned or rotated |
 
 Known limits:
 
@@ -242,9 +249,11 @@ PostgreSQL migration is documented separately in docs/production_db_migration.md
 The current implemented production-facing capabilities are:
 
 ```text
-FastAPI REST API in src/api.py
+Tenant-aware browser UI through the Compose `web` service
+FastAPI REST API in src/api.py (internal to Compose unless deliberately gated)
 Dockerfile and docker-compose.yml deployment files
-API key open/key mode authentication
+JWT tenant/user authentication for `/api/v1`
+Least-privilege JWT authentication for `/metrics`
 MockNotifier and WebhookNotifier notification abstraction
-Decision report JSON download in app.py
+Persisted incident, proposal, approval, task, and audit workflows
 ```

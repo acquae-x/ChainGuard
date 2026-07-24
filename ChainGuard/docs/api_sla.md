@@ -1,34 +1,23 @@
-# ChainGuard Decision API SLA
+# ChainGuard API SLA
 
 ## Measurement Method
 
-Run the in-process FastAPI benchmark with:
+The production decision path is tenant-aware and asynchronous:
 
-```bash
-python -m pytest benchmarks/test_api_perf.py -v -s
+```text
+POST /api/v1/incidents/{incident_id}/proposals:generate
+GET  /api/v1/jobs/{job_id}
 ```
 
-The benchmark performs one warmup request, then samples each measured endpoint
-multiple times with `fastapi.testclient.TestClient`. It reports P50, P95,
-elapsed time, approximate QPS, and error count for:
+Measure request acceptance latency, queue wait, persisted job execution time,
+end-to-end terminal time, and error rate separately. A 202 response means the
+job was accepted; it is not decision completion.
 
-- `POST /decisions/demo`
-- `POST /decisions/scenario/{event_id}`
-- light concurrent `POST /decisions/demo` traffic
-
-Concurrency uses `ThreadPoolExecutor`; each worker creates its own independent
-`TestClient(app)` instance to avoid cross-thread client sharing.
-
-Default knobs:
-
-| Variable | Default | Purpose |
-|---|---:|---|
-| `CHAINGUARD_API_PERF_SAMPLES` | `20` | Serial sample count per endpoint |
-| `CHAINGUARD_API_PERF_CONCURRENCY_TOTAL` | `20` | Total concurrent demo requests |
-| `CHAINGUARD_API_PERF_WORKERS` | `4` | Concurrent worker count |
-| `CHAINGUARD_DEMO_P95_THRESHOLD_MS` | `2000` | Demo decision P95 gate |
-| `CHAINGUARD_SCENARIO_P95_THRESHOLD_MS` | `2500` | Scenario decision P95 gate |
-| `CHAINGUARD_API_PERF_SCENARIO_ID` | `EVT-000006` | Scenario event used by the benchmark |
+The former root decision endpoints and `benchmarks/test_api_perf.py` were
+removed together. That benchmark measured an unsupported cross-tenant
+file-state path, so its historical P50/P95 values are not an SLA for the
+current workflow. `pytest benchmarks/` now retains the history-pipeline scale
+benchmark only.
 
 ## Environment
 
@@ -42,37 +31,20 @@ Record the actual machine profile with each benchmark run:
 | OS | TBD by deployment or CI runner |
 | Storage | Local workspace or CI ephemeral disk |
 
-The in-repository benchmark is intended as a repeatable smoke baseline, not a
-replacement for external production load testing.
+Record the same profile for tenant workflow load tests; the remaining
+in-repository scale benchmark is not a replacement for production load testing.
 
 ## SLA Targets
 
-| Endpoint | Target |
-|---|---:|
-| `POST /decisions/demo` P95 latency | `< 2000 ms` |
-| `POST /decisions/scenario/{event_id}` P95 latency | `< 2500 ms` |
-| Light concurrent demo requests | `0` HTTP 5xx responses |
-
-The recommended initial concurrency limit is 4 in-flight decision requests per
-single Uvicorn worker. Raise this only after confirming P95 latency and memory
-headroom in the target environment.
-
-## Latest Local Benchmark
-
-Latest run on the local development environment:
-
-| Case | Samples | P50 | P95 | Approx QPS | Errors |
-|---|---:|---:|---:|---:|---:|
-| Serial demo decision | 20 | 1295.2 ms | 1306.4 ms | 0.77 | 0 |
-| Serial scenario decision (`EVT-000006`) | 20 | 1309.9 ms | 1326.2 ms | 0.76 | 0 |
-| Concurrent demo decision, 4 workers | 20 | 1442.2 ms | 1541.7 ms | 2.78 | 0 |
+Establish numeric targets from representative tenant datasets and deployed
+worker capacity before publishing an external SLA. Do not carry over the
+deleted synchronous endpoint thresholds.
 
 ## Resource Notes
 
-Decision execution performs deterministic rule evaluation, experience retrieval,
-constraint solving, explanation generation, audit append, and optional
-notification logic. The dominant resources are CPU time for in-process decision
-steps and local file/database I/O for experience and audit persistence.
+Decision execution performs rule evaluation, experience retrieval, constraint
+solving, explanation generation, and persisted audit/workflow updates. The
+dominant resources are CPU, database I/O, and configured model-provider latency.
 
 Operational dashboards should track:
 
@@ -80,20 +52,20 @@ Operational dashboards should track:
 - API HTTP 5xx rate
 - process CPU and memory
 - audit log write failures
-- scenario database availability from `/health`
+- database and JWT readiness from `/readyz`
 
 ## Degradation Guidance
 
-If P95 latency exceeds the SLA target:
+If end-to-end job latency rises:
 
-1. Reduce concurrent decision requests at the API gateway or worker queue.
-2. Prefer cached scenario lists and avoid repeated nonessential decision calls.
-3. Disable or defer optional outbound notifications until the API recovers.
-4. Run more Uvicorn workers only after confirming shared file/database writes
-   remain healthy.
-5. Inspect `/metrics` and structured decision logs to separate compute latency
-   from error retries or dependency failures.
+1. Check `chainguard_jobs_pending` and worker availability.
+2. Separate queue wait from execution time using persisted job timestamps.
+3. Inspect structured logs for ERP, model-provider, persistence, and recovery
+   failures.
+4. Reduce admission concurrency before increasing workers.
+5. Increase workers only after confirming shared persistence and rate-limit
+   storage remain safe at the new concurrency.
 
-If the error rate rises under light concurrency, keep traffic at single-request
-mode and investigate local persistence, database availability, and recent
-configuration changes before raising concurrency.
+If Prometheus scrapes return 401/403, verify the metrics JWT signature, scope,
+expiry, mounted credential file, and reload state. Never restore unauthenticated
+scraping as a recovery shortcut.
