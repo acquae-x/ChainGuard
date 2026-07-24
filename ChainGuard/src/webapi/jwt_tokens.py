@@ -17,6 +17,31 @@ METRICS_SCOPE = "metrics:read"
 bearer = HTTPBearer(auto_error=False)
 
 
+def _verification_keys() -> list[str]:
+    """Return the active verification key followed by comma-separated old keys."""
+    if settings.jwt_algorithm == "RS256":
+        current = settings.jwt_rs256_public_key
+        previous = settings.jwt_rs256_public_key_previous
+    else:
+        current = settings.jwt_secret
+        previous = settings.jwt_secret_previous
+    return [current, *(item.strip() for item in previous.split(",") if item.strip())]
+
+
+def _decode_with_any_verification_key(token: str) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for key in _verification_keys():
+        try:
+            return jwt.decode(token, key, algorithms=[settings.jwt_algorithm])
+        except Exception as error:
+            # A historical key is allowed only for verification.  Continue until
+            # one key validates the complete JWT (signature and registered claims).
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("JWT 验签密钥未配置")
+
+
 def encode_typed_token(
     claims: dict[str, Any],
     *,
@@ -46,12 +71,7 @@ def encode_typed_token(
 
 def decode_typed_token(token: str, expected_type: str) -> dict[str, Any]:
     try:
-        key = (
-            settings.jwt_rs256_public_key
-            if settings.jwt_algorithm == "RS256"
-            else settings.jwt_secret
-        )
-        payload = jwt.decode(token, key, algorithms=[settings.jwt_algorithm])
+        payload = _decode_with_any_verification_key(token)
         if payload.get("type") != expected_type:
             raise ValueError("token type")
         return payload

@@ -45,7 +45,17 @@ API 以 4 个 worker 运行，决策和普通作业线程池各 4 个；部署�
 
 ## 机密管理
 
-`.env` 仅应由部署管理员读取（Windows 使用 NTFS ACL，Linux 使用 `chmod 600 .env`），不得提交到版本控制或复制到工单/聊天。轮换 `JWT_SECRET` 会使全部现有会话失效，应安排维护窗口并提前通知用户；轮换数据库密码后同步更新 `.env` 并重启服务。定期轮换 `POSTGRES_PASSWORD`、`JWT_SECRET` 与演示账户密码。
+`.env` 仅应由部署管理员读取（Windows 使用 NTFS ACL，Linux 使用 `chmod 600 .env`），不得提交到版本控制或复制到工单/聊天。轮换数据库密码后同步更新 `.env` 并重启服务。定期轮换 `POSTGRES_PASSWORD`、JWT 密钥与演示账户密码。
+
+### JWT 密钥轮换（灰度窗口）
+
+JWT 轮换采用“当前签发、当前和历史验签”模式。灰度窗口长度由系统所有者与安全负责人按**最长 JWT 有效期 + 时钟偏差 + 发布观察时间**确定；本系统的默认最长值由 `REFRESH_TOKEN_DAYS` 决定，不能只按 `ACCESS_TOKEN_MINUTES` 计算。疑似密钥泄露时不走灰度窗口：立即移除泄露密钥并使现有会话失效。
+
+1. 生成新密钥，将现有 `JWT_SECRET` 移入 `JWT_SECRET_PREVIOUS`（多个历史值以逗号分隔），将新值写入 `JWT_SECRET`；RS256 则生成新密钥对，将新私钥写入 `JWT_RS256_PRIVATE_KEY`、将上一把公钥移入 `JWT_RS256_PUBLIC_KEY_PREVIOUS`，并将新公钥写入 `JWT_RS256_PUBLIC_KEY`。旧私钥不参与验签，无需保留。
+2. 在所有实例上同时发布该配置并滚动重启。重启后新 token 只由当前签名密钥签发，旧 token 仍可由历史验签密钥验证。
+3. 灰度窗口结束且最长可能存活的旧 token 全部过期后，从 `*_PREVIOUS` 删除对应旧值，再次滚动重启。被删除密钥签发的 token 必须被拒绝。
+
+当前实现不使用 JWT `kid`：服务端按“当前、历史 1、历史 2…”尝试验签。这避免为内部 token 增加密钥标识、分发和撤销契约；未来若需要向外部验证方公开 RS256/JWKS，再引入 `kid`。
 
 ## 升级与排障
 
