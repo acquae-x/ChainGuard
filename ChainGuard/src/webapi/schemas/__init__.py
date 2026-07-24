@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -23,6 +24,36 @@ class RegisterRequest(ApiModel):
     scale: str
     owner_role: str
     plan: str = "trial"
+    timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_an_iana_name(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("timezone must be a valid IANA timezone") from error
+        return value
+
+
+class TenantSettingsUpdate(ApiModel):
+    """Administrator-managed tenant fields; omitted values remain unchanged."""
+
+    name: str | None = None
+    industry: str | None = None
+    scale: str | None = None
+    timezone: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_an_iana_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("timezone must be a valid IANA timezone") from error
+        return value
 
 
 class PasswordResetRequestBody(ApiModel):

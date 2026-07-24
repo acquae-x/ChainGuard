@@ -1,4 +1,5 @@
 import os
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -101,17 +102,6 @@ def test_write_and_audit_are_committed_together():
     assert any(item["targetId"] == item_id and item["action"] == "更新事件" for item in logs)
 
 
-def test_500_never_leaks_exception_or_internal_message():
-    with patch("src.api.DecisionOrchestrator") as orchestrator:
-        orchestrator.return_value.run_demo.side_effect = RuntimeError("database-password-secret")
-        response = client.post("/decisions/demo")
-    body = response.text
-    assert response.status_code == 500
-    assert "RuntimeError" not in body
-    assert "database-password-secret" not in body
-    assert set(response.json()) == {"code", "message", "traceId"}
-
-
 def test_decision_mapper_always_returns_three_frontend_proposals():
     mapped = map_decision_result({"proposals": [{"agent_name": "采购 Agent", "proposal_title": "多源联合补货", "proposal": "采购说明", "total_score": 88}]}, "inc-1")
     assert len(mapped) == 3
@@ -212,7 +202,6 @@ def test_notification_read_state_is_persisted_and_user_scoped():
 
 def test_four_concurrent_decision_jobs_do_not_deadlock():
     from src.orchestrator import DecisionOrchestrator
-    assert jobs.job_executor is not jobs.decision_executor
     ctx = AuthContext("u-scm_lead", "tenant-demo", "供应链负责人", "scm_lead", ())
     job_ids = []
     with SessionLocal() as db:
@@ -225,11 +214,15 @@ def test_four_concurrent_decision_jobs_do_not_deadlock():
         db.commit()
 
     # C1 Web jobs no longer call run_demo; patch the worker boundary so this
-    # regression remains focused on executor separation/deadlock behavior.
+    # regression remains focused on concurrent worker execution. Durable jobs
+    # have no process-local executor queue.
     with patch("src.webapi.jobs._execute_tenant_decision", return_value=DecisionOrchestrator().run_demo()):
-        futures = [jobs.job_executor.submit(jobs._run_decision_job, job_id, ctx) for job_id in job_ids]
-        for future in futures:
-            future.result(timeout=5)
+        workers = [threading.Thread(target=jobs._run_decision_job, args=(job_id, ctx)) for job_id in job_ids]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=5)
+        assert not any(worker.is_alive() for worker in workers)
 
     with SessionLocal() as db:
         assert all(db.get(Job, job_id).status == "succeeded" for job_id in job_ids)

@@ -86,7 +86,7 @@ def seed() -> None:
             db.commit()
             print("演示数据已存在，跳过 seed。")
             return
-        tenant = Tenant(id="tenant-demo", name="华东精密制造有限公司", industry="电子制造", scale="200-1000", status="active", plan="trial", trial_end_at=(datetime.now() + timedelta(days=30)).date().isoformat(), demo_data_flag=True)
+        tenant = Tenant(id="tenant-demo", name="华东精密制造有限公司", industry="电子制造", scale="200-1000", status="active", plan="trial", trial_end_at=(datetime.now() + timedelta(days=30)).date().isoformat(), demo_data_flag=True, timezone="Asia/Shanghai")
         db.add(tenant)
         # PostgreSQL 强制外键：先落库租户，再插角色/用户，固定语句顺序（SQLite 不校验外键掩盖了该问题）
         db.flush()

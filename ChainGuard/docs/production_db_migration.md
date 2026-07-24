@@ -382,6 +382,8 @@ Deployment checklist:
 3. Load data from SQLite with `pgloader` or CSV imports.
 4. Set `CHAINGUARD_DATABASE_URL` for `streamlit` and `api`.
 5. Start the full stack with `docker-compose up --build`.
-6. Verify `GET /health`, `GET /scenarios`, and `POST /decisions/scenario/{event_id}` through the FastAPI service on port `8000`.
+6. Verify `GET /healthz` and `GET /readyz`, then exercise the tenant-aware
+   `/api/v1` incident and asynchronous proposal-generation workflow with a
+   valid user JWT.
 
 Until the code adapter is implemented, this PostgreSQL compose configuration is a migration target, not the current runtime behavior.

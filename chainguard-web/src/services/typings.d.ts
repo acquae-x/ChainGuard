@@ -10,6 +10,7 @@ declare namespace API {
     plan: 'trial' | 'paid';
     trialEndAt: string;
     demoDataFlag?: boolean;
+    timezone: string;
   };
 
   type Department = { id: string; tenantId: string; name: string; parentId?: string };

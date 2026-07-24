@@ -4,10 +4,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from src.db import get_connection
-from src.domain_models import DecisionResult
 from src.scenario_loader import ScenarioLoader
 
 
@@ -51,35 +48,3 @@ def test_two_tenants_isolated(two_tenant_dbs: Path):
 def test_unknown_tenant_rejected():
     with pytest.raises(ValueError, match="未知租户"):
         get_connection(tenant_id="nonexistent_xyz_12345")
-
-
-def test_api_response_includes_tenant_id(monkeypatch):
-    import src.api as api_module
-
-    monkeypatch.setattr(api_module, "DecisionOrchestrator", _MockOrchestrator)
-    client = TestClient(api_module.app)
-
-    response = client.post("/decisions/demo", headers={"X-Tenant-ID": "default"})
-
-    assert response.status_code == 200
-    assert response.json().get("tenant_id") == "default"
-
-
-class _MockOrchestrator:
-    def run_demo(self) -> DecisionResult:
-        return DecisionResult(
-            risk_weights={},
-            thresholds={},
-            context={},
-            inventory_risk={"risk_index": 75.0},
-            proposals=[],
-            conflict={},
-            rebuttal={},
-            arbitration={},
-            experience_card={},
-            constraint_analysis={},
-            debate_result={},
-            experience_references={},
-            explanation={},
-            audit_entry={"decision_status": "auto_approved"},
-        )

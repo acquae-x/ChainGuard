@@ -51,6 +51,18 @@ class Settings:
     # 正在跑的作业，对本进程而言同样只是一行 status=running）。
     job_recovery_stale_minutes: float = float(os.getenv("JOB_RECOVERY_STALE_MINUTES", "15"))
     job_recovery_disabled: bool = os.getenv("CHAINGUARD_DISABLE_JOB_RECOVERY", "false").lower() in {"1", "true", "yes", "on"}
+    # Durable DB job worker.  Timeout is persisted on submission so a later
+    # worker observes the same tenant/data-volume budget rather than its own
+    # process environment.
+    job_poll_seconds: float = float(os.getenv("JOB_POLL_SECONDS", "0.25"))
+    job_shutdown_grace_seconds: float = float(os.getenv("JOB_SHUTDOWN_GRACE_SECONDS", "30"))
+    job_retry_max_attempts: int = int(os.getenv("JOB_RETRY_MAX_ATTEMPTS", "3"))
+    job_retry_backoff_seconds: float = float(os.getenv("JOB_RETRY_BACKOFF_SECONDS", "2"))
+    job_retry_backoff_max_seconds: float = float(os.getenv("JOB_RETRY_BACKOFF_MAX_SECONDS", "60"))
+    decision_job_timeout_seconds: float = float(os.getenv("DECISION_JOB_TIMEOUT_SECONDS", "60"))
+    import_job_timeout_seconds: float = float(os.getenv("IMPORT_JOB_TIMEOUT_SECONDS", "30"))
+    job_timeout_per_1000_rows_seconds: float = float(os.getenv("JOB_TIMEOUT_PER_1000_ROWS_SECONDS", "5"))
+    job_timeout_max_seconds: float = float(os.getenv("JOB_TIMEOUT_MAX_SECONDS", "300"))
     cors_origins: tuple[str, ...] = tuple(
         value.strip() for value in os.getenv(
             "CORS_ORIGINS", "http://localhost:8000,http://localhost:8080"

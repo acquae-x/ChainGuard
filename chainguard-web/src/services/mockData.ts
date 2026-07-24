@@ -33,7 +33,8 @@ export const tenant: API.Tenant = {
   status: 'active',
   plan: 'trial',
   trialEndAt: '2026-08-08',
-  demoDataFlag: true
+  demoDataFlag: true,
+  timezone: 'Asia/Shanghai',
 };
 
 export const roles: API.Role[] = (Object.keys(roleNames) as API.RoleCode[]).map((code) => ({

@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Any
 
 from sqlalchemy import func, select
@@ -36,6 +36,7 @@ from .models import (
     SupplierEntity,
     SupplierMaterial,
 )
+from .tenant_time import tenant_now, tenant_zone
 from .risk_recompute import measure_material, risk_id_for_material
 
 # 单类节点上限。超出即截断并明示真实总数——11 万条企业数据下不能一次全算。
@@ -150,11 +151,11 @@ def scope_for(permissions: tuple[str, ...]) -> tuple[list[str], bool]:
     return [name for name in NODE_TYPE_ORDER if name in matched], False
 
 
-def _iso(value: datetime | None) -> str | None:
+def _iso(value: datetime | None, zone: tzinfo | None = None) -> str | None:
     if value is None:
         return None
     moment = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    return moment.astimezone(timezone.utc).isoformat()
+    return moment.astimezone(zone or timezone.utc).isoformat()
 
 
 def _worst(*states: str) -> str:
@@ -224,7 +225,8 @@ class NodeHealthBuilder:
     def __init__(self, db: Session, tenant_id: str, *, now: datetime | None = None) -> None:
         self.db = db
         self.tenant_id = tenant_id
-        self.now = now or datetime.now(timezone.utc)
+        self.zone = tenant_zone(db, tenant_id)
+        self.now = tenant_now(self.zone, now)
         self.builder = TenantContextBuilder(db, tenant_id, now=self.now)
         self._limitations: dict[str, dict[str, Any]] = {}
 
@@ -315,8 +317,9 @@ class NodeHealthBuilder:
                     default=None,
                 ),
             },
+            "timezone": self.zone.key,
             "limitations": [self._limitations[key] for key in sorted(self._limitations)],
-            "generatedAt": _iso(self.now),
+            "generatedAt": _iso(self.now, self.zone),
         }
 
     def _unavailable(self, code: str, *, scope: dict[str, Any] | None) -> dict[str, Any]:
@@ -333,8 +336,9 @@ class NodeHealthBuilder:
             "filtered": None,
             "filters": None,
             "dataFreshness": None,
+            "timezone": self.zone.key,
             "limitations": [self._limitations[key] for key in sorted(self._limitations)],
-            "generatedAt": _iso(self.now),
+            "generatedAt": _iso(self.now, self.zone),
         }
 
     def _limit(self, code: str, **extra: Any) -> None:
@@ -404,7 +408,7 @@ class NodeHealthBuilder:
                         "unit": material.unit,
                         "isCritical": material.is_critical,
                     },
-                    updated_at=_iso(material.updated_at),
+                    updated_at=_iso(material.updated_at, self.zone),
                     link=f"{ENTITY_LINKS['material']}?id={material.material_id}",
                     related_links=self._material_related_links(material.material_id),
                 ))
@@ -432,7 +436,7 @@ class NodeHealthBuilder:
                     "isCritical": material.is_critical,
                     "dataQuality": measurement["dataQuality"],
                 },
-                updated_at=_iso(material.updated_at),
+                updated_at=_iso(material.updated_at, self.zone),
                 link=f"{ENTITY_LINKS['material']}?id={material.material_id}",
                 related_links=self._material_related_links(material.material_id),
             ))
@@ -603,7 +607,7 @@ class NodeHealthBuilder:
                     "inTransitQty": sum(float(row.in_transit_qty or 0) for row in entries),
                 },
                 # 仓库没有主数据，因而没有资料页；给 null 而不是一个点不开的假链接。
-                updated_at=max([_iso(row.updated_at) or "" for row in entries] or [""]) or None,
+                updated_at=max([_iso(row.updated_at, self.zone) or "" for row in entries] or [""]) or None,
                 link=None,
                 related_links=[{"label": "查看库存明细", "link": "/data/inventory"}],
             ))
@@ -703,7 +707,7 @@ class NodeHealthBuilder:
                         or [0.0]
                     ) if any(row.supplier_price is not None for row in supplied) else None,
                 },
-                updated_at=_iso(supplier.updated_at),
+                updated_at=_iso(supplier.updated_at, self.zone),
                 link=f"{ENTITY_LINKS['supplier']}?id={supplier.supplier_id}",
                 related_links=[],
             ))
@@ -766,10 +770,10 @@ class NodeHealthBuilder:
                 states.append("critical")
                 reasons.append(_reason(
                     "delivery_overdue",
-                    detail=f"承诺交期 {_iso(promised)} 已过（当前 {_iso(self.now)}）",
-                    observed={"field": "承诺交期", "value": _iso(promised), "unit": None},
+                    detail=f"承诺交期 {_iso(promised, self.zone)} 已过（当前 {_iso(self.now, self.zone)}）",
+                    observed={"field": "承诺交期", "value": _iso(promised, self.zone), "unit": None},
                     # 纯事实比较，不引入"提前多少小时算临近"这类阈值。
-                    threshold={"value": _iso(self.now), "unit": None, "source": "当前时间（事实比较）"},
+                    threshold={"value": _iso(self.now, self.zone), "unit": None, "source": "当前时间（事实比较）"},
                     via="sales_orders",
                 ))
 
@@ -803,7 +807,7 @@ class NodeHealthBuilder:
                 reasons=reasons,
                 metrics={
                     "orderStatus": order.order_status,
-                    "promisedDeliveryAt": _iso(promised),
+                    "promisedDeliveryAt": _iso(promised, self.zone),
                     "lineCount": len(entries),
                     "materialCount": len(required),
                     "orderedQty": sum(float(row.ordered_qty or 0) for row in entries),
@@ -813,7 +817,7 @@ class NodeHealthBuilder:
                     "grossProfit": order.gross_profit,
                     "penaltyCost": order.penalty_cost,
                 },
-                updated_at=_iso(order.updated_at),
+                updated_at=_iso(order.updated_at, self.zone),
                 link=f"{ENTITY_LINKS['order']}?id={order.sales_order_id}",
                 related_links=(
                     [{"label": "查看客户", "link": f"/data/customer?id={order.customer_id}"}]

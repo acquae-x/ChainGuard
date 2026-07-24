@@ -99,7 +99,7 @@ def register(body: RegisterRequest, request: Request, response: Response, db: An
     # C3 starts every newly registered tenant in an explicit, resumable
     # initialization state.  It is advisory (users may enter the workspace),
     # while the onboarding API still uses actual entity data as the source of truth.
-    tenant = Tenant(id=tenant_id, name=body.company_name.strip(), industry=body.industry, scale=body.scale, status="initializing", plan=body.plan, trial_end_at="", demo_data_flag=False)
+    tenant = Tenant(id=tenant_id, name=body.company_name.strip(), industry=body.industry, scale=body.scale, status="initializing", plan=body.plan, trial_end_at="", demo_data_flag=False, timezone=body.timezone)
     db.add(tenant)
     # PostgreSQL 强制外键：先落库租户再插角色、先角色再用户，固定语句顺序（同 seed.py，SQLite 不校验外键掩盖该问题）
     db.flush()

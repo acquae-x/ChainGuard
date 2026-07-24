@@ -3,7 +3,7 @@
 import { pick } from './dataMode';
 import { apiGet } from '../utils/request';
 
-export type ReportWindow = { months: number; since: string };
+export type ReportWindow = { months: number; since: string; timezone: string };
 
 export type ExecutiveReport = {
   window: ReportWindow;
@@ -45,7 +45,7 @@ export type ResponseReport = {
   experienceCardTotal: number;
 };
 
-const MOCK_WINDOW: ReportWindow = { months: 6, since: '2026-01-20T00:00:00+00:00' };
+const MOCK_WINDOW: ReportWindow = { months: 6, since: '2026-01-20T00:00:00+00:00', timezone: 'Asia/Shanghai' };
 
 export async function getExecutiveReport(months = 6) {
   return pick<ExecutiveReport>(
