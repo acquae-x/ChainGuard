@@ -12,6 +12,7 @@ from ..auth import AuthContext
 from ..data_scope import apply_scope, is_visible
 from ..errors import ApiError
 from ..models import AuditLog
+from ..tenant_time import utc_now_iso
 
 
 T = TypeVar("T")
@@ -66,6 +67,8 @@ def serialize(item: Any, *, exclude: set[str] | None = None, include: set[str] |
 
 
 def add_audit(db: Session, ctx: AuthContext, action: str, target_type: str, target_id: str, target_name: str, detail: dict[str, Any], ip: str = "") -> AuditLog:
-    log = AuditLog(id=f"audit-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, time=datetime.now().astimezone().isoformat(), user_id=ctx.user_id, user_name=ctx.name, role_code=ctx.role_code, action=action, target_type=target_type, target_id=target_id, target_name=target_name, detail=detail, ip=ip)
+    # 存储用 UTC 规范时间；显示时按租户时区本地化。用 datetime.now().astimezone()
+    # 会把服务器进程时区写进审计（生产容器 TZ 各异），同一事件在不同主机读出不同偏移。
+    log = AuditLog(id=f"audit-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, time=utc_now_iso(), user_id=ctx.user_id, user_name=ctx.name, role_code=ctx.role_code, action=action, target_type=target_type, target_id=target_id, target_name=target_name, detail=detail, ip=ip)
     db.add(log)
     return log

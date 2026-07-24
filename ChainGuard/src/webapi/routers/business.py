@@ -25,7 +25,7 @@ from ..repository import add_audit, get_tenant_record, list_tenant_records, seri
 from ..risk_explanation import explain_risk
 from ..risk_recompute import recompute_inventory_risks
 from ..schemas import IncidentCreate, PatchRequest
-from ..tenant_time import as_utc, local_month_key, start_of_day, start_of_week, tenant_zone
+from ..tenant_time import as_utc, local_month_key, localize_iso, localize_record_times, start_of_day, start_of_week, tenant_zone, utc_now_iso
 
 
 router = APIRouter(tags=["business"])
@@ -225,7 +225,7 @@ def update_incident(item_id: str, body: PatchRequest, request: Request, ctx: Ann
     before = item.status
     if body.status: item.status = body.status
     if body.note:
-        item.notes = [*item.notes, {"text": body.note, "userId": ctx.user_id, "time": datetime.now().isoformat()}]
+        item.notes = [*item.notes, {"text": body.note, "userId": ctx.user_id, "time": utc_now_iso()}]
     add_audit(db, ctx, "更新事件", "incident", item.id, item.title, {"before": before, "after": item.status, "note": body.note}, request.client.host if request.client else "")
     db.commit()
     return serialize(item)
@@ -252,7 +252,7 @@ def impact(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission(
 @router.get("/incidents/{item_id}/timeline")
 def timeline(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("incident:view"))], db: Annotated[Session, Depends(get_db)]):
     logs = list(db.scalars(select(AuditLog).where(AuditLog.tenant_id == ctx.tenant_id, AuditLog.target_id == item_id)).all())
-    return [serialize(x) for x in logs]
+    return localize_record_times([serialize(x) for x in logs], tenant_zone(db, ctx.tenant_id))
 
 
 def _decision_detail_response(item_id: str, ctx: AuthContext, db: Session) -> dict:
@@ -375,7 +375,7 @@ def recalc_proposal(item_id: str, body: PatchRequest, request: Request, ctx: Ann
 def save_draft(item_id: str, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("decision:modify"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx); item.draft = True
     add_audit(db, ctx, "保存草稿", "proposal", item.id, item.name, {}, request.client.host if request.client else "")
-    db.commit(); return {"proposalId": item.id, "savedAt": datetime.now().isoformat()}
+    db.commit(); return {"proposalId": item.id, "savedAt": localize_iso(utc_now_iso(), tenant_zone(db, ctx.tenant_id))}
 
 
 @router.get("/incidents/{item_id}/draft")
@@ -451,7 +451,7 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
         if any(item.get("action") in {"ratify_approve", "ratify_object"} for item in approval.history):
             raise ApiError(409, "CG-2405", "该审批单已完成追认，不能重复追认")
         if action == "ratify_object" and not (body.reason or "").strip(): raise ApiError(422, "CG-2402", "追认异议必须填写理由")
-        approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": datetime.now().astimezone().isoformat()}]
+        approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": utc_now_iso()}]
         add_audit(db, ctx, "财务追认通过" if action == "ratify_approve" else "财务追认异议", "approval", approval.id, approval.summary, {"reason": body.reason}, request.client.host if request.client else "")
         ensure_rules(db, ctx.tenant_id)
         ratify_text = "财务追认通过" if action == "ratify_approve" else f"财务追认异议：{(body.reason or '').strip()}"
@@ -472,7 +472,7 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
     elif action in {"reject", "recalc", "withdraw"}: incident.status = "planning"
     elif action == "transfer": approval.transferred_to = transfer_user.id
     # 带时区写入：会签超时 SLA 依赖该时间戳做跨时区正确的差值计算（无时区会被扫描器按 UTC 解读）
-    approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": datetime.now().astimezone().isoformat()}]
+    approval.history = [*approval.history, {"action": action, "userId": ctx.user_id, "reason": body.reason, "time": utc_now_iso()}]
     if action == "countersign": notify_event(db, ctx.tenant_id, "countersign_completed", {"submitter": approval.submitter, "title": f"{approval.summary}财务会签完成", "target": f"/decision/approval/{approval.id}"})
     if action == "reject" and ctx.role_code == "finance": notify_event(db, ctx.tenant_id, "countersign_rejected", {"submitter": approval.submitter, "title": f"{approval.summary}财务拒签", "target": f"/decision/approval/{approval.id}"})
     add_audit(db, ctx, f"审批{action}", "approval", approval.id, approval.summary, {"reason": body.reason, "assignee": body.assignee}, request.client.host if request.client else "")
@@ -549,7 +549,9 @@ def audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("audit:vie
     items = list_tenant_records(db, AuditLog, ctx.tenant_id)
     items = [x for x in items if (not user_id or x.user_id == user_id) and (not target_type or x.target_type == target_type) and (not action or x.action == action)]
     items.sort(key=lambda item: item.created_at, reverse=True)
-    return page(items, current, page_size)
+    result = page(items, current, page_size)
+    result["data"] = localize_record_times(result["data"], tenant_zone(db, ctx.tenant_id))
+    return result
 
 
 def build_dashboard_kpis(db: Session, ctx: AuthContext, *, now: datetime | None = None) -> dict[str, Any]:
@@ -695,7 +697,7 @@ def my_tasks(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotat
 @router.get("/dashboard/pending-approvals")
 def pending_approvals(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in list_tenant_records(db, Approval, ctx.tenant_id) if x.status in {"pending", "submitted"}]
 @router.get("/dashboard/audit")
-def dashboard_audit(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return [serialize(x) for x in list_tenant_records(db, AuditLog, ctx.tenant_id)[:6]]
+def dashboard_audit(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]): return localize_record_times([serialize(x) for x in list_tenant_records(db, AuditLog, ctx.tenant_id)[:6]], tenant_zone(db, ctx.tenant_id))
 
 
 @router.get("/notifications")

@@ -72,3 +72,50 @@ def local_month_key(value: datetime, zone: ZoneInfo) -> str:
     assert local is not None
     local = local.astimezone(zone)
     return f"{local.year:04d}-{local.month:02d}"
+
+
+def utc_now_iso(now: datetime | None = None) -> str:
+    """Canonical UTC ISO string for **persisting** a wall-clock timestamp.
+
+    Use this instead of ``datetime.now().astimezone().isoformat()``. The latter
+    stamps whatever timezone the server process happens to run in (a container's
+    ``TZ`` in production), which is neither UTC nor the tenant's zone: audit
+    trails then read e.g. ``+01:00`` on one host and ``+08:00`` on another for
+    the same logical event. Persisted instants are UTC; display localizes later.
+    """
+    instant = as_utc(now) if now is not None else datetime.now(timezone.utc)
+    assert instant is not None
+    return instant.isoformat()
+
+
+def localize_iso(value: str | None, zone: ZoneInfo) -> str | None:
+    """Render a stored ISO timestamp in the tenant's zone for **display**.
+
+    Accepts any offset (or a naive string, treated as UTC per our storage
+    contract) and returns the same instant expressed in ``zone``. Non-timestamp
+    or unparseable strings pass through unchanged rather than raising: a display
+    helper must never turn a data blemish into a 500.
+    """
+    if not value:
+        return value
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(zone).isoformat()
+
+
+def localize_record_times(
+    rows: list[dict[str, object]],
+    zone: ZoneInfo,
+    *,
+    keys: tuple[str, ...] = ("time", "createdAt"),
+) -> list[dict[str, object]]:
+    """Localize the given ISO timestamp keys of already-serialized dicts in place."""
+    for row in rows:
+        for key in keys:
+            if isinstance(row.get(key), str):
+                row[key] = localize_iso(row[key], zone)  # type: ignore[assignment]
+    return rows
