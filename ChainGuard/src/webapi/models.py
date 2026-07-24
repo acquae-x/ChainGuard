@@ -249,6 +249,13 @@ class Job(TenantRecord, Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     error_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    available_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    timeout_seconds: Mapped[float] = mapped_column(Float, default=60.0)
+    claimed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    requester_id: Mapped[str] = mapped_column(String(64), default="")
 
 
 class ImportJob(TenantRecord, Base):
@@ -259,6 +266,13 @@ class ImportJob(TenantRecord, Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     options: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    available_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    timeout_seconds: Mapped[float] = mapped_column(Float, default=30.0)
+    claimed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+    requester_id: Mapped[str] = mapped_column(String(64), default="")
 
 
 class ErpIntegrationConfig(TenantRecord, Base):

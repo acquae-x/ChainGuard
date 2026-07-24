@@ -31,7 +31,7 @@ from ..erp_mapping_config import mapping_view as erp_mapping_view, reset_mapping
 from ..calibration_governance import build_governance_snapshot, confirm_governance_snapshot
 from ..enterprise_import_catalog import IMPORT_TYPE_CATALOG, catalog_payload
 from ..import_classifier import recognize_import_type
-from ..jobs import enqueue_import_job
+from ..jobs import enqueue_import_job, prepare_import_job
 from ..onboarding import activate_tenant_after_business_data, inject_demo_dataset, onboarding_status, save_onboarding_progress
 from ..org_settings import approval_chain_view, data_scope_view, save_approval_chain, save_data_scope
 from ..reports import DEFAULT_MONTHS as REPORT_DEFAULT_MONTHS, executive_report as build_executive_report, operation_report as build_operation_report, response_report as build_response_report
@@ -705,6 +705,7 @@ def execute_import(item_id: str, ctx: Annotated[AuthContext, Depends(require_per
         raise ApiError(409, "CG-2605", "D04：相同签名文件已被其他导入任务占用") from error
     item.status = "pending"
     item.options = {**item.options, "signature": history.signature}
+    prepare_import_job(db, item, ctx)
     db.commit()
     enqueue_import_job(item.id, ctx)
     return {"jobId": item.id, "status": item.status}

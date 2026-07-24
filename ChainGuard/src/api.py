@@ -42,6 +42,9 @@ install_error_handlers(app)
 app.include_router(api_router)
 
 
+durable_job_worker = None
+
+
 def _countersign_scheduler() -> None:
     """Run workflow timeout and overdue-task scans every five minutes."""
     from src.webapi.routers.business import release_expired_countersigns, release_overdue_tasks
@@ -68,6 +71,21 @@ def recover_stale_jobs_on_startup() -> None:
     from src.webapi.job_recovery import recover_stale_jobs_on_startup as _recover
 
     _recover()
+
+
+@app.on_event("startup")
+def start_durable_job_worker() -> None:
+    global durable_job_worker
+    from src.webapi.jobs import DurableJobWorker
+
+    durable_job_worker = DurableJobWorker()
+    durable_job_worker.start()
+
+
+@app.on_event("shutdown")
+def stop_durable_job_worker() -> None:
+    if durable_job_worker is not None:
+        durable_job_worker.stop()
 
 
 @app.get("/healthz")

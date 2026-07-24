@@ -61,12 +61,22 @@ class TextGenerator:
         self,
         endpoint: str | None = None,
         model: str | None = None,
-        timeout: int = 15,
+        timeout: int | None = None,
         provider: str | None = None,
         api_key: str | None = None,
     ) -> None:
         self.provider = self._resolve_provider(provider, endpoint)
-        self.timeout = timeout
+        if timeout is None:
+            # Web decision jobs publish their budget through a ContextVar. The
+            # text generator gets a bounded share of it, while non-job callers
+            # retain the historical 15-second default.
+            try:
+                from src.webapi.job_runtime import llm_timeout_seconds
+
+                timeout = llm_timeout_seconds.get()
+            except ImportError:  # pragma: no cover - standalone package use
+                timeout = None
+        self.timeout = max(1, int(timeout if timeout is not None else 15))
         if self.provider == "deepseek":
             self.endpoint = endpoint or os.getenv("DEEPSEEK_API_URL") or DEEPSEEK_ENDPOINT
             self.model = model or os.getenv("DEEPSEEK_MODEL") or DEEPSEEK_MODEL
@@ -596,4 +606,3 @@ class TextGenerator:
             "  recommended_pattern: 字符串\n"
             + _NUMBER_DISCIPLINE
         )
-
