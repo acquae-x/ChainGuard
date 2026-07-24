@@ -14,7 +14,9 @@ from ..database import get_db
 from ..errors import ApiError
 from ..jobs import enqueue_decision_job
 from ..context_builder import TenantContextBuilder
-from ..models import Approval, AuditLog, DecisionDetail, ExperienceCard, ImportJob, Incident, InventoryEntity, Job, NotificationMessage, Proposal, Risk, Task, User
+from ..models import Approval, AuditLog, DecisionAudit, DecisionDetail, ExperienceCard, ImportJob, Incident, InventoryEntity, Job, NotificationMessage, Proposal, Risk, Task, User
+from ...automation_stats import summarize_automation
+from ...audit import RISK_APPROVAL_THRESHOLD
 from ..experience import mark_incident_experience_completed, mark_incident_experience_confirmed
 from ..decision_detail import mask_for_requester, render_pdf
 from ..impact_scope import incident_impact_scope, risk_impact_scope
@@ -643,9 +645,55 @@ def build_dashboard_kpis(db: Session, ctx: AuthContext, *, now: datetime | None 
     }
 
 
+def build_dashboard_automation(db: Session, ctx: AuthContext) -> dict[str, Any]:
+    """Return tenant-scoped human-in-the-loop outcomes from decision audit facts.
+
+    ``DecisionAudit`` is written exactly once for each completed decision job and
+    contains the orchestrator's ``audit_entry``.  Generic ``AuditLog`` rows only
+    describe user actions, so they cannot establish whether a decision was
+    automatically released or escalated to a human.
+    """
+    entries = [
+        item.entry
+        for item in list_tenant_records(db, DecisionAudit, ctx.tenant_id)
+        if isinstance(item.entry, dict) and "human_approval_required" in item.entry
+    ]
+    summary = summarize_automation(entries)
+    return {
+        "totalDecisions": summary.total,
+        "autoApproved": summary.auto_approved,
+        "escalated": summary.escalated,
+        "automationRate": summary.automation_rate,
+        "escalationRate": summary.escalation_rate,
+        "escalationReasons": summary.escalation_reasons,
+        "escalationRules": [
+            {
+                "code": "inventory_risk_threshold",
+                "description": f"库存风险指数大于 {RISK_APPROVAL_THRESHOLD:g}",
+            },
+            {
+                "code": "debate_not_converged",
+                "description": "多智能体辩论未收敛",
+            },
+            {
+                "code": "no_feasible_solution",
+                "description": "约束求解无可行方案",
+            },
+        ],
+    }
+
+
 @router.get("/dashboard/kpis")
 def dashboard_kpis(ctx: Annotated[AuthContext, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]):
     return build_dashboard_kpis(db, ctx)
+
+
+@router.get("/dashboard/automation")
+def dashboard_automation(
+    ctx: Annotated[AuthContext, Depends(require_permission("dashboard:view"))],
+    db: Annotated[Session, Depends(get_db)],
+):
+    return build_dashboard_automation(db, ctx)
 
 
 @router.get("/dashboard/node-health")

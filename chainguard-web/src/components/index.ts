@@ -1,4 +1,5 @@
 export { default as AgentProgress } from './AgentProgress';
+export { default as AutomationStatsCard } from './AutomationStatsCard';
 export { default as ApprovalActionBar } from './ApprovalActionBar';
 export { default as DecisionTrace } from './DecisionTrace';
 export { default as DegradeBanner } from './DegradeBanner';
