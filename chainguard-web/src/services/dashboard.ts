@@ -3,10 +3,37 @@ import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
 import { apiGet } from '../utils/request';
 
+export type AutomationStats = {
+  totalDecisions: number;
+  autoApproved: number;
+  escalated: number;
+  automationRate: number;
+  escalationRate: number;
+  escalationReasons: Record<string, number>;
+  escalationRules: Array<{ code: string; description: string }>;
+};
+
+const EMPTY_AUTOMATION_STATS: AutomationStats = {
+  totalDecisions: 0,
+  autoApproved: 0,
+  escalated: 0,
+  automationRate: 0,
+  escalationRate: 0,
+  escalationReasons: {},
+  escalationRules: [],
+};
+
 export async function getKpis() {
   return pick(
     () => apiGet('/dashboard/kpis'),
     async () => ({}),
+  );
+}
+
+export async function getAutomationStats() {
+  return pick(
+    () => apiGet<AutomationStats>('/dashboard/automation'),
+    async () => EMPTY_AUTOMATION_STATS,
   );
 }
 export async function getTopRisks() {

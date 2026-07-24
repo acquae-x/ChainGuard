@@ -3,8 +3,9 @@ import { Alert, Button, Card, Col, Empty, List, Result, Row, Space, Table, Typog
 import { PlusOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useEffect, useMemo, useState } from 'react';
-import { KpiCard, NodeHealthPanel, RiskTag, SensitiveField, StatusTag } from '@/components';
-import { getDashboardAudit, getKpis, getMyTasks, getPendingApprovals, getTopRisks } from '@/services/dashboard';
+import { AutomationStatsCard, KpiCard, NodeHealthPanel, RiskTag, SensitiveField, StatusTag } from '@/components';
+import { getAutomationStats, getDashboardAudit, getKpis, getMyTasks, getPendingApprovals, getTopRisks } from '@/services/dashboard';
+import type { AutomationStats } from '@/services/dashboard';
 import { getOnboardingStatus } from '@/services/onboarding';
 import type { OnboardingStatus } from '@/services/onboarding';
 import { MISSING_TEXT } from '@/utils/proposalMetrics';
@@ -29,6 +30,7 @@ export default function DashboardPage() {
   const [audits, setAudits] = useState<API.AuditLog[]>([]);
   const [kpiData, setKpiData] = useState<Record<string, number>>({});
   const [kpiSeries, setKpiSeries] = useState<{ monthlySeries?: any[]; responseSeries?: any[] }>({});
+  const [automationStats, setAutomationStats] = useState<AutomationStats>();
   const [onboarding, setOnboarding] = useState<OnboardingStatus>();
   // 四态补全（05 文档第 4 节）：加载骨架 + 错误重试，接真实后端后即生效
   const [loading, setLoading] = useState(true);
@@ -37,9 +39,10 @@ export default function DashboardPage() {
     setLoading(true);
     setError(undefined);
     try {
-      const [nextRisks, nextTasks, nextApprovals, nextAudits, nextKpis] = await Promise.all([getTopRisks(), getMyTasks(), getPendingApprovals(), getDashboardAudit(), getKpis()]);
+      const [nextRisks, nextTasks, nextApprovals, nextAudits, nextKpis, nextAutomationStats] = await Promise.all([getTopRisks(), getMyTasks(), getPendingApprovals(), getDashboardAudit(), getKpis(), getAutomationStats()]);
       setRisks(nextRisks); setTasks(nextTasks); setApprovals(nextApprovals); setAudits(nextAudits); setKpiData((nextKpis || {}) as Record<string, number>);
       setKpiSeries({ monthlySeries: (nextKpis as any)?.monthlySeries, responseSeries: (nextKpis as any)?.responseSeries });
+      setAutomationStats(nextAutomationStats);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '工作台数据加载失败');
     } finally {
@@ -115,6 +118,7 @@ export default function DashboardPage() {
     {(onboarding?.entitySummary.hasDemoData || initialState?.tenant?.demoDataFlag) && <Alert type="warning" showIcon message="当前租户包含演示数据" description="演示数据具有来源标记；它不是 run_demo，也不会写入其他租户。导入真实数据前请确认避免混合使用。" action={<Button size="small" onClick={() => history.push('/data/import')}>查看数据导入</Button>} />}
     <Space wrap><Access accessible={access.canCreateIncident && !config.readonly}><Button type="primary" icon={<PlusOutlined />} onClick={() => history.push('/risk/list')}>上报异常</Button></Access><Access accessible={access.canApproval}><Button onClick={() => history.push('/decision/approval')}>待我审批</Button></Access><Button onClick={() => history.push('/risk/overview')}>风险总览</Button>{role === 'admin' && <Button onClick={() => history.push('/settings/users')}>邀请成员</Button>}</Space>
     <Row gutter={[16, 16]}>{config.kpis.map((item) => <Col xs={24} md={12} xl={6} key={item.key}>{item.sensitive ? <Card><Typography.Text type="secondary">{item.title}</Typography.Text><Typography.Title level={3}><SensitiveField field={item.sensitive} value={sensitiveValue(item)} /></Typography.Title><Typography.Text type="secondary">{item.trend}</Typography.Text></Card> : <KpiCard title={item.title} value={kpiValue(item)} trend={item.trend} />}</Col>)}</Row>
+    {automationStats && <AutomationStatsCard stats={automationStats} />}
     <Row gutter={[16, 16]}>{config.second.map((section) => <Col xs={24} xl={config.second.length > 1 ? 12 : 24} key={section}>{renderSection(section)}</Col>)}</Row>
     <Row gutter={[16, 16]}>{config.third.map((section) => <Col xs={24} xl={24} key={section}>{renderSection(section)}</Col>)}</Row>
   </Space>;
