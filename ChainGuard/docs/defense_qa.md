@@ -72,22 +72,23 @@ UI 验证：点开 Step 6 底部的「仲裁推导过程」，可看到每步的
 - `proposals[i]["experience_confidence"]`（`float`，0~0.3）：检索到 1 条相关案例
   加 0.1，最多 3 条上限 0.3
 
-**第二层（参数校准，I09 已实现）**：用 `historical_decisions` 表中的
-真实结果字段，通过皮尔逊相关系数反向校准库存风险各维度权重。
-以 600 条历史数据为例：
+**第二层（参数校准，受治理门禁保护）**：旧版皮尔逊实现会从
+`historical_decisions` 的事后结果字段反推风险权重；它只能生成诊断建议，
+不能成为配置升级依据。2026-07-24 的时间留出实验（481 条训练 / 119 条留出）
+中，现行专家权重与训练期皮尔逊建议的观测成功率均为 **57.14%**，差异
+**0.00 个百分点**，且固定 70 分阈值下两组均未触发升级动作。
 
-| 权重维度 | 专家默认值 | 数据驱动校准值 | 变化 |
-|---|---|---|---|
-| shortage_urgency | 0.35 | 0.287 | ↓ |
-| order_importance | 0.25 | 0.316 | ↑ |
-| transit_delay | 0.20 | 0.126 | ↓ |
-| external_event | 0.20 | 0.271 | ↑ |
+这个负结果与机制一致：皮尔逊输入含事后字段，`parameter_calibration`
+统计的是既有 `outcome_status`，而审计日志缺少 `case_id` 与 `outcome_status`
+以链接替代策略的真实结果。因此它不能识别反事实决策成功率，结论是**不改**
+`config/risk_weights.yaml`。完整的可复现记录见
+`.workspace/experiments/calibration-outcome-loop/latest/report.md`，复现实验为
+`python scripts/evaluate_calibration_outcome_loop.py`。
 
 > 完整、分角度的答辩问答库见 `ChainGuard_答辩问答库.docx`（35 题，含核心数字速记表）。
 
-UI 验证：Step 9 底部"参数校准对比"展开栏展示完整对比表，
-数值来自实时调用 `calibrate_inventory_risk_weights(600条记录)`。
-校准建议值需人工审批后更新至 `config/risk_weights.yaml`，不自动覆盖生产配置。
+UI 的“参数校准对比”只展示建议，不能替代样本外、事前特征验证；能够进入
+租户治理确认流程的是带样本外 AUC 门槛的监督式校准。
 
 ## 10. 这些阈值和权重是不是专家拍脑袋的硬编码？
 
