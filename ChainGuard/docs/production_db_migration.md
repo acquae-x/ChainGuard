@@ -324,14 +324,9 @@ Recommended transition strategy:
 
 ## §5 Docker Compose Integration
 
-Current `docker-compose.yml` contains two services:
-
-```text
-streamlit
-api
-```
-
-The production `docker-compose` migration should add a `postgres` service and pass `CHAINGUARD_DATABASE_URL` to both application services.
+The runtime UI service is `web` (nginx serving the built React app and proxying
+`/api/` to `api`); there is no Streamlit service. The production `docker-compose`
+adds a `postgres` service and passes `CHAINGUARD_DATABASE_URL` to the application services.
 
 Example:
 
@@ -348,17 +343,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./schema_pg.sql:/docker-entrypoint-initdb.d/01_schema.sql
-
-  streamlit:
-    build: .
-    depends_on:
-      - postgres
-    environment:
-      - PYTHONUNBUFFERED=1
-      - CHAINGUARD_DATABASE_URL=postgresql://chainguard:chainguard_secret@postgres:5432/chainguard_prod
-    ports:
-      - "8501:8501"
-    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
 
   api:
     build: .
@@ -380,7 +364,7 @@ Deployment checklist:
 1. Build and start PostgreSQL with `docker-compose up postgres`.
 2. Apply `schema_pg.sql` or mount it into `/docker-entrypoint-initdb.d/01_schema.sql`.
 3. Load data from SQLite with `pgloader` or CSV imports.
-4. Set `CHAINGUARD_DATABASE_URL` for `streamlit` and `api`.
+4. Set `CHAINGUARD_DATABASE_URL` for the `api` service.
 5. Start the full stack with `docker-compose up --build`.
 6. Verify `GET /healthz` and `GET /readyz`, then exercise the tenant-aware
    `/api/v1` incident and asynchronous proposal-generation workflow with a

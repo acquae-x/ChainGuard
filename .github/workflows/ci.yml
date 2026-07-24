@@ -26,11 +26,9 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       # 规则与豁免项落在 ChainGuard/ruff.toml，本地 `ruff check .` 与此处判定一致。
       #
-      # 必须是 `.` 而不是枚举目录。此前写的是 `src tests scripts`，而 app.py 与
-      # conftest.py 都在 ChainGuard/ 根目录，三个目录一个都不沾——app.py 里一个
-      # F821（模块级函数引用了从未导入的 csv，演示页上传路径必然 NameError）
-      # 因此活到了发布前：不是 lint 漏报，是根本没被 lint。
-      # 枚举目录的写法每加一个顶层文件就静默丢一次覆盖，不留痕迹。
+      # 必须是 `.` 而不是枚举目录。conftest.py、benchmarks/ 等都在 ChainGuard/ 根或
+      # src/tests/scripts 之外，枚举目录的写法每加一个顶层文件就静默丢一次覆盖、不留
+      # 痕迹（历史教训：曾有一个模块级 F821 因根目录不被 lint 而活到发布前）。
       - run: ruff check .
       - run: alembic upgrade head
       # basetemp 由 pytest.ini 指定为 test_tmp/pytest。此前这里 mkdir 的是 .tmp/pytest
