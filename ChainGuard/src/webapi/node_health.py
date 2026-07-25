@@ -428,6 +428,12 @@ class NodeHealthBuilder:
             if "measurement" in entry
         ]
         calibrated = calibrate_monitor_thresholds(risk_values)
+        # 样本不足/无离散度时 calibrate 回退成专家常量，此时"相对轨"没有任何数据
+        # 推导成分——它只是把专家触发阈值换个名字再判一遍。让它继续参与判定会产生
+        # 两个后果：① 界面一边说"已回退"，一边给出"本批数据推导的离群线"，自相矛盾；
+        # ② 小租户的健康判定被一条没有数据支撑的规则悄悄改变。因此回退即停用相对轨，
+        # 与界面文案"等价于仅绝对红线生效"保持一致。
+        relative_thresholds = calibrated if is_calibrated(calibrated) else None
         self._calibration = {
             "sampleSize": len(risk_values),
             "minSamples": MIN_CALIBRATION_NODES,
@@ -468,7 +474,7 @@ class NodeHealthBuilder:
 
             measurement = entry["measurement"]
             expert_health = _HEALTH_BY_WARNING.get(str(measurement["warningLevel"]), "unknown")
-            outlier = relative_status(float(measurement["riskIndex"]), calibrated)
+            outlier = relative_status(float(measurement["riskIndex"]), relative_thresholds)
             relative_health = _HEALTH_BY_RELATIVE.get(outlier, "healthy")
             # expert_health 为 unknown 时不参与合并：unknown 表示"判不了"，
             # 让相对轨的 healthy 把它盖成 healthy 会伪造一个并不存在的结论。

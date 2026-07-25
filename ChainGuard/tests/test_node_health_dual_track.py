@@ -35,6 +35,7 @@ client = TestClient(app)
 
 OVERVIEW = "/api/v1/dashboard/node-health"
 TENANT = "tenant-dualtrack"
+TINY_TENANT = "tenant-dualtrack-tiny"
 
 # 10 个物料 > MIN_CALIBRATION_NODES(8)，保证相对轨真的被激活而不是回退专家常量。
 HEALTHY_COUNT = 10
@@ -87,6 +88,40 @@ def account() -> str:
             ))
         db.commit()
     return "user-dualtrack"
+
+
+@pytest.fixture(scope="module")
+def tiny() -> str:
+    """物料数不足 8 的小租户，且含一个高风险物料。
+
+    数值按引擎口径反推：日消耗 480 → 每小时 20，库存 300 → 支撑 15 小时 < 红线 24
+    → 绝对轨判 critical，风险指数会高到越过专家常量 action 线 70。修复前，回退出来的
+    专家常量会被当成"数据推导阈值"再判一次并输出 calibrated 原因——本夹具就是为了
+    抓住那个情况。
+    """
+    with SessionLocal() as db:
+        db.merge(Tenant(id=TINY_TENANT, name=TINY_TENANT, industry="制造", scale="small",
+                        status="active", plan="trial", trial_end_at="", demo_data_flag=False))
+        db.flush()
+        db.add(Role(id="role-tiny", tenant_id=TINY_TENANT, code="tiny", name="小租户角色",
+                    builtin=False, permissions=["dashboard:view", "data:manage"]))
+        db.flush()
+        db.add(User(id="user-tiny", tenant_id=TINY_TENANT, account="tiny@test",
+                    password_hash="x", name="小租户用户", phone="", email="",
+                    dept_id="dept-1", role_id="role-tiny", role_code="tiny",
+                    status="active", data_scope="all", must_change_password=False))
+        db.flush()
+        db.add(Material(id="m-tiny", tenant_id=TINY_TENANT, material_id="MAT-TINY",
+                        material_name="紧缺物料", category="电子", unit="片",
+                        daily_consumption=480, unit_cost=45, is_critical=True))
+        db.flush()
+        db.add(InventoryEntity(id="inv-tiny", tenant_id=TINY_TENANT,
+                               inventory_id="INV-TINY", material_id="MAT-TINY",
+                               warehouse_id="WH-TINY", warehouse_name="小仓",
+                               on_hand_qty=300, available_qty=300, safety_stock_qty=960,
+                               in_transit_qty=0))
+        db.commit()
+    return "user-tiny"
 
 
 def _overview(user_id: str) -> dict:
@@ -147,6 +182,27 @@ def test_healthy_batch_stays_healthy(account: str):
 
     assert len(materials) == HEALTHY_COUNT
     assert {node["health"] for node in materials} == {"healthy"}
+
+
+def test_fallback_tenant_reports_no_calibrated_reason(account: str, tiny: str):
+    """回退时相对轨必须完全停用——不得出现"本批数据推导"的原因。
+
+    真机验收发现的缺陷：样本不足时 calibrate 回退成专家常量 (35/55/70)，而相对轨
+    仍在用这组常量判定并输出一条 source=calibrated、文案称"本批数据推导的离群线"的
+    原因。于是界面同屏出现"已回退为专家阈值"与"本批数据推导"两句自相矛盾的话。
+    """
+    payload = _overview(tiny)
+    calibration = payload["thresholdCalibration"]
+
+    assert calibration["source"] == "expert", "本夹具物料数不足，应当回退"
+    for node in _materials(payload):
+        codes = {reason["code"] for reason in node["reasons"]}
+        assert "risk_index_relative_outlier" not in codes, (
+            "回退时不得输出相对离群原因——它会谎称阈值来自数据推导"
+        )
+        assert node["metrics"]["relativeHealth"] == "healthy", (
+            "回退时相对轨不参与升级，否则界面文案'等价于仅绝对红线生效'即为假"
+        )
 
 
 def test_dual_track_records_both_verdicts(account: str):
