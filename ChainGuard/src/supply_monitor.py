@@ -1,25 +1,31 @@
-import statistics
 from dataclasses import dataclass, field
 from typing import Any
 
 from src.config_loader import load_risk_weights, load_thresholds
 from src.inventory_monitor import calculate_inventory_risk
 from src.scenario_loader import ScenarioLoader
+from src.threshold_calibration import (
+    ACTION_THRESHOLD,
+    MIN_CALIBRATION_NODES,
+    WARNING_THRESHOLD,
+    WATCH_THRESHOLD,
+    calibrate_monitor_thresholds,
+    classify_status,
+)
 
-
-# 回退阈值（仅在样本不足/无离散度时使用）。正常情况下 scan_supply_chain 会用
-# calibrate_monitor_thresholds 从本次扫描的真实风险分布数据驱动地推导阈值，
-# 不再依赖这三个专家拍板的固定值。
-WATCH_THRESHOLD: float = 35.0
-WARNING_THRESHOLD: float = 55.0
-ACTION_THRESHOLD: float = 70.0
-
-# 数据驱动校准所需的最小节点数；低于此用回退常量。
-MIN_CALIBRATION_NODES: int = 8
-# z-score 离群系数：均值 + k·标准差。识别"相对最高风险"的节点而非依赖绝对硬阈值。
-_WATCH_K: float = 0.5
-_WARNING_K: float = 1.5
-_ACTION_K: float = 2.5
+# 阈值校准的实现在 src/threshold_calibration.py（纯函数、无数据源依赖），
+# 这里只做转出，使租户侧 API 可以复用同一套阈值逻辑而不耦合演示场景管道。
+__all__ = [
+    "ACTION_THRESHOLD",
+    "MIN_CALIBRATION_NODES",
+    "MonitorReport",
+    "NodeStatus",
+    "WARNING_THRESHOLD",
+    "WATCH_THRESHOLD",
+    "calibrate_monitor_thresholds",
+    "classify_status",
+    "scan_supply_chain",
+]
 
 _STATUS_KEYS = ("normal", "watch", "warning", "action_required")
 
@@ -45,48 +51,6 @@ class MonitorReport:
     action_queue: list[NodeStatus]
     all_nodes: list[NodeStatus] = field(default_factory=list)
     calibrated_thresholds: tuple[float, float, float] | None = None
-
-
-def calibrate_monitor_thresholds(
-    risk_values: list[float],
-) -> tuple[float, float, float]:
-    """从本次扫描的风险分布数据驱动地推导 (watch, warning, action) 阈值。
-
-    方法：均值 + k·标准差（z-score 离群）。这样阈值随真实数据自适应——既不会因
-    专家硬阈值定得过高而永远触发不了，也不会把整批低风险节点误判为高危。
-    样本不足（< MIN_CALIBRATION_NODES）或分布无离散度 → 回退专家常量。
-    """
-    values = [float(v) for v in risk_values if v is not None]
-    if len(values) < MIN_CALIBRATION_NODES:
-        return WATCH_THRESHOLD, WARNING_THRESHOLD, ACTION_THRESHOLD
-    mean = statistics.mean(values)
-    sd = statistics.pstdev(values)
-    if sd <= 1e-6:
-        return WATCH_THRESHOLD, WARNING_THRESHOLD, ACTION_THRESHOLD
-    return (mean + _WATCH_K * sd, mean + _WARNING_K * sd, mean + _ACTION_K * sd)
-
-
-def classify_status(
-    risk_index: float,
-    *,
-    thresholds: tuple[float, float, float] | None = None,
-) -> tuple[str, str]:
-    """Map an inventory risk value to a rule-based monitoring status.
-
-    thresholds=(watch, warning, action)；缺省时用专家回退常量（保持纯函数默认行为）。
-    """
-    watch, warning, action = thresholds or (
-        WATCH_THRESHOLD,
-        WARNING_THRESHOLD,
-        ACTION_THRESHOLD,
-    )
-    if risk_index >= action:
-        return "action_required", "立即进入决策流程"
-    if risk_index >= warning:
-        return "warning", "准备预案，关注节点"
-    if risk_index >= watch:
-        return "watch", "持续观察"
-    return "normal", "无需干预"
 
 
 def scan_supply_chain(data_source: Any, *, limit: int = 200) -> MonitorReport:

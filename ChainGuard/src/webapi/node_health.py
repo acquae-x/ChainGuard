@@ -22,6 +22,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.inventory_monitor import calculate_inventory_risk
+from src.threshold_calibration import (
+    MIN_CALIBRATION_NODES,
+    RELATIVE_ESCALATION_FLOOR,
+    calibrate_monitor_thresholds,
+    is_calibrated,
+    relative_status,
+)
 
 from .context_builder import _CLOSED_ORDER_STATUSES, ContextBuildError, TenantContextBuilder
 from .decision_detail import mask_for_requester
@@ -57,9 +64,14 @@ HEALTH_LABELS = {
     "critical": "异常", "warning": "预警", "healthy": "健康", "unknown": "数据不足",
 }
 
-# 引擎自身的三档预警 → 节点健康。此处不引入新阈值：warning_level 完全由
+# 引擎自身的三档预警 → 节点健康。绝对轨：warning_level 完全由
 # config/thresholds.yaml 的 red/yellow_support_hours（或租户获批配置）决定。
 _HEALTH_BY_WARNING = {"红色预警": "critical", "黄色预警": "warning", "正常": "healthy"}
+
+# 相对轨（数据驱动离群）→ 节点健康。只在 action_required / warning 两档升级，
+# watch 与 normal 不升级：批内“略高于均值”不构成预警。
+# 两轨取较严者（_worst），因此绝对轨永远兜底——全线告急时均值抬高不会让告警静默。
+_HEALTH_BY_RELATIVE = {"action_required": "critical", "warning": "warning"}
 
 # 供应商中断状态词表：固定常量，与 context_builder._CLOSED_ORDER_STATUSES 同类，
 # 是**状态词表**不是评分。词表外的自定义状态词会被判为 healthy（已知限制 6）。
@@ -72,6 +84,7 @@ REASON_LABELS = {
     "support_hours_below_red": "库存支撑低于红线",
     "support_hours_below_yellow": "库存支撑低于黄线",
     "risk_index_above_trigger": "库存风险指数超过触发阈值",
+    "risk_index_relative_outlier": "库存风险指数相对本批分布离群",
     "safety_stock_gap": "安全库存存在缺口",
     "transit_delay": "在途到货延误",
     "critical_order_uncovered": "关键订单未被完全覆盖",
@@ -229,6 +242,8 @@ class NodeHealthBuilder:
         self.now = tenant_now(self.zone, now)
         self.builder = TenantContextBuilder(db, tenant_id, now=self.now)
         self._limitations: dict[str, dict[str, Any]] = {}
+        # 由 _material_nodes 在扫描时填充；没跑过物料节点时保持 None（不编造阈值）。
+        self._calibration: dict[str, Any] | None = None
 
     # ── 入口 ────────────────────────────────────────────────────────────────
 
@@ -318,6 +333,9 @@ class NodeHealthBuilder:
                 ),
             },
             "timezone": self.zone.key,
+            # 双轨判定的相对轨阈值来源。source=expert 表示样本不足/无离散度而回退，
+            # 此时相对轨与绝对轨同阈值，等价于只有绝对轨在起作用。
+            "thresholdCalibration": self._calibration,
             "limitations": [self._limitations[key] for key in sorted(self._limitations)],
             "generatedAt": _iso(self.now, self.zone),
         }
@@ -386,12 +404,52 @@ class NodeHealthBuilder:
             .limit(MAX_NODES_PER_TYPE)
         ).all())
 
-        nodes: list[_Node] = []
-        skipped = 0
+        # 第一遍：只算 measurement，不判健康。相对轨的阈值需要看到整批风险分布，
+        # 边算边判就拿不到分布——这是必须两遍的唯一原因。
+        entries: list[dict[str, Any]] = []
         for material in materials:
             try:
                 snapshot = self.builder.build_material_snapshot(material)
             except ContextBuildError as error:
+                entries.append({"material": material, "error": error})
+                continue
+            result = calculate_inventory_risk(
+                snapshot.inventory, snapshot.risk_weights, snapshot.thresholds
+            )
+            entries.append({
+                "material": material,
+                "measurement": measure_material(result, snapshot),
+                "source": snapshot.configuration["source"],
+            })
+
+        risk_values = [
+            float(entry["measurement"]["riskIndex"])
+            for entry in entries
+            if "measurement" in entry
+        ]
+        calibrated = calibrate_monitor_thresholds(risk_values)
+        # 样本不足/无离散度时 calibrate 回退成专家常量，此时"相对轨"没有任何数据
+        # 推导成分——它只是把专家触发阈值换个名字再判一遍。让它继续参与判定会产生
+        # 两个后果：① 界面一边说"已回退"，一边给出"本批数据推导的离群线"，自相矛盾；
+        # ② 小租户的健康判定被一条没有数据支撑的规则悄悄改变。因此回退即停用相对轨，
+        # 与界面文案"等价于仅绝对红线生效"保持一致。
+        relative_thresholds = calibrated if is_calibrated(calibrated) else None
+        self._calibration = {
+            "sampleSize": len(risk_values),
+            "minSamples": MIN_CALIBRATION_NODES,
+            "source": "calibrated" if is_calibrated(calibrated) else "expert",
+            "watch": _round(calibrated[0]),
+            "warning": _round(calibrated[1]),
+            "action": _round(calibrated[2]),
+            "escalationFloor": RELATIVE_ESCALATION_FLOOR,
+        }
+
+        # 第二遍：两轨取较严者。
+        nodes: list[_Node] = []
+        skipped = 0
+        for entry in entries:
+            material = entry["material"]
+            if "error" in entry:
                 skipped += 1
                 nodes.append(_Node(
                     node_type="material",
@@ -400,7 +458,7 @@ class NodeHealthBuilder:
                     health="unknown",
                     reasons=[_reason(
                         "material_not_computable",
-                        detail=f"{error.message}（{error.code}）",
+                        detail=f"{entry['error'].message}（{entry['error'].code}）",
                         via="materials",
                     )],
                     metrics={
@@ -414,16 +472,25 @@ class NodeHealthBuilder:
                 ))
                 continue
 
-            result = calculate_inventory_risk(
-                snapshot.inventory, snapshot.risk_weights, snapshot.thresholds
+            measurement = entry["measurement"]
+            expert_health = _HEALTH_BY_WARNING.get(str(measurement["warningLevel"]), "unknown")
+            outlier = relative_status(float(measurement["riskIndex"]), relative_thresholds)
+            relative_health = _HEALTH_BY_RELATIVE.get(outlier, "healthy")
+            # expert_health 为 unknown 时不参与合并：unknown 表示"判不了"，
+            # 让相对轨的 healthy 把它盖成 healthy 会伪造一个并不存在的结论。
+            health = (
+                expert_health if expert_health == "unknown"
+                else _worst(expert_health, relative_health)
             )
-            measurement = measure_material(result, snapshot)
+            reasons = self._material_reasons(measurement, entry["source"])
+            if relative_health != "healthy":
+                reasons.append(self._relative_reason(measurement, outlier, calibrated))
             nodes.append(_Node(
                 node_type="material",
                 id=material.material_id,
                 name=material.material_name or material.material_id,
-                health=_HEALTH_BY_WARNING.get(str(measurement["warningLevel"]), "unknown"),
-                reasons=self._material_reasons(measurement, snapshot.configuration["source"]),
+                health=health,
+                reasons=reasons,
                 metrics={
                     "warningLevel": measurement["warningLevel"],
                     "riskIndex": measurement["riskIndex"],
@@ -435,6 +502,8 @@ class NodeHealthBuilder:
                     "unit": material.unit,
                     "isCritical": material.is_critical,
                     "dataQuality": measurement["dataQuality"],
+                    "expertHealth": expert_health,
+                    "relativeHealth": relative_health,
                 },
                 updated_at=_iso(material.updated_at, self.zone),
                 link=f"{ENTITY_LINKS['material']}?id={material.material_id}",
@@ -443,6 +512,29 @@ class NodeHealthBuilder:
         if skipped:
             self._limit("CG-C022", affectedCount=skipped)
         return nodes
+
+    @staticmethod
+    def _relative_reason(
+        measurement: dict[str, Any],
+        outlier: str,
+        calibrated: tuple[float, float, float],
+    ) -> dict[str, Any]:
+        """相对轨触发的原因。阈值来源标 calibrated，与专家阈值在 UI 上可区分。"""
+        line = calibrated[2] if outlier == "action_required" else calibrated[1]
+        return _reason(
+            "risk_index_relative_outlier",
+            detail=(
+                f"库存风险指数 {measurement['riskIndex']}，高于本批数据推导的"
+                f"离群线 {_round(line)}（均值+kσ）"
+            ),
+            observed={
+                "field": "库存风险指数",
+                "value": measurement["riskIndex"],
+                "unit": "score",
+            },
+            threshold={"value": _round(line), "unit": "score", "source": "calibrated"},
+            via="inventory",
+        )
 
     @staticmethod
     def _material_reasons(measurement: dict[str, Any], threshold_source: str) -> list[dict[str, Any]]:

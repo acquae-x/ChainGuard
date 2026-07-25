@@ -171,6 +171,40 @@ describe('NodeHealthPanel', () => {
     expect(screen.getByTestId('node-health-limitation-CG-C024')).toHaveTextContent('不是独立评分模型');
   });
 
+  it('F8 相对轨启用时说明阈值由本批分布推导，并写明升级地板', async () => {
+    const calibrated = {
+      ...AVAILABLE,
+      thresholdCalibration: {
+        sampleSize: 10, minSamples: 8, source: 'calibrated',
+        watch: 21.5, warning: 33.8, action: 46.1, escalationFloor: 35,
+      },
+    };
+    render(<NodeHealthPanel fetcher={async () => calibrated} />);
+    await screen.findByTestId('node-health');
+
+    const line = screen.getByTestId('node-health-threshold-source');
+    expect(line).toHaveTextContent('双轨取严');
+    expect(line).toHaveTextContent('10 个物料');
+    // 地板必须写出来：否则界面无法解释"为什么这个相对最高的节点没被升级"
+    expect(line).toHaveTextContent('35');
+  });
+
+  it('F9 样本不足时如实说明已回退专家阈值，不谎称智能阈值生效', async () => {
+    const fallback = {
+      ...AVAILABLE,
+      thresholdCalibration: {
+        sampleSize: 3, minSamples: 8, source: 'expert',
+        watch: 35, warning: 55, action: 70, escalationFloor: 35,
+      },
+    };
+    render(<NodeHealthPanel fetcher={async () => fallback} />);
+    await screen.findByTestId('node-health');
+
+    const line = screen.getByTestId('node-health-threshold-source');
+    expect(line).toHaveTextContent('回退');
+    expect(line).toHaveTextContent('仅绝对红线生效');
+  });
+
   it('mine 模式展示范围依据，说明这些类型是怎么来的', async () => {
     const mine = {
       ...AVAILABLE,
