@@ -20,6 +20,7 @@ const METRIC_LABELS: Record<string, string> = {
   warningLevel: '预警级别', riskIndex: '库存风险指数', supportHours: '库存支撑(小时)',
   currentStock: '当前库存', safetyStock: '安全库存', inTransitQty: '在途数量',
   dailyConsumption: '日消耗', unit: '单位', isCritical: '关键物料',
+  expertHealth: '绝对轨判定', relativeHealth: '相对轨判定',
   inventoryRowCount: '库存行数', materialCount: '物料数', onHandQty: '现有库存',
   availableQty: '可用库存', safetyStockQty: '安全库存', status: '状态', region: '区域',
   reliabilityScore: '可靠性评分', qualifiedMaterialCount: '合格供货物料数',
@@ -192,6 +193,20 @@ export default function NodeHealthPanel({
             当前筛选命中 {data.filtered?.total ?? 0} 个节点
           </Typography.Text>
         </Space>
+
+        {/* 阈值来源：判定由绝对轨（专家阈值）与相对轨（数据推导）取较严者得出。
+            这里如实说明相对轨当前用的是推导值还是回退值，不含糊成"智能阈值"。 */}
+        {data.thresholdCalibration ? (
+          <Typography.Text type="secondary" data-testid={`${testIdPrefix}-threshold-source`}>
+            {data.thresholdCalibration.source === 'calibrated'
+              ? `判定阈值：绝对红线 + 相对离群双轨取严。相对离群线由本批 ${
+                  data.thresholdCalibration.sampleSize
+                } 个物料的风险分布推导（预警 ${data.thresholdCalibration.warning}／异常 ${
+                  data.thresholdCalibration.action
+                }），且风险指数低于 ${data.thresholdCalibration.escalationFloor} 时不参与升级。`
+              : `判定阈值：样本不足 ${data.thresholdCalibration.minSamples} 个或分布无离散度，相对离群线已回退为专家阈值，当前等价于仅绝对红线生效。`}
+          </Typography.Text>
+        ) : null}
 
         {/* 分类型计数；没有节点的类型仍然出现并说明原因 */}
         <Space wrap data-testid={`${testIdPrefix}-by-type`}>
