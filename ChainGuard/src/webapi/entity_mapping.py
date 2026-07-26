@@ -1,4 +1,4 @@
-"""Phase 5B / C2 共用映射边界（唯一映射源 adapter）。
+"""共用映射边界（唯一映射源 adapter）。
 
 本模块是 CSV 导入与 ERP 同步（scripts/erp_sync.py 编排 + RestErpConnector 规范化）
 共同消费 `config/erp_mapping.yaml` 的持久化边界：源行（dict）→ 实体表 upsert。

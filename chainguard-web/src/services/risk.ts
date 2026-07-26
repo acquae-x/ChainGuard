@@ -1,4 +1,4 @@
-// 风险服务（Phase 2 §2.2 双模式）。api 模式对接 /risks*，mock 模式走 workflowStore。
+// 风险服务（双模式）。api 模式对接 /risks*，mock 模式走 workflowStore。
 import { currentUser } from './user';
 import { appendAudit, workflowStore } from './workflowStore';
 import { pick } from './dataMode';

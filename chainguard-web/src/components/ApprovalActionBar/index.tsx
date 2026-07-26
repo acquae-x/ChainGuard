@@ -25,7 +25,7 @@ export default function ApprovalActionBar({
   const [action, setAction] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
-  // P0-1/P2-13 修复：所有审批动作的接口错误必须在当前上下文以 message 呈现，
+  // 修复：所有审批动作的接口错误必须在当前上下文以 message 呈现，
   // 禁止让 Promise 拒绝冒泡成整页 Unhandled Rejection。
   const run = async (act: string, values?: any): Promise<boolean> => {
     setSubmitting(true);

@@ -1,4 +1,4 @@
-// 降级提示黄条（对应 Phase 2 §2.2）。显式提示演示模式 / 后端不可用，禁止静默降级。
+// 降级提示黄条。显式提示演示模式 / 后端不可用，禁止静默降级。
 import { Alert } from 'antd';
 import { DATA_MODE, useBackendState } from '../../services/dataMode';
 

@@ -1,4 +1,4 @@
-"""Seed two isolated tenants for the Phase 5B A04 impact-scope browser acceptance run.
+"""Seed two isolated tenants for the A04 impact-scope browser acceptance run.
 
 租户 A：
   - 一个"有完整关系网"的物料：库存(两个仓库) + 供应商 + 兄弟物料(同供应商) + 订单 + 客户，

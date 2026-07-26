@@ -64,7 +64,7 @@ export default function DashboardPage() {
       .map((item) => ({ key: item.type, label: `导入${item.label}`, path: '/data/import' }));
   }, [onboarding]);
 
-  // P1-7：可计数 KPI 用真实 API 数据覆盖硬编码演示值，保证与列表/图表一致。
+  // 可计数 KPI 用真实 API 数据覆盖硬编码演示值，保证与列表/图表一致。
   const KPI_SOURCE: Record<string, string> = { risk: 'riskCount', high: 'highRiskCount', approval: 'pendingApprovals', countersign: 'countersign', incident: 'incidentCount', overdue: 'overdueTasks', late: 'overdueTasks', mine: 'myTasks', task: 'myTasks', member: 'memberCount', onboarding: 'onboardingPending', import: 'weeklyImports', failed: 'failedImports', arrival: 'arrivalDelays', loss: 'avoidedLoss', saving: 'netBenefit', cost: 'emergencyCost' };
   const kpiValue = (item: { key: string; value: number | string }) => {
     const field = KPI_SOURCE[item.key];

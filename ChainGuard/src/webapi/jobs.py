@@ -318,7 +318,7 @@ def _run_decision_job(job_id: str, ctx: AuthContext, *, timeout_seconds: float |
             if incident is None:
                 raise ContextBuildError("CG-2510", "事件不存在", status_code=404)
             existing = list(db.scalars(select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, Proposal.incident_id == incident.id)).all())
-            # P1-10：已进入审批流的 Proposal 是审计追溯的一部分，必须永久保留；
+            # 已进入审批流的 Proposal 是审计追溯的一部分，必须永久保留；
             # 重新推演只替换未被任何审批单引用的候选方案，被引用的归档（archived）不再进入方案列表。
             referenced = set(db.scalars(select(Approval.proposal_id).where(Approval.tenant_id == ctx.tenant_id, Approval.incident_id == incident.id)).all())
             for item in existing:

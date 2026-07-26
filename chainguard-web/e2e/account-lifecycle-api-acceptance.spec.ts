@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Phase 5B 收尾批「账户完善」真实浏览器验收（API 模式，真后端 + 真 mock IdP）。
+ * 「账户完善」真实浏览器验收（API 模式，真后端 + 真 mock IdP）。
  *
  * 关于限流：后端要用 LOGIN_IP_RATE_LIMIT=100/minute 启动。这不是绕过防护，而是把
  * 两条独立防线拆开观测——IP 维度的默认 5/minute 由 pytest

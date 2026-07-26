@@ -1,4 +1,4 @@
-"""Run the complete Phase 5B C2 enterprise import reconciliation on an isolated DB."""
+"""Run the complete C2 enterprise import reconciliation on an isolated DB."""
 
 from __future__ import annotations
 

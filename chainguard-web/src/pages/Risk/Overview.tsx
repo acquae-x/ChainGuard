@@ -40,14 +40,14 @@ export default function RiskOverviewPage() {
       setScanning(false);
     }
   };
-  // P1-6：KPI 从真实风险数据计算，不再硬编码
+  // KPI 从真实风险数据计算，不再硬编码
   const kpis = useMemo(() => [
     { title: '高风险数', value: risks.filter((item) => item.level === 'high').length },
     { title: '中风险数', value: risks.filter((item) => item.level === 'medium').length },
     { title: '低风险数', value: risks.filter((item) => item.level === 'low').length },
     { title: `今日新增（${initialState?.tenant?.timezone || 'UTC'}）`, value: todayRiskCount },
   ], [initialState?.tenant?.timezone, risks, todayRiskCount]);
-  // P1-6：类型分布由真实数据聚合
+  // 类型分布由真实数据聚合
   const typeData = useMemo(() => {
     const counts = new Map<string, number>();
     risks.forEach((item) => counts.set(item.type || '未分类', (counts.get(item.type || '未分类') || 0) + 1));
@@ -55,14 +55,14 @@ export default function RiskOverviewPage() {
   }, [risks]);
   const matrixPoints = matrix.filter((item) => Array.isArray(item?.value));
   const maxImpact = Math.max(3, ...matrixPoints.map((item) => Number(item.value[0]) || 0));
-  // P2-14：图表文字替代摘要
+  // 图表文字替代摘要
   const matrixSummary = matrixPoints.length
     ? `共 ${matrixPoints.length} 个风险点：${matrixPoints.map((item) => `${item.name}（${LEVEL_LABELS[item.level] || item.level}，评分 ${item.value[2]}）`).join('、')}。`
     : '暂无风险矩阵数据。';
   const typeSummary = typeData.length
     ? `按类型：${typeData.map((item) => `${item.name} ${item.value} 项`).join('、')}。`
     : '暂无类型分布数据。';
-  // P1-6：坐标轴必须是数值轴（此前缺 type:'value'，散点全部无法落点）；气泡大小做上限裁剪
+  // 坐标轴必须是数值轴（此前缺 type:'value'，散点全部无法落点）；气泡大小做上限裁剪
   const matrixOption = {
     color: palette.chart,
     tooltip: { trigger: 'item', formatter: (item: any) => `${item.data?.name || ''}<br/>影响：${item.value?.[0]}<br/>概率：${item.value?.[1]}<br/>评分：${item.value?.[2]}` },

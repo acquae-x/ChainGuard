@@ -1,4 +1,4 @@
-"""PostgreSQL-only acceptance for Phase 5B C2 database invariants.
+"""PostgreSQL-only acceptance for C2 database invariants.
 
 Run explicitly against a disposable database:
 

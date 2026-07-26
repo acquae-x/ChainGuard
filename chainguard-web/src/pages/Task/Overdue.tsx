@@ -13,7 +13,7 @@ const nameOf = (t: API.Task) => t.assigneeName || t.assignee || '未分配';
 export default function TaskOverdue() {
   const access = useAccess();
   const [rows, setRows] = useState<API.Task[]>([]);
-  // P1-6：由真实逾期任务聚合，不再硬编码 [3,1,2]。无 task:manage 时后端已按数据范围
+  // 由真实逾期任务聚合，不再硬编码 [3,1,2]。无 task:manage 时后端已按数据范围
   // 只返回本人任务，故明细即"我的逾期任务"，且不出现空"操作"列。
   const load = async () => {
     const r = await getTasks('overdue');

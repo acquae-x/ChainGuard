@@ -464,7 +464,7 @@ def _timed_out_released_approval() -> tuple[str, str]:
 
 
 def test_ratify_approve_after_timeout_release_persists_and_notifies():
-    """P0-1：追认通过必须在 approved+超时放行状态下真实落库，且不回滚任务。"""
+    """追认通过必须在 approved+超时放行状态下真实落库，且不回滚任务。"""
     incident_id, approval_id = _timed_out_released_approval()
     with SessionLocal() as db:
         tasks_before = len(list(db.query(Task).filter_by(incident_id=incident_id)))
@@ -489,7 +489,7 @@ def test_ratify_approve_after_timeout_release_persists_and_notifies():
 
 
 def test_ratify_object_requires_reason_and_writes_history():
-    """P0-1：追认异议必填理由；提交成功后写审批历史与审计。"""
+    """追认异议必填理由；提交成功后写审批历史与审计。"""
     incident_id, approval_id = _timed_out_released_approval()
     missing_reason = client.post(f"/api/v1/approvals/{approval_id}/ratify_object", headers=headers("finance"), json={})
     assert missing_reason.status_code == 422
@@ -505,7 +505,7 @@ def test_ratify_object_requires_reason_and_writes_history():
 
 
 def test_ratify_rejected_when_not_timeout_released_or_wrong_role():
-    """P0-1：非超时放行的 approved 单与非财务角色都不能追认。"""
+    """非超时放行的 approved 单与非财务角色都不能追认。"""
     incident_id, approval_id = _high_risk_approval_for_countersign()
     client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers("boss"), json={})
     client.post(f"/api/v1/approvals/{approval_id}/countersign", headers=headers("finance"), json={})
@@ -517,7 +517,7 @@ def test_ratify_rejected_when_not_timeout_released_or_wrong_role():
 
 
 def test_regeneration_archives_referenced_proposal_and_keeps_approval_detail_alive():
-    """P1-10：重新推演后，被审批引用的旧 Proposal 必须保留，旧审批详情仍为 200。"""
+    """重新推演后，被审批引用的旧 Proposal 必须保留，旧审批详情仍为 200。"""
     suffix = uuid.uuid4().hex
     incident_id, kept_id, dropped_id, approval_id = f"inc-regen-{suffix}", f"prop-kept-{suffix}", f"prop-dropped-{suffix}", f"ap-regen-{suffix}"
     ctx = AuthContext("u-scm_lead", "tenant-demo", "供应链负责人", "scm_lead", ())
@@ -546,7 +546,7 @@ def test_regeneration_archives_referenced_proposal_and_keeps_approval_detail_ali
 
 
 def test_mapper_maps_trusted_context_fields_and_never_fakes_zero():
-    """P0-2：订单/客户等级/供应商交期/风险评分从 context 与 scores 映射；未知值必须是 None 而不是 0。"""
+    """订单/客户等级/供应商交期/风险评分从 context 与 scores 映射；未知值必须是 None 而不是 0。"""
     result = {
         "proposals": [{
             "agent_name": "采购 Agent",
@@ -583,7 +583,7 @@ def test_mapper_maps_trusted_context_fields_and_never_fakes_zero():
 
 
 def test_corrupted_xlsx_preflight_is_red_light_and_not_forceable():
-    """P1-4：损坏的 XLSX 必须红灯（PARSE_ERROR），且不能强制导入。"""
+    """损坏的 XLSX 必须红灯（PARSE_ERROR），且不能强制导入。"""
     uploaded = client.post(
         "/api/v1/imports/upload?type=material",
         headers=headers("scm_lead"),
@@ -603,7 +603,7 @@ def test_corrupted_xlsx_preflight_is_red_light_and_not_forceable():
 
 
 def test_admin_can_read_approvals_but_cannot_act():
-    """P1-11：settings:manage 管理员只读查看审批；任何审批动作仍被 403 拒绝。"""
+    """settings:manage 管理员只读查看审批；任何审批动作仍被 403 拒绝。"""
     incident_id, approval_id = _high_risk_approval_for_countersign()
     listed = client.get("/api/v1/approvals", headers=headers("admin"))
     assert listed.status_code == 200
@@ -615,7 +615,7 @@ def test_admin_can_read_approvals_but_cannot_act():
 
 
 def test_pytest_database_url_is_isolated_from_default_db():
-    """P2-15：测试进程不得使用仓库默认 chainguard.db。"""
+    """测试进程不得使用仓库默认 chainguard.db。"""
     from src.webapi.database import engine
     url = str(engine.url)
     assert not url.endswith("/chainguard.db")
@@ -623,7 +623,7 @@ def test_pytest_database_url_is_isolated_from_default_db():
 
 
 def test_pdf_export_masks_buyer_and_keeps_boss_values_with_real_text_extraction():
-    """P0-3：真实导出 buyer/boss 两份 PDF，用 pypdf 文本提取对照脱敏字段。"""
+    """真实导出 buyer/boss 两份 PDF，用 pypdf 文本提取对照脱敏字段。"""
     pytest.importorskip("reportlab", reason="PDF 导出运行依赖（requirements.txt）")
     pypdf = pytest.importorskip("pypdf", reason="PDF 文本提取验证依赖（requirements-dev.txt）")
     incident_id = f"inc-pdf-{uuid.uuid4().hex}"
@@ -682,7 +682,7 @@ def test_pdf_export_masks_buyer_and_keeps_boss_values_with_real_text_extraction(
 
 
 def test_medium_risk_with_unknown_cost_conservatively_ccs_finance():
-    """P0-2 附带口径：中风险成本未知（None）按保守口径抄送财务，而不是当作 0 跳过。"""
+    """附带口径：中风险成本未知（None）按保守口径抄送财务，而不是当作 0 跳过。"""
     suffix = uuid.uuid4().hex
     incident_id, proposal_id = f"inc-nullcost-{suffix}", f"prop-nullcost-{suffix}"
     with SessionLocal() as db:
@@ -697,7 +697,7 @@ def test_medium_risk_with_unknown_cost_conservatively_ccs_finance():
 
 
 def test_decision_detail_natural_language_fields_are_scrubbed_for_buyer():
-    """P0-1：自然语言/解释/推演/审计字段里内嵌的毛利、罚金、客户等级具体数字，
+    """自然语言/解释/推演/审计字段里内嵌的毛利、罚金、客户等级具体数字，
     GET decision-detail、JSON 导出、PDF 导出必须共用同一套脱敏并全部清洗。"""
     pypdf = pytest.importorskip("pypdf")
     pytest.importorskip("reportlab")
@@ -745,7 +745,7 @@ def test_decision_detail_natural_language_fields_are_scrubbed_for_buyer():
 
 
 def test_tasks_scope_enforces_custom_data_range_without_task_manage():
-    """P0-2：无 task:manage 的角色（buyer 等 custom 范围）只能看/改分派给自己的任务；
+    """无 task:manage 的角色（buyer 等 custom 范围）只能看/改分派给自己的任务；
     有 task:manage 才能看全部。复用 task:manage，不新增权限码。"""
     mine = f"task-mine-{uuid.uuid4().hex}"
     other = f"task-other-{uuid.uuid4().hex}"

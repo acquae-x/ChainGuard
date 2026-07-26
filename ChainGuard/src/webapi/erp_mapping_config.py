@@ -1,4 +1,4 @@
-"""Tenant-scoped ERP field mapping configuration (Phase 5B 收尾批).
+"""Tenant-scoped ERP field mapping configuration.
 
 The file `config/erp_mapping.yaml` stays the shipped baseline.  A tenant may
 override it from 系统设置 → 集成 → ERP; the override is stored as a versioned

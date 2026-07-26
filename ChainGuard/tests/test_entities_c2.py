@@ -1,4 +1,4 @@
-"""Phase 5B / C2 第一批：实体表约束、tenant-aware 外键、租户隔离、映射 adapter 测试。
+"""实体表约束、tenant-aware 外键、租户隔离、映射 adapter 测试。
 
 - 用独立 in-memory SQLite（StaticPool + PRAGMA foreign_keys=ON）确定性验证复合外键与部分唯一索引；
 - 覆盖：租户内业务唯一键、跨租户同业务键隔离、tenant-aware FK 挡串租户、

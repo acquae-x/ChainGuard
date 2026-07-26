@@ -1,4 +1,4 @@
-// ERP 源字段 → C2 业务实体字段映射编辑器（Phase 5B 收尾批）。
+// ERP 源字段 → C2 业务实体字段映射编辑器。
 // 保存的映射由下一次 ERP 同步实际消费；本组件不做任何本地兜底映射。
 import { Alert, App, Button, Card, Collapse, Descriptions, Drawer, Input, Select, Space, Switch, Table, Tag, Tooltip } from 'antd';
 import { DeleteOutlined, PlusOutlined, ReloadOutlined, SafetyOutlined } from '@ant-design/icons';

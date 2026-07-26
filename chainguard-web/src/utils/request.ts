@@ -1,4 +1,4 @@
-// ChainGuard 前端统一网络层（对应 Phase 2 §2.1，规格见 .workspace/tasks/TASK-201）。
+// ChainGuard 前端统一网络层（对应 Phase 2 §2.1）。
 // 基于 @umijs/max 自带 request（axios 内核），禁止 axios/redux。
 import { request as umiRequest, history } from '@umijs/max';
 import { message } from 'antd';

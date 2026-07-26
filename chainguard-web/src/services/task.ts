@@ -1,4 +1,4 @@
-// 任务服务（Phase 2 §2.2 双模式）。api 模式对接 /tasks*，mock 走 workflowStore。
+// 任务服务（双模式）。api 模式对接 /tasks*，mock 走 workflowStore。
 import { currentUser } from './user';
 import { appendAudit, workflowStore } from './workflowStore';
 import { pick } from './dataMode';

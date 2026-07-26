@@ -110,7 +110,7 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  # Phase 5B 验收门禁。此前完全靠人工执行 test:e2e:gate，改动可以在没人跑它的情况下合入。
+  # 验收门禁。此前完全靠人工执行 test:e2e:gate，改动可以在没人跑它的情况下合入。
   # 每个套件都要起一套 uvicorn + umi dev，整体耗时以十分钟计，因此单列一个 job。
   acceptance-gate:
     runs-on: ubuntu-latest

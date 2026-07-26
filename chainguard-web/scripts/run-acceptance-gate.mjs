@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Phase 5B 统一验收门禁：把全部 API-mode Playwright 验收套件收进一条命令。
+ * 统一验收门禁：把全部 API-mode Playwright 验收套件收进一条命令。
  *
  * 每个套件拿到自己的 GUID SQLite 库（alembic upgrade head + 可选 seed），
  * 各自的端口来自对应的 playwright.*.config.ts，串行执行互不污染。

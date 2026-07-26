@@ -27,9 +27,9 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       }
       if (user?.mustChangePassword && history.location.pathname !== '/user/profile') history.push('/user/profile');
     },
-    // P1-3：顶栏操作区整体交给响应式 HeaderActions，窄屏收纳到「更多」，禁止横向溢出。
+    // 顶栏操作区整体交给响应式 HeaderActions，窄屏收纳到「更多」，禁止横向溢出。
     actionsRender: () => [<HeaderActions key="actions" user={user} tenant={tenant} />],
-    // P1-14：全局挂载 antd App，提供 message/Modal/notification 上下文，页面改用 App.useApp() 后不再触发静态方法警告。
+    // 全局挂载 antd App，提供 message/Modal/notification 上下文，页面改用 App.useApp() 后不再触发静态方法警告。
     childrenRender: (children) => (
       <App component={false}>
         <DegradeBanner />

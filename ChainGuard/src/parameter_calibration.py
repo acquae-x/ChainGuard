@@ -151,7 +151,7 @@ def evaluate_decision_outcomes(historical_decisions: Any) -> dict[str, Any]:
     if not records:
         return {
             # 无样本时不得编造指标：过去这里返回 average_score 82 / success_rate 0.76，
-            # 是凭空捏造的"演示用"数字，会被当成真实历史表现读走（P0-2 同源问题）。
+            # 是凭空捏造的"演示用"数字，会被当成真实历史表现读走（同源问题）。
             "status": "no_data",
             "sample_size": 0,
             "average_score": None,

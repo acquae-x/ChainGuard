@@ -84,7 +84,7 @@ def _resolve_recipients(db: Session, tenant_id: str, strategies: list[str], cont
             role = "boss" if context.get("risk_level") == "high" else "scm_lead"
             resolved.update(item.id for item in users if item.role_code == role)
         elif strategy == "finance_if_required":
-            # 成本未知（None）按保守口径通知财务，与提交时的抄送判断保持一致（P0-2）
+            # 成本未知（None）按保守口径通知财务，与提交时的抄送判断保持一致
             cost_impact = context.get("cost_impact")
             if context.get("risk_level") == "high" or (context.get("risk_level") == "medium" and (cost_impact is None or float(cost_impact or 0) > 50000)):
                 resolved.update(item.id for item in users if item.role_code == "finance")

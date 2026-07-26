@@ -118,11 +118,20 @@ if (-not $SkipInstall) {
 Step 4 "迁移数据库并播种演示数据"
 Push-Location $ApiDir
 try {
-    Run "数据库迁移" { alembic upgrade head }
+    # 用 python -m 调用而非裸 alembic：pip 装的入口脚本在 Scripts 目录，
+    # 新机器上该目录常常不在 PATH 里，裸命令会直接"找不到 alembic"。
+    Run "数据库迁移" { python -m alembic upgrade head }
     # seed 可重入：已存在则跳过，重复执行不会造出第二套演示租户
     Run "演示数据播种" { python -m src.webapi.seed }
     # 场景/监控/校准类演示依赖企业演示资产，固定 SEED 确定性生成
     Run "企业演示资产生成" { python scripts/generate_enterprise_demo_data.py }
+    # 上一步只生成 CSV 文件，不进租户。只播种基础演示租户的话全库仅 1 个物料，
+    # 低于节点健康相对轨的最小样本量 8，工作台会显示"相对离群线已回退为专家阈值"——
+    # 双轨阈值这条能力在演示里根本看不见。这里把企业 CSV 导进租户（241 个物料）。
+    # --skip-if-sufficient 保证重复启动不会撞上导入去重。
+    Run "企业演示数据导入租户" {
+        python scripts/seed_demo_enterprise.py --database $DbPath --tenant-id tenant-demo --skip-if-sufficient
+    }
 } finally { Pop-Location }
 
 # ---------------------------------------------------------------- 3 前端构建

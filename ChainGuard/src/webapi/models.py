@@ -166,7 +166,7 @@ class Proposal(ScopedRecord, TenantRecord, Base):
     incident_id: Mapped[str] = mapped_column(String(64), index=True)
     name: Mapped[str] = mapped_column(String(255))
     tag: Mapped[str] = mapped_column(String(30))
-    # P0-2：未知业务指标必须落 NULL（前端显示"数据缺失"），禁止伪装成 0
+    # 未知业务指标必须落 NULL（前端显示"数据缺失"），禁止伪装成 0
     total_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     lead_time_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
     residual_risk: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -178,7 +178,7 @@ class Proposal(ScopedRecord, TenantRecord, Base):
     explanation: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     modified: Mapped[bool] = mapped_column(Boolean, default=False)
     draft: Mapped[bool] = mapped_column(Boolean, default=False)
-    # P1-10：被审批引用的旧方案在重新推演时归档保留（审计追溯），列表默认不展示
+    # 被审批引用的旧方案在重新推演时归档保留（审计追溯），列表默认不展示
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -505,7 +505,7 @@ class DataRecord(TenantRecord, Base):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 5B / C2 第一批：结构化业务实体表（7 张业务表 + tenant_configs）
+# 结构化业务实体表（7 张业务表 + tenant_configs）
 # 公共列继承 TenantRecord（id/tenant_id/created_at/updated_at）并附加 extra JSON；
 # 未知源列进入 extra；跨业务表关联一律带 tenant_id（tenant-aware 复合外键）。
 # ─────────────────────────────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ tools/
 .env
 **/.env
 
-# Phase5A runtime / CI / verification artifacts (not source)
+# 运行期 / CI / 验证产物（非源码）
 *.log
 *.err.log
 ChainGuard/.workspace/

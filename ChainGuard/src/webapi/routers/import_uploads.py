@@ -108,13 +108,13 @@ def _camel(name: str) -> str:
 
 
 def camelize_report(report: Any) -> dict[str, Any]:
-    """P1-4：preflight 结果统一转 camelCase，与前端 estimatedRows/canProceed 契约对齐。"""
+    """preflight 结果统一转 camelCase，与前端 estimatedRows/canProceed 契约对齐。"""
     data = asdict(report) if hasattr(report, "__dataclass_fields__") else dict(report)
     return {_camel(key): value for key, value in data.items()}
 
 
 def normalize_xlsx_to_csv(source: str | Path) -> Path:
-    """P1-4：XLSX 先解析归一化为 CSV，预检必须基于真实行而不是二进制字节估算。
+    """XLSX 先解析归一化为 CSV，预检必须基于真实行而不是二进制字节估算。
 
     解析失败必须抛出异常（由调用方转红灯），不允许吞异常后继续绿灯。
     """

@@ -1,4 +1,4 @@
-"""Seed isolated tenants for the Phase 5B C02/C03 node-health browser acceptance run.
+"""Seed isolated tenants for the C02/C03 node-health browser acceptance run.
 
 租户 A（有真实数据）：
   - MAT-C02-CRIT：库存支撑 15 小时 → 引擎判红色预警 → 物料节点 critical

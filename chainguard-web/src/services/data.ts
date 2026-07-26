@@ -1,4 +1,4 @@
-// 数据管理与导入服务（Phase 2 §2.2 双模式）。
+// 数据管理与导入服务（双模式）。
 // API 模式的容量/文件可用性预检以服务端结果为准，前端仅保留字段映射交互预览。
 // api 模式：基础资料表读写走 /data/{type}；导入 commit 走后端多步流水线
 // upload → preflight → confirm → execute → 轮询进度（保留原始 File 上传，服务端解析落库）。
@@ -175,7 +175,7 @@ export async function getDataTable(type: string) {
   );
 }
 
-// 新建基础资料：api 模式 POST /data/{type}，mock 写入内存 store 并留审计痕迹（02 §6）。
+// 新建基础资料：api 模式 POST /data/{type}，mock 写入内存 store 并留审计痕迹。
 export async function createRecord(type: string, values: { name: string; remark?: string }) {
   const name = values.name?.trim();
   if (!name) throw new Error('名称不能为空');
@@ -356,7 +356,7 @@ export async function commitImport(values: CommitParams): Promise<ImportCommitRe
         preflight = { status: 'failed', result: { error: '预检执行失败' } };
       }
       const preflightFailed = preflight?.status === 'failed' || preflight?.result?.canProceed === false;
-      // P1-4：磁盘不足与解析失败都是硬闸门，"仍要导入"不适用
+      // 磁盘不足与解析失败都是硬闸门，"仍要导入"不适用
       const hardBlocked = preflight?.result?.verdict === 'INSUFFICIENT_DISK' || preflight?.result?.verdict === 'PARSE_ERROR';
       if (hardBlocked) {
         return {

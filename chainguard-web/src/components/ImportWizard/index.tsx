@@ -49,7 +49,7 @@ const errorLabels: Record<string, string> = {
 export function PreflightSummary({ report, blocked = false, onForce, loading }: { report: any; blocked?: boolean; onForce?: () => void; loading?: boolean }) {
   if (!report) return null;
   const hardBlocked = report.verdict === 'INSUFFICIENT_DISK';
-  // P1-4：解析失败或后端判定不可继续时必须红灯，禁止假绿灯
+  // 解析失败或后端判定不可继续时必须红灯，禁止假绿灯
   const parseError = report.verdict === 'PARSE_ERROR' || (report.canProceed === false && !hardBlocked);
   const review = report.verdict === 'REVIEW';
   const type = hardBlocked || parseError ? 'error' : review ? 'warning' : 'success';
@@ -116,7 +116,7 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
       // A1: API 模式直接展示后端 preflight，容量/格式的最终口径不再由浏览器单独裁决。
       const serverPreflight = await preflightUpload(file, type);
       setPreflightReport(serverPreflight?.result);
-      // P1-4：服务端解析失败必须红灯并停在上传步骤，不再交给 SheetJS 继续
+      // 服务端解析失败必须红灯并停在上传步骤，不再交给 SheetJS 继续
       if (serverPreflight?.result?.verdict === 'PARSE_ERROR') {
         setError(serverPreflight.result?.messages?.[0] || 'XLSX 解析失败：文件可能损坏，导入已阻止');
         return;
@@ -246,7 +246,7 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
     .filter((field) => mappedTargets.includes(field.key))
     .map((field) => ({ title: field.label, dataIndex: field.key }));
 
-  // P1-4/P2-13：解析失败是业务性红灯（展示预检报告并允许重新上传），不是"服务不可用"
+  // 解析失败是业务性红灯（展示预检报告并允许重新上传），不是"服务不可用"
   if (error && preflightReport?.verdict === 'PARSE_ERROR') return <section aria-label="数据导入向导"><Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} /><Space direction="vertical" style={{ width: '100%' }}><PreflightSummary report={preflightReport} /><Button type="primary" onClick={() => { setError(undefined); setPreflightReport(undefined); resetFileState(); setStep(1); }}>返回上传</Button></Space></section>;
   if (error) return <section aria-label="数据导入向导"><Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} /><Result status="500" title="导入服务暂时不可用" subTitle={error} extra={<Button type="primary" disabled={!lastFile} onClick={() => lastFile && loadFile(lastFile)}>重试</Button>} /></section>;
   if (step === 2 && parsed && parsed.total === 0) return <section aria-label="数据导入向导"><Steps current={step} items={items} size="small" responsive style={{ marginBottom: 24 }} /><EmptyGuide title="文件中没有数据行" description="请检查文件内容后重新上传。" actionText="返回上传" onAction={() => setStep(1)} /></section>;

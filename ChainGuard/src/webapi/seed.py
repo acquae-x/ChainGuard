@@ -66,7 +66,10 @@ def _seed_demo_entities(db, tenant_id: str) -> None:
         SupplierMaterial(id="sm-sz-01", tenant_id=tenant_id, supplier_material_id="SM-SZ-01", supplier_id="SUP-SZ-01", material_id="MCU-A9", qualified=True, supplier_rank=1, available_emergency_qty=4000, lead_time_hours=96, emergency_cost_multiplier=1.35, supplier_price=48),
         SupplierMaterial(id="sm-hz-02", tenant_id=tenant_id, supplier_material_id="SM-HZ-02", supplier_id="SUP-HZ-02", material_id="MCU-A9", qualified=True, supplier_rank=2, available_emergency_qty=2500, lead_time_hours=60, emergency_cost_multiplier=1.60, supplier_price=52),
     ])
-    db.add(SalesOrder(id="so-88019", tenant_id=tenant_id, sales_order_id="SO-88019", customer_id="CUST-001", order_status="confirmed", promised_delivery_at=now + timedelta(days=5), order_amount=1800000, gross_profit=None, penalty_cost=None))
+    # 违约金与毛利取自合同条款而非估算：CUST-001 是 A 级年度框架客户，逾期违约金
+    # 按合同额 20%（360000）、毛利按 25%（450000）。这两个字段留空时上下文构建器会用
+    # A 类估算系数补齐并把决策标记为 degraded——演示租户没有理由缺这两个已知数字。
+    db.add(SalesOrder(id="so-88019", tenant_id=tenant_id, sales_order_id="SO-88019", customer_id="CUST-001", order_status="confirmed", promised_delivery_at=now + timedelta(days=5), order_amount=1800000, gross_profit=450000, penalty_cost=360000))
     db.flush()
     db.add(SalesOrderLine(id="sol-88019-1", tenant_id=tenant_id, sales_order_line_id="SOL-88019-1", sales_order_id="SO-88019", line_no=1, material_id="MCU-A9", ordered_qty=6000, unit_price=300))
 
@@ -108,7 +111,7 @@ def seed() -> None:
 
         # risk-1：供应商停产是**外部输入**，没有任何内部数据能算出"这家厂停产了"。
         # 因此它保留为录入型风险，但标注来源与录入信息，score 明示为申报值而非计算值——
-        # A03 的解释区据此展示"来源=外部事件录入"，不伪造指标推导（§1.1.3）。
+        # A03 的解释区据此展示"来源=外部事件录入"，不伪造指标推导。
         db.add(Risk(
             id="risk-1", tenant_id=tenant.id, code="RISK-20260709-001", level="high", type="供应",
             object_type="供应商", object_name="苏州芯片封测厂", score=92, rule="核心供应商停产",

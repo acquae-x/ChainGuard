@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
-// Phase 5B 收尾批：ERP 字段映射编辑 UI 的真实 Chromium API-mode 验收。
+// ERP 字段映射编辑 UI 的真实 Chromium API-mode 验收。
 // 覆盖查看、编辑、校验失败、保存后被真实同步使用、权限与跨租户隔离。
 const apiPort = Number(process.env.MAP_E2E_API_PORT || 8480);
 const erpPort = Number(process.env.MAP_E2E_MOCK_PORT || 8482);

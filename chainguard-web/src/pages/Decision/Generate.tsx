@@ -78,7 +78,7 @@ export default function DecisionGenerate() {
     }
   };
 
-  // P0-2 同一口径：缺失指标显示"数据缺失"，不伪装成 0
+  // 同一口径：缺失指标显示"数据缺失"，不伪装成 0
   const compareRows = useMemo(() => [
     { key: 'cost', metric: '总成本', ...Object.fromEntries(proposals.map((item) => [item.id, item.totalCost])) },
     { key: 'lead', metric: '交期影响', ...Object.fromEntries(proposals.map((item) => [item.id, daysLabel(item.leadTimeImpact)])) },

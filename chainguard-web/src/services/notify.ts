@@ -1,4 +1,4 @@
-// 通知服务（Phase 2 §2.2 双模式）。api 模式对接 /notifications，mock 走 workflowStore。
+// 通知服务（双模式）。api 模式对接 /notifications，mock 走 workflowStore。
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
 import { apiGet, apiPost, apiRequest } from '../utils/request';
@@ -6,7 +6,7 @@ import { apiGet, apiPost, apiRequest } from '../utils/request';
 export type NotificationKind = 'risk' | 'approval' | 'task';
 export type NotificationItem = { id: string; kind: NotificationKind | string; title: string; target: string; read: boolean; createdAt?: string };
 
-// 已读标记：后端 Phase 1 未提供 mark-read 端点，前端本地乐观维护（ADR §4 缺口-A，列 TODO）。
+// 已读标记：后端未提供 mark-read 端点，前端本地乐观维护。
 const readIds = new Set<string>();
 
 export async function getNotifications() {

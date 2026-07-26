@@ -1,4 +1,4 @@
-"""Seed two isolated tenants for the Phase 5B A03 risk-explanation browser acceptance run.
+"""Seed two isolated tenants for the A03 risk-explanation browser acceptance run.
 
 租户 A：一个会触发的物料（可解释）+ 一个缺库存的物料（数据不足降级）+ 一个只读账号（无 risk:manage）。
 租户 B：自有物料，用于跨租户隔离断言。

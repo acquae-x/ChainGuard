@@ -1,4 +1,4 @@
-# ERP 字段映射（Phase 5B E01/E02）
+# ERP 字段映射（E01/E02）
 
 运行时唯一映射源是 `config/erp_mapping.yaml`；CSV 导入和 ERP 手动同步都通过同一份 C2 adapter 使用它。`config/erp_mapping.template.json` 是便于对接方复制、评审或转换工具读取的等价最小模板，不能与 YAML 同时作为运行时来源。
 
@@ -12,7 +12,7 @@
 4. 不得移除 `sensitive_columns`。命中敏感列的源行不会落库，也不会进入 `extra`。
 5. 通过代码评审后再替换 `config/erp_mapping.yaml` 并运行 C2/ERP 回归测试。
 
-## 页面内编辑（Phase 5B 收尾批）
+## 页面内编辑
 
 「系统设置 → 集成 → ERP 字段映射」提供按实体分组的映射编辑器，权限收敛为 `settings:manage`，
 读写均按租户隔离；没有该权限的用户既不能读取也不能修改映射内容。

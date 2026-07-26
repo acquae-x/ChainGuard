@@ -43,6 +43,12 @@ def main() -> int:
     )
     parser.add_argument("--job-id", default=None, help="导入批次 id；缺省自动生成")
     parser.add_argument("--dry-run", action="store_true", help="只统计不写库")
+    # 导入按文件签名去重：同一批 CSV 第二次导入会抛 DuplicateImportError。start-demo
+    # 可以被反复执行，因此需要一个"已经够了就别导"的前置判断，否则第二次启动即失败。
+    parser.add_argument(
+        "--skip-if-sufficient", action="store_true",
+        help="租户物料数已达相对轨最小样本量（8）时直接跳过导入，供 start-demo 重复执行",
+    )
     args = parser.parse_args()
 
     database = args.database.resolve()
@@ -62,7 +68,7 @@ def main() -> int:
 
     from src.webapi.database import SessionLocal
     from src.webapi.entity_import import import_enterprise_directory
-    from src.webapi.models import ImportJob, Material, Tenant
+    from src.webapi.models import ImportJob, InventoryEntity, Material, Tenant
 
     job_id = args.job_id or f"import-demo-{uuid.uuid4().hex[:12]}"
 
@@ -75,10 +81,26 @@ def main() -> int:
         before = db.query(Material).filter(Material.tenant_id == args.tenant_id).count()
         print(f"租户 {args.tenant_id}　导入前物料数 {before}")
 
+        if args.skip_if_sufficient and before >= 8:
+            print("物料数已满足相对轨最小样本量（8），跳过导入。")
+            return 0
+
         if args.dry_run:
             csvs = sorted(p.name for p in args.data_dir.glob("*.csv"))
             print(f"[dry-run] 将从 {args.data_dir} 读取 {len(csvs)} 个 CSV：{', '.join(csvs)}")
             return 0
+
+        # 导入尾部的 shipments 聚合会按整个企业数据集**重算全租户**的在途数量与到货
+        # 时间。企业 CSV 里没有演示锚点物料（MCU-A9）的运单，聚合结果就是把 seed 写的
+        # 2000 片在途和 72 小时延误清零——决策就绪度随即报 missing_arrival_information，
+        # 库存风险指数从 97.15 掉到 77.15。这里先把导入前既有库存行的这三个字段拍快照，
+        # 导入完成后原样写回：企业数据只负责铺量，不改写演示锚点场景。
+        preexisting_transit = {
+            row.id: (row.in_transit_qty, row.planned_arrival_at, row.estimated_arrival_at)
+            for row in db.query(InventoryEntity).filter(
+                InventoryEntity.tenant_id == args.tenant_id
+            )
+        }
 
         # 导入需要一条 ImportJob 记录承载批次血缘，导入的行会挂在它下面。
         db.add(ImportJob(
@@ -94,6 +116,19 @@ def main() -> int:
 
         report = import_enterprise_directory(db, args.tenant_id, job_id, args.data_dir)
         db.commit()
+
+        restored = 0
+        for row_id, (transit, planned, estimated) in preexisting_transit.items():
+            row = db.get(InventoryEntity, row_id)
+            if row is None:
+                continue
+            if (row.in_transit_qty, row.planned_arrival_at, row.estimated_arrival_at) == (transit, planned, estimated):
+                continue
+            row.in_transit_qty, row.planned_arrival_at, row.estimated_arrival_at = transit, planned, estimated
+            restored += 1
+        if restored:
+            db.commit()
+            print(f"已复位 {restored} 行既有库存的在途/到货字段（shipments 聚合不覆盖演示锚点）")
 
         after = db.query(Material).filter(Material.tenant_id == args.tenant_id).count()
 

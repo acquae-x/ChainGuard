@@ -7,7 +7,7 @@ import { logout, switchDemoRole } from '@/services/user';
 import { roleNames } from '@/services/mockData';
 import { isApiMode } from '@/services/dataMode';
 
-// P1-3：375px 顶栏不得横向溢出。窄屏下只保留菜单折叠、通知、用户三个常驻入口，
+// 375px 顶栏不得横向溢出。窄屏下只保留菜单折叠、通知、用户三个常驻入口，
 // 搜索 / 上报异常 / 租户信息 / 演练 收进「更多」下拉，禁止页面横向滚动。
 export default function HeaderActions({ user, tenant }: { user?: API.User; tenant?: API.Tenant }) {
   const screens = Grid.useBreakpoint();

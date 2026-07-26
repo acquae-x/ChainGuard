@@ -1,4 +1,4 @@
-// 审批服务（Phase 2 §2.2 双模式）。api 模式对接 /approvals*，mock 走 workflowStore。
+// 审批服务（双模式）。api 模式对接 /approvals*，mock 走 workflowStore。
 import { currentUser } from './user';
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';

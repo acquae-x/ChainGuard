@@ -1,4 +1,4 @@
-// 系统设置服务（Phase 2 §2.2 双模式）。api 模式对接 /settings/* 与 /audit-logs，mock 走内置数据。
+// 系统设置服务（双模式）。api 模式对接 /settings/* 与 /audit-logs，mock 走内置数据。
 import { auditLogs, departments, roles, tenant, users } from './mockData';
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
@@ -163,7 +163,7 @@ export async function getErpSyncHistory() {
   return (payload.data || []).filter((item) => item.importType === 'erp');
 }
 
-// ERP 字段映射（Phase 5B 收尾批）。spec 是唯一映射源的完整结构，编辑器只重建 fields/converts/required。
+// ERP 字段映射。spec 是唯一映射源的完整结构，编辑器只重建 fields/converts/required。
 export type ErpMappingRow = {
   sourceField: string;
   targetField: string;

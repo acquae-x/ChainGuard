@@ -1,4 +1,4 @@
-// 认证服务（对应 Phase 2 §2.3，规格见 .workspace/tasks/TASK-203）。
+// 认证服务（对应 Phase 2 §2.3）。
 // api 模式对接真实 /auth/*；mock 模式保留原演示逻辑。签名保持不变，页面层零改动。
 import { tenant, users } from './mockData';
 import { isApiMode, DATA_MODE } from './dataMode';
@@ -96,7 +96,7 @@ export async function changePassword(values: { oldPassword: string; newPassword:
   return apiPost('/auth/change-password', values);
 }
 
-// ---- 以下为演示/向导用途，后端 Phase 1 未提供对应端点，保留 mock（见 ADR §4 缺口-C）----
+// ---- 以下为演示/向导用途，后端未提供对应端点，保留 mock ----
 export async function sendSmsCode(phone: string) {
   return { phone, code: '123456' };
 }

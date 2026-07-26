@@ -17,7 +17,7 @@ const INVITATION_STATUS: Record<Invitation['status'], { text: string; color: str
 };
 
 export default function Users() {
-  // P1-14：用 App.useApp() 取代静态 message/Modal，消除 "Static function can not consume context" 警告。
+  // 用 App.useApp() 取代静态 message/Modal，消除 "Static function can not consume context" 警告。
   const { message, modal } = App.useApp();
   const [open, setOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -34,7 +34,7 @@ export default function Users() {
   }, []);
   useEffect(() => { void loadAccountState(); }, [loadAccountState, reloadKey]);
 
-  // P1-11：重置密码必须先确认，成功后用 Modal 持久展示一次性临时密码（可复制）。
+  // 重置密码必须先确认，成功后用 Modal 持久展示一次性临时密码（可复制）。
   const doReset = async (row: API.User) => {
     const result = await resetUserPassword(row.id);
     modal.success({

@@ -1,4 +1,4 @@
-// 决策方案服务（Phase 2 §2.2 双模式）。核心：生成走 202+jobId 异步轮询。
+// 决策方案服务（双模式）。核心：生成走 202+jobId 异步轮询。
 import { currentUser } from './user';
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
@@ -115,7 +115,7 @@ export async function getDecisionDetail(incidentId: string) {
 export async function exportDecisionDetail(incidentId: string, format: 'json' | 'pdf') {
   const response = await fetch(`/api/v1/incidents/${incidentId}/decision-detail/export?format=${format}`, { headers: { Authorization: `Bearer ${getToken() || ''}` }, credentials: 'include' });
   if (!response.ok) {
-    // P0-3/P2-13：透出后端业务错误文案（如 PDF 依赖未安装），由调用方以 message 呈现
+    // 透出后端业务错误文案（如 PDF 依赖未安装），由调用方以 message 呈现
     let detailMessage = `导出失败（${response.status}）`;
     try {
       const body = await response.json();

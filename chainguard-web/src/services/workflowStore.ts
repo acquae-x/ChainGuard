@@ -129,7 +129,7 @@ export const workflowStore = {
     const proposal = state.proposals.find((item) => item.id === proposalId);
     if (!proposal) throw new Error('方案不存在');
     proposal.modified = true;
-    // P0-2：成本缺失（null）时不可凭空推 4% 浮动
+    // 成本缺失（null）时不可凭空推 4% 浮动
     proposal.totalCost = proposal.totalCost === null || proposal.totalCost === undefined ? null : Math.round(proposal.totalCost * 1.04);
     appendAudit('重算方案', 'proposal', proposalId, proposal.name, { overrides }, actor);
     return proposal;

@@ -70,11 +70,19 @@ fi
 
 step 4 "迁移数据库并播种演示数据"
 cd "$API_DIR"
-alembic upgrade head 2>&1 | tail -1 | while read -r l; do ok "$l"; done
+# 用 python -m 调用而非裸 alembic：pip 装的入口脚本在 bin/Scripts 目录，
+# 新机器上该目录未必在 PATH 里，裸命令会直接"找不到 alembic"。
+"$PYTHON_BIN" -m alembic upgrade head 2>&1 | tail -1 | while read -r l; do ok "$l"; done
 # seed 可重入：已存在则跳过，重复执行不会造出第二套演示租户
 "$PYTHON_BIN" -m src.webapi.seed 2>&1 | tail -1 | while read -r l; do ok "$l"; done
 # 场景/监控/校准类演示依赖企业演示资产，固定 SEED 确定性生成
 "$PYTHON_BIN" scripts/generate_enterprise_demo_data.py 2>&1 | tail -1 | while read -r l; do ok "$l"; done
+# 上一步只生成 CSV 文件，不进租户。只播种基础演示租户的话全库仅 1 个物料，低于节点
+# 健康相对轨的最小样本量 8，工作台会显示"相对离群线已回退为专家阈值"——双轨阈值
+# 这条能力在演示里根本看不见。这里把企业 CSV 导进租户（241 个物料）。
+# --skip-if-sufficient 保证重复启动不会撞上导入去重。
+"$PYTHON_BIN" scripts/seed_demo_enterprise.py --database "$DB_PATH" --tenant-id tenant-demo \
+  --skip-if-sufficient 2>&1 | tail -1 | while read -r l; do ok "$l"; done
 
 step 5 "构建前端"
 cd "$WEB_DIR"

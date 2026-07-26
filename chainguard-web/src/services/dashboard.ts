@@ -1,4 +1,4 @@
-// 工作台服务（Phase 2 §2.2 双模式）。api 模式对接 /dashboard/*，mock 走 workflowStore。
+// 工作台服务（双模式）。api 模式对接 /dashboard/*，mock 走 workflowStore。
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
 import { apiGet } from '../utils/request';

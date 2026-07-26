@@ -121,7 +121,7 @@ def latest_batches(db: Session, tenant_id: str, resources: Iterable[str]) -> dic
     """该租户各资源类型最近一次导入/同步批次。
 
     语义严格是"资源类型级"，**不是行级血缘**——实体表没有 source_import_job_id 列，
-    本批不加列不迁移（沿用 A03 §2 的限制）。A03 的 ``_provenance`` 与 A04 的
+    本批不加列不迁移。A03 的 ``_provenance`` 与 A04 的
     ``source.batch`` 共用本函数，保证两处"数据来源"口径一字不差。
     """
     wanted = set(resources)

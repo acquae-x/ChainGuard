@@ -70,7 +70,7 @@ function ApprovalDetail({
   const alreadyRatified = detail.approval.history?.some((item: any) => item.action === 'ratify_approve' || item.action === 'ratify_object');
   const capabilities = {
     approve: canApprove && awaitingReview,
-    // P2-12：提交/撤回按钮跟随审批单实际状态，动作完成后 onDone 重拉详情即时刷新
+    // 提交/撤回按钮跟随审批单实际状态，动作完成后 onDone 重拉详情即时刷新
     submit: riskLevel === "high" && access.canSubmitHigh && detail.approval.status === "submitted",
     withdraw: riskLevel === "high" && access.canSubmitHigh && ["submitted", "pending"].includes(detail.approval.status),
     countersign: canCountersignNow,
@@ -83,7 +83,7 @@ function ApprovalDetail({
   const { requireConfirmPoints: _flag, ...actionCaps } = capabilities;
   const hasAction = Object.values(actionCaps).some(Boolean);
   const comparison = detail.comparison;
-  // P0-2 口径：未知值不得伪装成 0，缺失一律显示"数据缺失"（与方案列表/推演摘要共用 proposalMetrics）
+  // 口径：未知值不得伪装成 0，缺失一律显示"数据缺失"（与方案列表/推演摘要共用 proposalMetrics）
   const missing = isMissing;
   const fmtDays = daysLabel;
   const fmtCustomer = (proposal: any) =>
@@ -134,7 +134,7 @@ function ApprovalDetail({
                 ? "追认异议已记录，已通知老板与提交人"
                 : "审批已处理",
     );
-    // P1-8 修复：终批后停留在审批详情刷新状态；只有真正 approved（任务已生成）才在页面上提供任务入口
+    // 修复：终批后停留在审批详情刷新状态；只有真正 approved（任务已生成）才在页面上提供任务入口
     onDone();
   };
   const [traceOpen, setTraceOpen] = useState(false);
@@ -237,7 +237,7 @@ function ApprovalDetail({
       <Divider>审批链</Divider>
       <Steps
         direction="vertical"
-        // P1-9 修复：approved 时全链完成（current 越过末位即全部 finish）；待会签停在第三步
+        // 修复：approved 时全链完成（current 越过末位即全部 finish）；待会签停在第三步
         current={
           detail.approval.status === "approved"
             ? detail.chain.length
@@ -459,7 +459,7 @@ export default function DecisionApproval() {
       </div>
       <Drawer
         width="100%"
-        // P1-7：长审批单号在 375px 下必须可换行/省略，不得撑破抽屉头部
+        // 长审批单号在 375px 下必须可换行/省略，不得撑破抽屉头部
         title={
           <Typography.Text style={{ maxWidth: "100%", wordBreak: "break-all", whiteSpace: "normal" }}>
             {`审批详情 ${detail?.approval?.id || ""}`}
@@ -474,7 +474,7 @@ export default function DecisionApproval() {
         {detail && (
           <ApprovalDetail
             detail={detail}
-            // P2-12/P1-9：动作完成后原地刷新详情与列表，而不是直接关闭抽屉丢状态
+            // 动作完成后原地刷新详情与列表，而不是直接关闭抽屉丢状态
             onDone={() => {
               if (detail?.approval?.id) loadDetail(detail.approval.id);
               actionRef.current?.reload();

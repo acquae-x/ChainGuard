@@ -199,7 +199,7 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
     proposals = payload.get("proposals") or []
     approvals = payload.get("approval_chain") or []
 
-    # P1-12：PDF 统一中文业务文案，避免 submitted/high/ok 等英文状态与中英文异常空格。
+    # PDF 统一中文业务文案，避免 submitted/high/ok 等英文状态与中英文异常空格。
     _STATUS_CN = {"submitted": "已提交", "pending": "待审批", "pending_countersign": "待会签", "approved": "已批准", "rejected": "已驳回", "withdrawn": "已撤回", "timeout_released": "超时放行", "overdue": "已逾期", "ok": "正常", "succeeded": "成功", "failed": "失败", "running": "进行中", "planning": "规划中", "deciding": "决策中", "approving": "审批中", "executing": "执行中", "closed": "已关闭"}
     _LEVEL_CN = {"high": "高", "medium": "中", "low": "低"}
     def cn_status(value: Any) -> str:

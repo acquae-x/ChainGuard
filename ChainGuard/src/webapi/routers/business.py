@@ -291,7 +291,7 @@ def export_decision_detail(item_id: str, format: str = "json", ctx: Annotated[Au
     payload = _decision_detail_response(item_id, ctx, db)
     if format == "json": return JSONResponse(payload, headers={"Content-Disposition": f'attachment; filename="decision-{item_id}.json"'})
     if format == "pdf":
-        # P0-3：运行环境缺 reportlab 时给出明确业务错误（503），不再落到 CG-5000
+        # 运行环境缺 reportlab 时给出明确业务错误（503），不再落到 CG-5000
         try:
             content = render_pdf(payload)
         except RuntimeError as error:
@@ -315,7 +315,7 @@ def job_status(item_id: str, ctx: Annotated[AuthContext, Depends(get_current_use
 @router.get("/proposals")
 def proposals(ctx: Annotated[AuthContext, Depends(require_permission("decision:view"))], db: Annotated[Session, Depends(get_db)], incident_id: str | None = Query(None, alias="incidentId")):
     items = list_tenant_records(db, Proposal, ctx.tenant_id, ctx)
-    # P1-10：归档方案仅供审批详情按 id 追溯，不进入方案列表
+    # 归档方案仅供审批详情按 id 追溯，不进入方案列表
     items = [x for x in items if not x.archived]
     if incident_id: items = [x for x in items if x.incident_id == incident_id]
     history = {"matched": False, "count": 0, "conclusions": [], "sources": []}
@@ -367,7 +367,7 @@ def proposal_explanation(item_id: str, ctx: Annotated[AuthContext, Depends(requi
 def recalc_proposal(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("decision:modify"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx)
     before = item.total_cost
-    # P0-2：成本缺失（None）时无基数可推 4% 浮动；仅当调用方显式给出 totalCost 才写入，否则保持缺失
+    # 成本缺失（None）时无基数可推 4% 浮动；仅当调用方显式给出 totalCost 才写入，否则保持缺失
     override_cost = body.overrides.get("totalCost", before * 1.04 if before is not None else None)
     item.total_cost = round(float(override_cost), 2) if override_cost is not None else None
     item.modified = True
@@ -395,7 +395,7 @@ def submit_approval(item_id: str, request: Request, ctx: Annotated[AuthContext, 
     proposal = get_tenant_record(db, Proposal, item_id, ctx.tenant_id, ctx)
     incident = get_tenant_record(db, Incident, proposal.incident_id, ctx.tenant_id, ctx)
     if incident.status != "deciding": raise ApiError(409, "CG-2301", "事件当前不能提交审批")
-    # P0-2：成本未知（None）不是 0——中风险成本未知时保守抄送财务，而不是当作 0 跳过会签口径
+    # 成本未知（None）不是 0——中风险成本未知时保守抄送财务，而不是当作 0 跳过会签口径
     cost_requires_finance = proposal.total_cost is None or proposal.total_cost > 50000
     approval = Approval(id=f"ap-{uuid.uuid4().hex}", tenant_id=ctx.tenant_id, proposal_id=proposal.id, incident_id=incident.id, status="submitted", risk_level=incident.level, summary=proposal.name, cost_impact=proposal.total_cost, submitter=ctx.name, cc_role_codes=["finance"] if incident.level == "high" or (incident.level == "medium" and cost_requires_finance) else [], history=[])
     db.add(approval); incident.status = "approving"
@@ -448,7 +448,7 @@ def approval_action(item_id: str, action: str, body: PatchRequest, request: Requ
         transfer_user = db.scalar(select(User).where(User.tenant_id == ctx.tenant_id, User.status == "active", or_(User.id == body.assignee, User.name == body.assignee)))
         if transfer_user is None:
             raise ApiError(422, "CG-2404", "转办接收人不是本租户有效用户")
-    # 追认分支必须先于通用"审批单已处理"检查：追认只发生在超时放行后的 approved 状态（P0-1 修复）
+    # 追认分支必须先于通用"审批单已处理"检查：追认只发生在超时放行后的 approved 状态
     if action in {"ratify_approve", "ratify_object"}:
         if ctx.role_code != "finance" or approval.status != "approved" or not any(item.get("action") == "countersign_timeout_release" for item in approval.history):
             raise ApiError(409, "CG-2401", "当前审批单不等待财务追认")
@@ -490,7 +490,7 @@ def act_approval(item_id: str, action: str, body: PatchRequest, request: Request
 
 
 def _can_manage_all_tasks(ctx: AuthContext) -> bool:
-    """P0-2：复用 task:manage 落实数据范围，不新增权限码。
+    """复用 task:manage 落实数据范围，不新增权限码。
 
     有 task:manage（或超级 *）才能看/管理整租户任务；否则只能触达
     分派给自己（assignee == 当前用户）的任务，落实 buyer 的 custom 数据范围。
@@ -501,12 +501,12 @@ def _can_manage_all_tasks(ctx: AuthContext) -> bool:
 @router.get("/tasks")
 def tasks(ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)], scope: str | None = None):
     items = list_tenant_records(db, Task, ctx.tenant_id, ctx)
-    # P0-2：无 task:manage 的角色（buyer 等 custom 范围）只能看到分派给自己的任务，
+    # 无 task:manage 的角色（buyer 等 custom 范围）只能看到分派给自己的任务，
     # 不再返回租户全部任务。
     if not _can_manage_all_tasks(ctx):
         items = [x for x in items if x.assignee == ctx.user_id]
     if scope == "overdue": items = [x for x in items if x.status == "overdue"]
-    # P1-6：负责人展示姓名而非 u-buyer；前端逾期看板按姓名聚合
+    # 负责人展示姓名而非 u-buyer；前端逾期看板按姓名聚合
     names = {u.id: u.name for u in list_tenant_records(db, User, ctx.tenant_id)}
     data = []
     for x in items:
@@ -519,7 +519,7 @@ def tasks(ctx: Annotated[AuthContext, Depends(require_permission("task:view"))],
 @router.get("/tasks/{item_id}")
 def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permission("task:view"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Task, item_id, ctx.tenant_id, ctx)
-    # P0-2：无 task:manage 者不得越权查看他人任务详情，返回 404 避免存在性枚举
+    # 无 task:manage 者不得越权查看他人任务详情，返回 404 避免存在性枚举
     if not _can_manage_all_tasks(ctx) and item.assignee != ctx.user_id:
         raise ApiError(404, "CG-2010", "任务不存在")
     return serialize(item)
@@ -528,7 +528,7 @@ def task_detail(item_id: str, ctx: Annotated[AuthContext, Depends(require_permis
 @router.patch("/tasks/{item_id}")
 def update_task(item_id: str, body: PatchRequest, request: Request, ctx: Annotated[AuthContext, Depends(require_permission("task:execute"))], db: Annotated[Session, Depends(get_db)]):
     item = get_tenant_record(db, Task, item_id, ctx.tenant_id, ctx)
-    # P0-2：越权闸门——无 task:manage 者只能更新自己名下的任务
+    # 越权闸门——无 task:manage 者只能更新自己名下的任务
     if not _can_manage_all_tasks(ctx) and item.assignee != ctx.user_id:
         raise ApiError(403, "CG-2011", "只能操作分派给本人的任务")
     if body.status:
@@ -564,7 +564,7 @@ def verify_audit_logs(ctx: Annotated[AuthContext, Depends(require_permission("au
 
 
 def build_dashboard_kpis(db: Session, ctx: AuthContext, *, now: datetime | None = None) -> dict[str, Any]:
-    # P1-7：KPI 由真实数据计算，且任务口径与 /tasks、逾期看板一致（无 task:manage 只算本人）。
+    # KPI 由真实数据计算，且任务口径与 /tasks、逾期看板一致（无 task:manage 只算本人）。
     risks = list_tenant_records(db, Risk, ctx.tenant_id, ctx)
     approvals = list_tenant_records(db, Approval, ctx.tenant_id)
     incidents = list_tenant_records(db, Incident, ctx.tenant_id, ctx)

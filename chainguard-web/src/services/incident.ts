@@ -1,4 +1,4 @@
-// 应急事件服务（Phase 2 §2.2 双模式）。api 模式对接 /incidents*，mock 走 workflowStore。
+// 应急事件服务（双模式）。api 模式对接 /incidents*，mock 走 workflowStore。
 import { currentUser } from './user';
 import { workflowStore } from './workflowStore';
 import { pick } from './dataMode';
@@ -44,7 +44,7 @@ export async function updateIncident(id: string, values: Partial<API.Incident>) 
   );
 }
 
-// 事件备注暂无独立后端端点，保留 mock（ADR §4 缺口，列 TODO）。
+// 事件备注暂无独立后端端点，保留 mock。
 export async function addIncidentNote(id: string, note: string) {
   workflowStore.addIncidentNote(id, note, await actor());
   return { ok: true };

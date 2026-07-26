@@ -126,7 +126,7 @@ def require_permission(code: str):
             "decision:view": lambda p: p.startswith("decision:view"),
             "decision:modify": lambda p: p.startswith("decision:modify"),
             "decision:generate": lambda p: p.startswith("decision:modify"),
-            # P1-11：按结合审计复用口径，settings:manage 管理员可只读查看审批（列表/详情）；
+            # 按结合审计复用口径，settings:manage 管理员可只读查看审批（列表/详情）；
             # 各审批动作在 approval_action 内有独立权限检查，管理员不会因此获得 approve/reject/countersign
             "approval:view": lambda p: p.startswith("approval:") or p == "settings:manage",
             "approval:submit": lambda p: p.startswith("approval:"),

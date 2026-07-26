@@ -1,4 +1,4 @@
-"""Seed two non-demo tenants for the Phase 5B E-3 browser acceptance run."""
+"""Seed two non-demo tenants for the E-3 browser acceptance run."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

@@ -104,13 +104,13 @@ def _camel(name: str) -> str:
 
 
 def camelize_report(report: Any) -> dict[str, Any]:
-    """P1-4：preflight 结果统一转 camelCase，与前端 estimatedRows/canProceed 契约对齐。"""
+    """preflight 结果统一转 camelCase，与前端 estimatedRows/canProceed 契约对齐。"""
     data = asdict(report) if hasattr(report, "__dataclass_fields__") else dict(report)
     return {_camel(key): value for key, value in data.items()}
 
 
 def normalize_xlsx_to_csv(source: str | Path) -> Path:
-    """P1-4：XLSX 先解析归一化为 CSV，预检必须基于真实行而不是二进制字节估算。
+    """XLSX 先解析归一化为 CSV，预检必须基于真实行而不是二进制字节估算。
 
     解析失败必须抛出异常（由调用方转红灯），不允许吞异常后继续绿灯。
     """
@@ -214,7 +214,7 @@ def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissi
             "extraction": asdict(extraction), "recognition": recognition, "schemaSignature": schema_signature,
         }
     elif suffix == ".xlsx":
-        # P1-4：XLSX 先归一化为 CSV 再做基于行的容量预检；解析失败必须红灯，禁止吞异常假绿灯
+        # XLSX 先归一化为 CSV 再做基于行的容量预检；解析失败必须红灯，禁止吞异常假绿灯
         try:
             normalized_path = normalize_xlsx_to_csv(item.options["path"])
         except Exception:
@@ -231,7 +231,7 @@ def preflight(item_id: str, ctx: Annotated[AuthContext, Depends(require_permissi
     report = run_preflight([item.options["path"]], Path(item.options["path"]).parent / "import.db")
     item.status = "manual_review" if mode == "ocr" and report.can_proceed else "preflighted" if report.can_proceed else "failed"
     item.progress = 25
-    # camelCase 与前端 estimatedRows/canProceed 契约对齐（P1-4）；verdict 键名不变，confirm 闸门不受影响
+    # camelCase 与前端 estimatedRows/canProceed 契约对齐；verdict 键名不变，confirm 闸门不受影响
     item.result = {
         **camelize_report(report), "normalized": normalized_preview(item.options["path"]),
         "recognition": item.options.get("recognition"),
@@ -266,7 +266,7 @@ def confirm_import(item_id: str, body: PatchRequest, ctx: Annotated[AuthContext,
         # Disk shortage is a hard safety gate, not an override-able quality warning.
         if item.result.get("verdict") == "INSUFFICIENT_DISK":
             raise ApiError(409, "CG-2602", "磁盘空间不足，不能强制导入")
-        # P1-4：解析失败没有可导入的归一化数据，同样不允许强制
+        # 解析失败没有可导入的归一化数据，同样不允许强制
         if item.result.get("verdict") == "PARSE_ERROR":
             raise ApiError(409, "CG-2602", "文件解析失败，不能强制导入")
         if not force:

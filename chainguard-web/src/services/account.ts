@@ -1,4 +1,4 @@
-// 账户生命周期服务（Phase 5B 收尾批「账户完善」）：找回密码、企业邀请码、OIDC SSO、账号锁定。
+// 账户生命周期服务：找回密码、企业邀请码、OIDC SSO、账号锁定。
 // 全部只走真实后端 /api/v1，没有 mock 分支——这些流程要么真的可用，要么明确告知不可用。
 import { apiGet, apiPost, apiPut, setToken } from '../utils/request';
 

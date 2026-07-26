@@ -12,7 +12,7 @@ export default function DecisionTrace({ incidentId, open, onClose }: { incidentI
   const screens = Grid.useBreakpoint();
   // 评审修复：无推演数据（历史/演示单）时显示空态，而不是永远停在"加载中"
   useEffect(() => { if (open) getDecisionDetail(incidentId).then(setDetail).catch(() => setDetail({ __missing: true })); }, [open, incidentId]);
-  // P2-13：导出失败留在当前上下文提示，不允许 Promise 拒绝冒泡成整页错误
+  // 导出失败留在当前上下文提示，不允许 Promise 拒绝冒泡成整页错误
   const doExport = async (format: 'json' | 'pdf') => {
     try {
       await exportDecisionDetail(incidentId, format);
@@ -32,7 +32,7 @@ export default function DecisionTrace({ incidentId, open, onClose }: { incidentI
   const feasibleCount = constraints.feasible_count;
   const optimalUtility = constraints.optimal_system_utility;
   const feasiblePoints = paretoPoints.filter((item: any) => item.feasible);
-  // P2-14：图表必须有文字替代摘要（无障碍/空态兜底）
+  // 图表必须有文字替代摘要（无障碍/空态兜底）
   const paretoSummary = paretoPoints.length
     ? `共 ${paretoPoints.length} 个策略组合，其中 ${feasiblePoints.length} 个可行；最优组合系统效用 ${typeof optimalUtility === 'number' ? optimalUtility.toFixed(2) : optimalUtility ?? '数据缺失'}。`
     : '暂无策略组合数据。';
@@ -70,7 +70,7 @@ export default function DecisionTrace({ incidentId, open, onClose }: { incidentI
             { key: 'score', label: '综合评分', children: detail.arbitration?.final_score ?? '数据缺失' },
           ]} />;
         })() },
-        // P1-5：第 4 节改为结构化摘要 + 图表前置，禁止把 constraint_analysis 原始 JSON 当主展示
+        // 第 4 节改为结构化摘要 + 图表前置，禁止把 constraint_analysis 原始 JSON 当主展示
         { key: 'constraints', label: '4. 约束分析与推荐调整', children: <>
           <Typography.Text strong>敏感性：库存水平 vs 风险指数</Typography.Text>
           <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>{sensitivitySummary}</Typography.Paragraph>

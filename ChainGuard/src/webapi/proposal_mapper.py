@@ -8,7 +8,7 @@ from src.domain_models import DecisionResult
 
 TAGS = ("recommended", "alternative", "invalid")
 
-# P0-2 口径（方案列表/审批摘要/方案对比共用）：
+# 口径（方案列表/审批摘要/方案对比共用）：
 # - 引擎 proposals 自身不带 ¥ 成本、交期天数、客户数等结构化字段；
 #   这些信息可信的来源是 DecisionResult 的 context（orders/suppliers/inventory）与 scores。
 # - 能从可信字段映射的必须映射；不能推导的返回 None，由前端显示"数据缺失"。

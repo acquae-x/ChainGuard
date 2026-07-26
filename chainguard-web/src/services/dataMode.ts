@@ -1,4 +1,4 @@
-// 双数据源与降级开关（对应 Phase 2 §2.2，规格见 .workspace/tasks/TASK-202）。
+// 双数据源与降级开关（对应 Phase 2 §2.2）。
 // 核心原则：workflowStore mock 完整保留；后端不可用时显式黄条提示，禁止静默降级。
 import { create } from 'zustand';
 

@@ -5,7 +5,7 @@ import { changePassword, logout } from '@/services/user';
 
 export default function Profile() {
   const { initialState } = useModel('@@initialState');
-  // P1-8：mustChangePassword=true 时明确告知“管理员已重置密码，首次登录必须修改”，
+  // mustChangePassword=true 时明确告知“管理员已重置密码，首次登录必须修改”，
   // 标题与浏览器标题都不再是“工作台”。
   const forced = initialState?.currentUser?.mustChangePassword;
   useEffect(() => {

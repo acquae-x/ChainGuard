@@ -8,7 +8,7 @@ import { getExecutiveReport, type ExecutiveReport } from '@/services/report';
 
 const MISSING = '数据缺失';
 
-// 后端对不可测量的指标返回 null（P0-2 口径）：0 表示"真的没赚没亏"，null 表示"这段时间没有事件可测量"。
+// 后端对不可测量的指标返回 null：0 表示"真的没赚没亏"，null 表示"这段时间没有事件可测量"。
 const money = (value: number | null) => (value === null ? MISSING : `¥${value.toLocaleString('zh-CN')}`);
 const hours = (value: number | null) => (value === null ? MISSING : `${value} 小时`);
 
