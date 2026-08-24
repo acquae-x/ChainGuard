@@ -5,7 +5,7 @@ fastapi>=0.110
 uvicorn>=0.27
 httpx>=0.27
 SQLAlchemy>=2.0,<3
-alembic>=1.13,<2
+alembic>=1.19.1,<2
 PyJWT>=2.8,<3
 bcrypt>=4.1,<5
 # 凭证静态加密（Fernet/MultiFernet）。此前它只经 pdfplumber → pdfminer.six 传递安装，
