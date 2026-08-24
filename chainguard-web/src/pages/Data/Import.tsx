@@ -1,5 +1,5 @@
-import { history, useAccess, useLocation } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { history, useAccess, useLocation } from '@/runtime';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Button, Grid, Popconfirm, Table, Tabs, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, RollbackOutlined } from '@ant-design/icons';
 import { ImportWizard } from '@/components';

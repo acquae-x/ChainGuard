@@ -1,7 +1,7 @@
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Card, Col, Row, Select, Statistic, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
-import { useModel } from '@umijs/max';
+import { useModel } from '@/runtime';
 import { RiskTag, SensitiveField } from '@/components';
 import { getResponseReport, type ResponseReport } from '@/services/report';
 

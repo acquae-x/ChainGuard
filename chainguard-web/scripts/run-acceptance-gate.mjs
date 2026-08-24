@@ -18,7 +18,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { resolve, relative } from 'node:path';
 
@@ -189,6 +189,9 @@ for (const suite of suites) {
   console.log(`=== [${suite.name}] running ${suite.config} ===`);
   const jsonPath = resolve(ARTIFACTS, `${suite.name}-report.json`);
   const outputDir = resolve(ARTIFACTS, `${suite.name}-output`);
+  // 先删除上次报告，配置加载失败时不能把旧的通过数误当成本次结果。
+  rmSync(jsonPath, { force: true });
+  rmSync(outputDir, { recursive: true, force: true });
   // list 给人看进度，json 落文件给门禁判定；--trace/--output 从命令行覆盖，
   // 免得为了归档 trace 去改十个 playwright.*.config.ts。
   status = run(

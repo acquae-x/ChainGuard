@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { Alert, Badge, Button, Collapse, Empty, Space, Spin, Table, Tag, Typography } from 'antd';
 
 // A04 影响范围完整版：按实体类型分组展示"这条风险/这个事件波及了哪些真实业务对象"。

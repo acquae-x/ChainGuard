@@ -7,9 +7,9 @@
       依赖安装 → 数据库迁移 → 演示数据播种 → 前端构建 → 启动服务
 
     演示态刻意做成"单进程、单端口"：前端构建产物由 FastAPI 直接托管，
-    不起 umi dev。这样现场不存在以下几类事故：
-      - umi dev 首屏现编译慢、默认堆下 OOM、崩溃后 src/.umi 残留损坏产物
-      - 前后端端口错配（后端 8000 与 umi 默认端口相撞）
+    不起 Vite 开发服务器。这样现场不存在以下几类事故：
+      - 开发服务器首屏现编译或缓存残留
+      - 前后端端口错配（后端与开发端口相撞）
       - 反向代理/CORS 配置错误
 
     uvicorn 固定单 worker：演示只需要单进程，少一层不确定性。
@@ -138,9 +138,7 @@ try {
 Step 5 "构建前端"
 Push-Location $WebDir
 try {
-    # umi dev 在默认堆上会 OOM，构建同样吃内存，这里显式抬高上限
     $env:NODE_OPTIONS = '--max-old-space-size=6144'
-    Run "前端类型声明生成" { npx max setup }
     Run "前端构建" { npm run build }
 } finally { Pop-Location }
 if (-not (Test-Path (Join-Path $WebDir 'dist/index.html'))) { Die "前端构建产物缺失（chainguard-web/dist/index.html）" }

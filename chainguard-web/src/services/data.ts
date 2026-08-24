@@ -2,12 +2,12 @@
 // API 模式的容量/文件可用性预检以服务端结果为准，前端仅保留字段映射交互预览。
 // api 模式：基础资料表读写走 /data/{type}；导入 commit 走后端多步流水线
 // upload → preflight → confirm → execute → 轮询进度（保留原始 File 上传，服务端解析落库）。
-import * as XLSX from 'xlsx';
 import { customers, inventories, materials, orders, suppliers } from './mockData';
 import { appendAudit } from './workflowStore';
 import { isApiMode, pick } from './dataMode';
 import { apiGet, apiPost } from '../utils/request';
 import { normalizeImportHistoryJob } from './importHistory';
+import { parseCsv } from '../utils/csv';
 
 const API_RESOURCE_TYPES = new Set(['material', 'supplier', 'customer', 'order', 'inventory']);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -211,13 +211,11 @@ async function createRecordMock(type: string, values: { name: string; remark?: s
 
 // 对接后端时：enterprise_ingest.py / import_preflight.py / streaming_import.py。
 export async function parseFile(file: File): Promise<ParsedImportFile> {
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) throw new Error('文件中没有可读取的工作表');
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: true });
-  const headers = (matrix[0] || []).map((value) => String(value).trim()).filter(Boolean);
+  if (!/\.csv$/i.test(file.name)) throw new Error('XLSX 仅由后端安全解析，请先启动 API 服务');
+  const matrix = parseCsv(await file.text());
+  const headers = (matrix[0] || []).map((value) => value.trim()).filter(Boolean);
   if (!headers.length) throw new Error('文件第一行没有有效表头');
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: true });
+  const rows = matrix.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])));
   return { fileName: file.name, headers, rows, total: rows.length };
 }
 
@@ -273,7 +271,7 @@ export async function getEnterpriseFieldMapping(type: string, headers: string[] 
 
 export async function getImportTemplate(type: ImportType) {
   const definition = importDefinitions[type];
-  return { fileName: `${type}-template.xlsx`, sheetName: definition.sheetName, rows: [definition.sample] };
+  return { fileName: `${type}-template.csv`, sheetName: definition.sheetName, rows: [definition.sample] };
 }
 
 export async function validateRows(

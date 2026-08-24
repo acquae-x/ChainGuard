@@ -12,6 +12,9 @@ mt_probe.db
 # 本地工作区与产出（不入库）
 outputs/
 output/
+tmp/
+.workspace/
+codex_landing_spec/
 ChainGuard/output/
 .claude/
 .cursor/
@@ -19,6 +22,10 @@ ChainGuard/output/
 .vscode/
 .agents/
 tools/
+!tools/
+tools/*
+!tools/build_tech_doc_pdf.py
+!tools/print_html_to_pdf.mjs
 
 # 机密
 .env

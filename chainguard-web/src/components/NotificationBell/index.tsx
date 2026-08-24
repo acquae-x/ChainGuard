@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { Badge, Button, Drawer, Empty, Grid, List, Popover, Tabs, Tag } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';

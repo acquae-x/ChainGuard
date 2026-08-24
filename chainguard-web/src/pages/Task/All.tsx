@@ -1,5 +1,5 @@
-import { useAccess } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { useAccess } from '@/runtime';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Button, Select, Tag, message } from 'antd';
 import { getTasks, reassign } from '@/services/task';
 

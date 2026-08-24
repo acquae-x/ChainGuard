@@ -1,8 +1,8 @@
-import { PageContainer } from '@ant-design/pro-components';
+import { PageContainer } from '@/components/pro';
 import { Button, Card, Descriptions, Form, Input, Select, Space, Tag, message } from 'antd';
 import { getTenant, saveTenant } from '@/services/settings';
 import { useEffect, useState } from 'react';
-import { useModel } from '@umijs/max';
+import { useModel } from '@/runtime';
 
 export default function TenantSettings() {
   const [tenant, setTenant] = useState<API.Tenant>();

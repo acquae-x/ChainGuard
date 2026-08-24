@@ -1,4 +1,4 @@
-import { Navigate, useAccess } from '@umijs/max';
+import { Navigate, useAccess } from '@/runtime';
 
 // 三张报表权限各不相同（老板只有 report:executive，供应链负责人只有 report:operation）。
 // 静态 redirect 会把其中一方直接送进 403，这里按 access 落到本角色第一个可看的报表。

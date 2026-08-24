@@ -1,4 +1,4 @@
-import { history, useModel } from '@umijs/max';
+import { history, useModel } from '@/runtime';
 import { Alert, Button, Card, Form, Input, Typography, message } from 'antd';
 import { useEffect } from 'react';
 import { changePassword, logout } from '@/services/user';

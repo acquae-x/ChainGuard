@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 
 // #8：mustChangePassword=true 明确显示管理员重置文案，标题不再是工作台。
 const useModelMock = vi.fn();
-vi.mock('@umijs/max', () => ({ history: { push: vi.fn() }, useModel: () => useModelMock() }));
+vi.mock('@/runtime', () => ({ history: { push: vi.fn() }, useModel: () => useModelMock() }));
 vi.mock('@/services/user', () => ({ changePassword: vi.fn(), logout: vi.fn() }));
 
 import Profile from './Profile';

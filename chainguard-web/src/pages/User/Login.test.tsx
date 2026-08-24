@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('@umijs/max', () => ({
+vi.mock('@/runtime', () => ({
   history: { location: { search: '' }, push: vi.fn(), replace: vi.fn() },
   useModel: () => ({ setInitialState: vi.fn() }),
 }));

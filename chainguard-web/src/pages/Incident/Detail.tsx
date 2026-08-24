@@ -1,4 +1,4 @@
-import { history, useAccess, useParams } from '@umijs/max';
+import { history, useAccess, useParams } from '@/runtime';
 import { Button, Card, Col, Descriptions, Empty, Form, Input, List, Modal, Result, Row, Select, Space, Steps, Table, Tabs, Timeline, Typography, Upload, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { ImpactScopePanel, RiskExplanationDrawer, RiskTag, SensitiveField, StatusTag } from '@/components';

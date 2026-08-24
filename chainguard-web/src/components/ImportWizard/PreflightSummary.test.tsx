@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-// ImportWizard 模块顶层 import 了 umi/服务/组件桶；只测纯展示组件 PreflightSummary，
-// 因此把这些重依赖 mock 掉，避免拉起 umi 运行时。
-vi.mock('@umijs/max', () => ({
+// ImportWizard 模块顶层 import 了运行时/服务/组件桶；这里只测纯展示组件
+// PreflightSummary，因此把这些重依赖 mock 掉。
+vi.mock('@/runtime', () => ({
   history: { push: vi.fn(), replace: vi.fn() },
   useModel: () => ({ initialState: { currentUser: { permissions: [] } } }),
 }));

@@ -1,6 +1,6 @@
 import { LockOutlined, MobileOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons';
-import { history, useModel } from '@umijs/max';
-import { Alert, Button, Card, Form, Grid, Input, Space, Tabs, Typography, message } from 'antd';
+import { history, useModel } from '@/runtime';
+import { Alert, App, Button, Card, Form, Grid, Input, Space, Tabs, Typography } from 'antd';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { DegradeBanner } from '@/components';
@@ -9,6 +9,7 @@ import { startSsoLogin } from '@/services/account';
 import { isApiMode } from '@/services/dataMode';
 
 export default function LoginPage() {
+  const { message } = App.useApp();
   const { setInitialState } = useModel('@@initialState');
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(0);
@@ -90,8 +91,8 @@ export default function LoginPage() {
               label: '账号密码',
               children: (
                 <Form form={form} layout="vertical" onFinish={submit} initialValues={apiMode ? undefined : { account: 'scm_lead@chainguard.demo', password: 'Demo@1234' }}>
-                  <Form.Item name="account" label="手机号/邮箱" rules={[{ required: true, message: '请输入手机号或邮箱' }]}><Input prefix={<UserOutlined />} /></Form.Item>
-                  <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}><Input.Password prefix={<LockOutlined />} /></Form.Item>
+                  <Form.Item name="account" label="手机号/邮箱" rules={[{ required: true, message: '请输入手机号或邮箱' }]}><Input autoComplete="username" prefix={<UserOutlined />} /></Form.Item>
+                  <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}><Input.Password autoComplete="current-password" prefix={<LockOutlined />} /></Form.Item>
                   {!apiMode && failed >= 5 && <Form.Item name="captcha" label="图形验证码" rules={[{ required: true, message: '请输入验证码' }]}><Input placeholder="连续失败后出现，mock 任意输入" /></Form.Item>}
                   {!apiMode && failed >= 10 && <Alert type="error" showIcon message="账号已锁定 15 分钟（mock 状态）" style={{ marginBottom: 16 }} />}
                   {/* 账号锁定与 IP 限流是两条独立防线，提示分开呈现，避免用户误以为只要换个网络就能继续试 */}

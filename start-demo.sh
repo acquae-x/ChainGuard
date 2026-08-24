@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ChainGuard 一键演示启动（macOS / Linux）。Windows 用 start-demo.ps1。
 #
-# 演示态刻意做成"单进程、单端口"：前端构建产物由 FastAPI 直接托管，不起 umi dev。
+# 演示态刻意做成"单进程、单端口"：前端构建产物由 FastAPI 直接托管，不起 Vite 开发服务器。
 # 这样现场不存在首屏现编译、开发服务器 OOM、前后端端口错配、CORS 配置错误这几类事故。
 #
 # uvicorn 固定单 worker：模型注册表当前是本地文件的读-改-写且无锁，
@@ -86,9 +86,7 @@ cd "$API_DIR"
 
 step 5 "构建前端"
 cd "$WEB_DIR"
-# umi 构建吃内存，默认堆下可能 OOM，显式抬高上限
 export NODE_OPTIONS=--max-old-space-size=6144
-npx max setup >/dev/null 2>&1
 npm run build 2>&1 | tail -3 | while read -r l; do ok "$l"; done
 [[ -f "$WEB_DIR/dist/index.html" ]] || die "前端构建产物缺失（chainguard-web/dist/index.html）"
 ok "dist/index.html 就绪，将由 FastAPI 直接托管"

@@ -1,5 +1,5 @@
 import ReactECharts from 'echarts-for-react';
-import { useAccess, useModel } from '@umijs/max';
+import { useAccess, useModel } from '@/runtime';
 import { Button, Card, Col, Empty, Row, Space, Table, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KpiCard, RiskTag, StatusTag } from '@/components';

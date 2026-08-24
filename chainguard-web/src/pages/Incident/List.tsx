@@ -1,5 +1,5 @@
-import { history } from '@umijs/max';
-import { ProTable } from '@ant-design/pro-components';
+import { history } from '@/runtime';
+import { ProTable } from '@/components/pro';
 import { Button } from 'antd';
 import { RiskTag, StatusTag } from '@/components';
 import { getIncidents } from '@/services/incident';

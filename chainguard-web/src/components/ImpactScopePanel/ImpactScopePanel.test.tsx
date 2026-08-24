@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ImpactScopePanel from './index';
 
 const push = vi.fn();
-vi.mock('@umijs/max', () => ({ history: { push: (...args: unknown[]) => push(...args) } }));
+vi.mock('@/runtime', () => ({ history: { push: (...args: unknown[]) => push(...args) } }));
 
 const GROUP_ORDER = ['material', 'inventory', 'warehouse', 'supplier', 'order', 'customer', 'task'];
 const LABELS: Record<string, string> = {

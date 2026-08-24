@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { Alert, Button, Card, Col, Empty, Row, Select, Space, Spin, Table, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getMyNodes, getNodeHealth } from '@/services/dashboard';

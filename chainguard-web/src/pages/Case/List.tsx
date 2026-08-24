@@ -1,4 +1,4 @@
-import { PageContainer } from '@ant-design/pro-components';
+import { PageContainer } from '@/components/pro';
 import { Card, Col, Empty, Input, Row, Space, Spin, Tag, Typography } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';

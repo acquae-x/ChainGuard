@@ -2,7 +2,7 @@
 // 核心原则：workflowStore mock 完整保留；后端不可用时显式黄条提示，禁止静默降级。
 import { create } from 'zustand';
 
-// DATA_MODE 由 umi define 注入（config.ts）。默认 api。
+// DATA_MODE 由 Vite define 注入（vite.config.ts）。默认 api。
 export const DATA_MODE: 'api' | 'mock' = ((process.env.DATA_MODE as 'api' | 'mock') || 'api');
 
 export function isApiMode() {

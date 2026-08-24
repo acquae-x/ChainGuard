@@ -1,0 +1,16 @@
+html, body, #root { min-height: 100%; margin: 0; }
+body { min-width: 320px; background: #f5f6f8; }
+* { box-sizing: border-box; }
+.app-loading { min-height: 100vh; display: grid; place-items: center; }
+.app-layout { min-height: 100vh; }
+.app-layout > .ant-layout { min-width: 0; }
+.app-sider { position: sticky !important; top: 0; height: 100vh; overflow: auto; border-right: 1px solid #f0f0f0; }
+.app-brand { height: 56px; display: grid; place-items: center; color: #1b4f9c; font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+.app-header { height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #f0f0f0; }
+.app-header-title { white-space: nowrap; }
+.app-content { min-width: 0; padding: 24px; overflow-x: hidden; }
+@media (max-width: 767px) {
+  .app-header { padding: 0 12px; }
+  .app-header-title { display: none; }
+  .app-content { padding: 12px; }
+}

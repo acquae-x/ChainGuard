@@ -5,7 +5,7 @@ import NodeHealthPanel from './index';
 import { dashboardConfig } from '@/pages/Dashboard/dashboardConfig';
 
 const push = vi.fn();
-vi.mock('@umijs/max', () => ({ history: { push: (...args: unknown[]) => push(...args) } }));
+vi.mock('@/runtime', () => ({ history: { push: (...args: unknown[]) => push(...args) } }));
 
 const MATERIAL_NODE = {
   nodeType: 'material',

@@ -1,4 +1,4 @@
-import { PageContainer } from '@ant-design/pro-components';
+import { PageContainer } from '@/components/pro';
 import { Alert, Button, Card, Col, Form, Row, Select, Space, Spin, Steps, Switch, Tag, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { ROLE_LABELS } from '@/constants/status';

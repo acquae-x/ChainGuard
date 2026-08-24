@@ -37,7 +37,7 @@ const lines = [
   '- `admin` 可配置租户、用户、角色和数据，但 `canApproval=false`，不出现审批按钮。',
   '- `buyer` 无 `field:cost:view`、`field:supplierPrice:view`，成本与供应商价格显示为 `***`。',
   '- 数据管理按二级对象权限裁剪；表中的 `✅` 表示该角色至少可访问该路由，导入写操作仍需 `canImport`。',
-  '- 未授权路由由 Umi access 拦截到 403，隐藏路由（事件详情、方案生成）仍执行相同访问控制。', ''
+  '- 未授权路由由 React Router 权限守卫拦截到 403，隐藏路由（事件详情、方案生成）仍执行相同访问控制。', ''
 ];
 
 const output = path.join(__dirname, '..', 'docs', 'route-access-map.md');

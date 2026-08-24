@@ -1,4 +1,4 @@
-import { PageContainer } from '@ant-design/pro-components';
+import { PageContainer } from '@/components/pro';
 import { Alert, App, Button, Card, Col, Descriptions, Input, Popconfirm, Row, Space, Switch, Table, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { confirmCalibrationGovernance, getCalibrationGovernance, getRiskRules, updateRiskRule, type RiskRule } from '@/services/settings';

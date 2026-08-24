@@ -5,3 +5,6 @@ openpyxl>=3.1
 reportlab>=4.0
 # P0-3：buyer/boss PDF 脱敏对照测试用 pypdf 做真实文本提取
 pypdf>=4.0
+# tools/build_tech_doc_pdf.py：把 docs/*.md 渲染成 PDF（另需 node 与本机 Chrome/Edge）
+markdown>=3.5
+pip-audit>=2.9

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RiskExplanationDrawer from './index';
 
 const push = vi.fn();
-vi.mock('@umijs/max', () => ({ history: { push: (...args: unknown[]) => push(...args) } }));
+vi.mock('@/runtime', () => ({ history: { push: (...args: unknown[]) => push(...args) } }));
 
 const getRiskExplanation = vi.fn();
 // A04：抽屉第五段「影响范围」走独立端点，这里默认返回"不可用"，

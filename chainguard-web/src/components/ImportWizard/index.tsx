@@ -1,9 +1,8 @@
 import { DownloadOutlined, InboxOutlined } from '@ant-design/icons';
-import { history, useModel } from '@umijs/max';
+import { history, useModel } from '@/runtime';
 import { Alert, App, Button, Checkbox, Descriptions, Radio, Result, Select, Space, Steps, Table, Tag, Typography, Upload } from 'antd';
 import type { UploadProps } from 'antd';
 import { useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { EmptyGuide } from '@/components';
 import {
   commitImport,
@@ -21,6 +20,7 @@ import type {
   ParsedImportFile
 } from '@/services/data';
 import EnterpriseImportWizard from './EnterpriseImportWizard';
+import { downloadCsv, serializeCsv } from '@/utils/csv';
 
 const typeOptions: Array<{ label: string; value: ImportType }> = [
   { label: '物料', value: 'material' },
@@ -116,13 +116,13 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
       // A1: API 模式直接展示后端 preflight，容量/格式的最终口径不再由浏览器单独裁决。
       const serverPreflight = await preflightUpload(file, type);
       setPreflightReport(serverPreflight?.result);
-      // 服务端解析失败必须红灯并停在上传步骤，不再交给 SheetJS 继续
+      // 服务端解析失败必须红灯并停在上传步骤，浏览器不再尝试解析 XLSX。
       if (serverPreflight?.result?.verdict === 'PARSE_ERROR') {
         setError(serverPreflight.result?.messages?.[0] || 'XLSX 解析失败：文件可能损坏，导入已阻止');
         return;
       }
       if (/\.(pdf|png|jpe?g)$/i.test(file.name)) {
-        // 非表格文件不应交给 SheetJS；服务端预检已完成 OCR/视觉级联或给出待人工处理标记。
+        // 非表格文件由服务端完成 OCR/视觉级联或给出待人工处理标记。
         setParsed({ fileName: file.name, headers: [], rows: [], total: 0 });
         setFields([]);
         setMapping({});
@@ -132,7 +132,15 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
         message.info(serverPreflight?.status === 'manual_required' ? '文件已进入 staging，等待人工处理' : '文件已由服务端归一化，正在展示预检结果');
         return;
       }
-      const parsedFile = await parseFile(file);
+      const normalizedRows = serverPreflight?.result?.normalized?.previewRows;
+      const parsedFile = /\.xlsx$/i.test(file.name) && Array.isArray(normalizedRows)
+        ? {
+            fileName: file.name,
+            headers: Object.keys(normalizedRows[0] || {}),
+            rows: normalizedRows,
+            total: serverPreflight?.result?.estimatedRows ?? normalizedRows.length,
+          }
+        : await parseFile(file);
       const mappingResult = await getFieldMapping(type, parsedFile.headers);
       setParsed(parsedFile);
       setFields(mappingResult.fields);
@@ -163,18 +171,14 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
 
   const downloadTemplate = async () => {
     const template = await getImportTemplate(type);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(template.rows), template.sheetName);
-    XLSX.writeFile(workbook, template.fileName);
+    downloadCsv(template.fileName, template.rows);
   };
 
   const useExampleFile = async () => {
     const template = await getImportTemplate(type);
     const rows = [...template.rows, { ...template.rows[0] }];
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), template.sheetName);
-    const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
-    await loadFile(new File([content], `${type}-example.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const content = serializeCsv(rows);
+    await loadFile(new File([content], `${type}-example.csv`, { type: 'text/csv;charset=utf-8' }));
   };
 
   const mappedTargets = Object.values(mapping).filter(Boolean);
@@ -227,9 +231,7 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
       ...parsed.rows[rowNumber - 2],
       错误原因: validation.errors.filter((error) => error.row === rowNumber).map((error) => error.message).join('；')
     }));
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(errorRows), '错误明细');
-    XLSX.writeFile(workbook, `${type}-import-errors.xlsx`);
+    downloadCsv(`${type}-import-errors.csv`, errorRows);
   };
 
   const next = async () => {
@@ -369,7 +371,7 @@ function LegacyImportWizard({ embedded = false }: { embedded?: boolean }) {
       {step === 4 && result && (
         <Space direction="vertical" size="middle">
           <Alert type={result.failed ? 'warning' : 'success'} showIcon message={`尝试 ${result.attempted ?? result.total} 条，成功 ${result.success}，失败 ${result.failed}`} description={`批次号：${result.batchId}`} />
-          {!!validation?.errors.length && <Button icon={<DownloadOutlined />} onClick={downloadErrorReport}>下载错误报告.xlsx</Button>}
+          {!!validation?.errors.length && <Button icon={<DownloadOutlined />} onClick={downloadErrorReport}>下载错误报告.csv</Button>}
         </Space>
       )}
 

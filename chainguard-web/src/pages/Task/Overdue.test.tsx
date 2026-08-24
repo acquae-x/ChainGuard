@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
 // #6：真实逾期任务按 assigneeName 聚合（非硬编码 [3,1,2]）；无 task:manage 不显示操作列。
-vi.mock('@umijs/max', () => ({ useAccess: () => ({ canTaskManage: false }) }));
+vi.mock('@/runtime', () => ({ useAccess: () => ({ canTaskManage: false }) }));
 const getTasksMock = vi.fn();
 vi.mock('@/services/task', () => ({ getTasks: (...a: any[]) => getTasksMock(...a), urge: vi.fn() }));
 vi.mock('echarts-for-react', () => ({ default: ({ option }: any) => <div data-testid="echart" data-option={JSON.stringify(option)} /> }));

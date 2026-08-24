@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { Alert, Button, Card, Form, Input, Typography, message } from 'antd';
 import { useState } from 'react';
 import { confirmPasswordReset, requestPasswordReset, type PasswordResetOutcome } from '@/services/account';

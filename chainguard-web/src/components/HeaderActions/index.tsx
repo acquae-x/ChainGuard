@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { Button, Divider, Dropdown, Grid, Space, Tag, Typography } from 'antd';
 import { EllipsisOutlined, LogoutOutlined, PlusOutlined, QuestionCircleOutlined, SwapOutlined, UserOutlined } from '@ant-design/icons';
 import GlobalSearch from '../GlobalSearch';
@@ -14,7 +14,10 @@ export default function HeaderActions({ user, tenant }: { user?: API.User; tenan
   // 登录页和会话恢复完成前不渲染需要鉴权的顶栏动作，避免通知接口的 401
   // 在开发环境触发错误遮罩，也避免向未登录用户展示空的用户菜单。
   if (!user) return null;
-  const compact = !screens.md;
+  // The expanded action group is wider than the content column once the
+  // desktop sider is present. Collapse it below Ant Design's xl breakpoint so
+  // 1099px/tablet-width pages cannot widen the document.
+  const compact = !screens.xl;
   const canCreateIncident = user?.permissions?.includes('risk:event:create');
   const showDemo = !isApiMode();
 

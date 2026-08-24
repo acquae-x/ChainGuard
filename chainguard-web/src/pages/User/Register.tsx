@@ -1,4 +1,4 @@
-import { history, useModel } from '@umijs/max';
+import { history, useModel } from '@/runtime';
 import { Button, Card, Form, Input, Radio, Select, Space, Steps, Typography, message } from 'antd';
 import { useState } from 'react';
 import { registerTenant } from '@/services/user';

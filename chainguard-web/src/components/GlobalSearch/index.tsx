@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { AutoComplete, Descriptions, Drawer, Empty, Input, Spin } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';

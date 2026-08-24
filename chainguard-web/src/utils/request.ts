@@ -1,6 +1,5 @@
-// ChainGuard 前端统一网络层（对应 Phase 2 §2.1）。
-// 基于 @umijs/max 自带 request（axios 内核），禁止 axios/redux。
-import { request as umiRequest, history } from '@umijs/max';
+// ChainGuard 前端统一网络层：原生 fetch + AbortController，无第三方 HTTP 客户端。
+import { history } from '@/runtime';
 import { message } from 'antd';
 import { markBackendDown } from '../services/dataMode';
 
@@ -45,15 +44,11 @@ type RequestOptions = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function normalizeError(err: any): ApiError {
-  const response = err?.response;
-  // 有响应但非 2xx → 读后端错误信封 {code,message,traceId}
-  if (response) {
-    const body = response.data || {};
-    const error: ApiError = new Error(body.message || `请求失败（${response.status}）`);
+function normalizeHttpError(status: number, body: any): ApiError {
+    const error: ApiError = new Error(body?.message || `请求失败（${status}）`);
     error.code = body.code;
     error.traceId = body.traceId;
-    error.httpStatus = response.status;
+    error.httpStatus = status;
     // 开发代理在后端不可达时会返回 502/503/504，而非浏览器层面的无响应错误。
     // 这同样属于后端不可用，应触发显式降级黄条。
     //
@@ -61,13 +56,25 @@ function normalizeError(err: any): ApiError {
     // {code,message,traceId} 错误信封。把它也判成网络故障会告诉管理员"后端服务暂不
     // 可用、数据可能为离线演示数据"——后端其实是健康的，真正该做的是去配加密密钥。
     // 因此：带错误码的响应一律按业务错误处理，只有裸的 502/503/504 才算后端不可达。
-    error.isNetwork = [502, 503, 504].includes(response.status) && !body.code;
+    error.isNetwork = [502, 503, 504].includes(status) && !body?.code;
     return error;
-  }
-  // 无响应 → 网络错误 / 超时
-  const error: ApiError = new Error('服务暂不可用，请稍后重试');
+}
+
+function normalizeNetworkError(err: unknown): ApiError {
+  const timedOut = err instanceof DOMException && err.name === 'AbortError';
+  const error: ApiError = new Error(timedOut ? '请求超时，请稍后重试' : '服务暂不可用，请稍后重试');
   error.isNetwork = true;
   return error;
+}
+
+function buildUrl(url: string, params?: Record<string, unknown>) {
+  const target = new URL(`${BASE_URL}${url}`, window.location.origin);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    if (Array.isArray(value)) value.forEach((item) => target.searchParams.append(key, String(item)));
+    else target.searchParams.set(key, String(value));
+  });
+  return `${target.pathname}${target.search}`;
 }
 
 async function core<T>(url: string, options: RequestOptions, attempt = 0): Promise<T> {
@@ -77,16 +84,29 @@ async function core<T>(url: string, options: RequestOptions, attempt = 0): Promi
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? TIMEOUT);
   try {
-    return await umiRequest<T>(`${BASE_URL}${url}`, {
+    const hasBody = options.data !== undefined && method !== 'GET' && method !== 'HEAD';
+    const isForm = typeof FormData !== 'undefined' && options.data instanceof FormData;
+    if (hasBody && !isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+    const response = await fetch(buildUrl(url, options.params), {
       method,
-      data: options.data,
-      params: options.params,
       headers,
-      timeout: options.timeoutMs ?? TIMEOUT,
+      body: hasBody ? (isForm ? options.data as FormData : JSON.stringify(options.data)) : undefined,
+      signal: controller.signal,
+      credentials: 'same-origin',
     });
-  } catch (raw: any) {
-    const error = normalizeError(raw);
+    const contentType = response.headers.get('content-type') || '';
+    const body = response.status === 204
+      ? undefined
+      : contentType.includes('application/json')
+        ? await response.json()
+        : await response.text();
+    if (!response.ok) throw normalizeHttpError(response.status, body || {});
+    return body as T;
+  } catch (raw: unknown) {
+    const error = (raw as ApiError)?.httpStatus ? raw as ApiError : normalizeNetworkError(raw);
 
     // 幂等 GET/HEAD 才重试（网络错误或 5xx），指数退避
     const retriable = IDEMPOTENT.has(method) && (error.isNetwork || (error.httpStatus ?? 0) >= 500);
@@ -113,6 +133,8 @@ async function core<T>(url: string, options: RequestOptions, attempt = 0): Promi
 
     if (!options.silent) message.error(error.message);
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 

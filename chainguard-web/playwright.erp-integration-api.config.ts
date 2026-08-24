@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolve } from 'node:path';
 
+const __dirname = import.meta.dirname;
+
 const apiPort = Number(process.env.ERP_E2E_API_PORT || 8470);
 const webPort = Number(process.env.ERP_E2E_WEB_PORT || 8471);
 const erpPort = Number(process.env.ERP_E2E_MOCK_PORT || 8472);

@@ -1,5 +1,5 @@
-import { Access, history, useAccess, useParams } from "@umijs/max";
-import { PageContainer, ProTable } from "@ant-design/pro-components";
+import { Access, history, useAccess, useParams } from "@/runtime";
+import { PageContainer, ProTable } from "@/components/pro";
 import {
   Alert,
   App,

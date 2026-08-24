@@ -1,4 +1,4 @@
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Alert, Button, Select, Space, Tag, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { getDataScopes, saveDataScopes, type DataScopeView } from '@/services/settings';

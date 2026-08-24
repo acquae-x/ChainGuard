@@ -1,5 +1,5 @@
-import { useAccess } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { useAccess } from '@/runtime';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Button, Descriptions, Drawer, Tag } from 'antd';
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons';
 import { useState } from 'react';

@@ -1,6 +1,6 @@
-import { useAccess } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
-import type { ProColumns } from '@ant-design/pro-components';
+import { useAccess } from '@/runtime';
+import { PageContainer, ProTable } from '@/components/pro';
+import type { ProColumns } from '@/components/pro';
 import { Button, Card, Empty, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { BellOutlined } from '@ant-design/icons';

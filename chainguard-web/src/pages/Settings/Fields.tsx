@@ -1,4 +1,4 @@
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Button, Card, Drawer, Flex, Form, Input, Select, Space, Switch, Tag, message } from 'antd';
 import { LockOutlined, PlusOutlined, StopOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';

@@ -1,5 +1,5 @@
-import { history } from '@umijs/max';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { history } from '@/runtime';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Button, Tag } from 'antd';
 import { EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { RiskTag, SensitiveField } from '@/components';

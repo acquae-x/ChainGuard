@@ -7,7 +7,7 @@ const { pushMock, markReadMock, getNotificationsMock } = vi.hoisted(() => ({
   markReadMock: vi.fn(() => Promise.resolve({ ok: true })),
   getNotificationsMock: vi.fn(),
 }));
-vi.mock('@umijs/max', () => ({ history: { push: pushMock } }));
+vi.mock('@/runtime', () => ({ history: { push: pushMock } }));
 vi.mock('@/services/notify', () => ({
   getNotifications: getNotificationsMock,
   markRead: markReadMock,

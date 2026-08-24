@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolve } from 'node:path';
 
+const __dirname = import.meta.dirname;
+
 // A03 风险解释的独立验收配置：与 calibration/erp/experience 同构，
 // 单独的端口与数据库，避免与既有验收套件互相污染。
 const apiPort = Number(process.env.RISK_EXPLAIN_API_PORT || 8440);

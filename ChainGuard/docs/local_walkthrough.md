@@ -29,7 +29,7 @@ python -c "from src.webapi.seed import seed; seed()"
 python -m uvicorn src.api:app --port 8000
 ```
 
-端口必须是 8000——前端的 `/api` 代理目标写死在 `config/config.ts`。
+后端示例使用 8000；前端可通过 `API_PROXY_TARGET` 修改 `/api` 代理目标。
 
 ## 3. 起前端（终端 B，保持运行）
 
@@ -38,7 +38,7 @@ cd chainguard-web
 PORT=8001 DATA_MODE=api npm run dev
 ```
 
-`PORT=8001` 是必须的：umi 默认也占 8000，会和后端打架。
+`PORT=8001` 用于避免与后端的 8000 端口冲突。
 `DATA_MODE=api` 表示走真后端；不加也默认 api，加上是为了明确。
 
 打开 http://localhost:8001

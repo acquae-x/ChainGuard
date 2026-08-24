@@ -1,5 +1,5 @@
-import { history, useAccess, useModel } from '@umijs/max';
-import { PageContainer } from '@ant-design/pro-components';
+import { history, useAccess, useModel } from '@/runtime';
+import { PageContainer } from '@/components/pro';
 import { Badge, Button, Card, Checkbox, Flex, Radio, Space, Tag, Typography, message } from 'antd';
 import { CheckOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';

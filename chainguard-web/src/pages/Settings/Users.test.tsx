@@ -3,7 +3,7 @@ import { App } from 'antd';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // #11：重置密码必须弹确认对话框（Popconfirm）。
-vi.mock('@umijs/max', () => ({ history: { push: vi.fn() } }));
+vi.mock('@/runtime', () => ({ history: { push: vi.fn() } }));
 vi.mock('@/services/settings', () => ({
   getUsers: vi.fn().mockResolvedValue({ data: [{ id: 'u1', name: '张三', phone: '13800000001', email: 'z@x.com', roleCode: 'buyer', dataScope: 'custom', status: 'active' }], total: 1, success: true }),
   getDepartments: vi.fn().mockResolvedValue([]),

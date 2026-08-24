@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 // 回归防线：本页曾把 ¥732,000 / 18 / 5.2 直接写死在 JSX 里，不调用任何服务。
 const getExecutiveReport = vi.fn();
 vi.mock('@/services/report', () => ({ getExecutiveReport: (months: number) => getExecutiveReport(months) }));
-vi.mock('@umijs/max', () => ({ useModel: () => ({ initialState: { currentUser: { permissions: ['field:cost:view', 'field:profit:view'] } } }) }));
+vi.mock('@/runtime', () => ({ useModel: () => ({ initialState: { currentUser: { permissions: ['field:cost:view', 'field:profit:view'] } } }) }));
 vi.mock('@/components', () => ({
   KpiCard: ({ title, value }: any) => <div>{title}:{String(value)}</div>,
   SensitiveField: ({ value }: any) => <span>{value}</span>,

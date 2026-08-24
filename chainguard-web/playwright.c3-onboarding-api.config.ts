@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolve } from 'node:path';
 
+const __dirname = import.meta.dirname;
+
 const apiPort = Number(process.env.C3_API_PORT || 8450);
 const webPort = Number(process.env.C3_WEB_PORT || 8451);
 const databaseUrl = process.env.C3_DATABASE_URL;

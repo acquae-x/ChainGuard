@@ -1,5 +1,7 @@
 import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+const __dirname = import.meta.dirname;
 import { expect, test, type Page } from '@playwright/test';
 
 const apiPort = Number(process.env.CALIBRATION_API_PORT || 8420);

@@ -1,4 +1,4 @@
-import { Access, history, useAccess, useModel } from '@umijs/max';
+import { Access, history, useAccess, useModel } from '@/runtime';
 import { Alert, Button, Card, Col, Empty, List, Result, Row, Space, Table, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';

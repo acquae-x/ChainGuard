@@ -1,4 +1,4 @@
-import { StatisticCard } from '@ant-design/pro-components';
+import { StatisticCard } from '@/components/pro';
 
 export default function KpiCard({ title, value, suffix, trend }: { title: string; value: number | string; suffix?: string; trend?: string }) {
   return (

@@ -1,5 +1,5 @@
-import { Access, history, useAccess, useParams } from '@umijs/max';
-import { PageContainer } from '@ant-design/pro-components';
+import { Access, history, useAccess, useParams } from '@/runtime';
+import { PageContainer } from '@/components/pro';
 import { Alert, Badge, Button, Card, Collapse, Descriptions, Drawer, Empty, Flex, Form, InputNumber, Radio, Result, Select, Space, Statistic, Table, Tag, Typography, message } from 'antd';
 import { AppstoreOutlined, EditOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined, SendOutlined, TableOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';

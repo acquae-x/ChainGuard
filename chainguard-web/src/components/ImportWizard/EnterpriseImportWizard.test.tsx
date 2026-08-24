@@ -13,7 +13,7 @@ const { getCatalog, uploadForRecognition, preflightRecognizedJob, confirmAndExec
   syncErp: vi.fn(),
 }));
 
-vi.mock('@umijs/max', () => ({
+vi.mock('@/runtime', () => ({
   useModel: () => ({ initialState: { currentUser: { permissions: ['data:import'] } } }),
 }));
 

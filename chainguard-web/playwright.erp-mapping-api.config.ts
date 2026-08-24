@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolve } from 'node:path';
 
+const __dirname = import.meta.dirname;
+
 // ERP 字段映射的独立验收配置：与 erp-integration/node-health 同构，
 // 单独的端口与数据库，避免与既有验收套件互相污染。
 // 端口默认值必须与 e2e/erp-field-mapping-api-acceptance.spec.ts 的默认值一致，

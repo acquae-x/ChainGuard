@@ -9,7 +9,7 @@ vi.mock('@/services/settings', () => ({
   getTenant: () => getTenant(),
   saveTenant: (values: any) => saveTenant(values),
 }));
-vi.mock('@umijs/max', () => ({
+vi.mock('@/runtime', () => ({
   useModel: () => ({ initialState: { tenant }, setInitialState }),
 }));
 

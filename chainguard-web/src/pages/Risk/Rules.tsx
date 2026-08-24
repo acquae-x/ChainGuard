@@ -1,5 +1,5 @@
-import { useAccess } from '@umijs/max';
-import { ProTable } from '@ant-design/pro-components';
+import { useAccess } from '@/runtime';
+import { ProTable } from '@/components/pro';
 import { Switch, Tag, message } from 'antd';
 import { getRules, updateRule } from '@/services/risk';
 

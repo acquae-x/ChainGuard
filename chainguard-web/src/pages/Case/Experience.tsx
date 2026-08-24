@@ -1,4 +1,4 @@
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Empty, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import { getExperienceCards } from '@/services/decision';

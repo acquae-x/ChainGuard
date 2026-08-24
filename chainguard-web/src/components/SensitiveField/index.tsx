@@ -1,6 +1,6 @@
 import { LockOutlined } from '@ant-design/icons';
 import { Tooltip, Typography } from 'antd';
-import { useModel } from '@umijs/max';
+import { useModel } from '@/runtime';
 import type { ReactNode } from 'react';
 import type { SensitiveFieldCode } from '@/constants/status';
 

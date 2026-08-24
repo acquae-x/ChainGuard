@@ -1,5 +1,5 @@
-import { PageContainer } from '@ant-design/pro-components';
-import { useModel } from '@umijs/max';
+import { PageContainer } from '@/components/pro';
+import { useModel } from '@/runtime';
 import { Alert, Card, Col, Empty, Row, Select, Spin, Statistic, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useEffect, useState } from 'react';

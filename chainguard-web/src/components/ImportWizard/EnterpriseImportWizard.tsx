@@ -7,7 +7,7 @@ import {
   ScanOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { useModel } from '@umijs/max';
+import { useModel } from '@/runtime';
 import {
   Alert,
   App,

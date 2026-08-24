@@ -6,7 +6,9 @@ import { resolve } from 'path';
 export default {
   plugins: [react()],
   resolve: {
-    alias: { '@': resolve(__dirname, 'src') },
+    alias: {
+      '@': resolve(import.meta.dirname, 'src'),
+    },
   },
   test: {
     environment: 'jsdom',

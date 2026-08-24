@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 // #3：窄屏（jsdom matchMedia matches:false → compact）只留 更多/通知/用户，搜索/上报收进「更多」。
-vi.mock('@umijs/max', () => ({ history: { push: vi.fn() } }));
+vi.mock('@/runtime', () => ({ history: { push: vi.fn() } }));
 vi.mock('@/services/user', () => ({ logout: vi.fn(), switchDemoRole: vi.fn() }));
 vi.mock('@/services/mockData', () => ({ roleNames: {} }));
 vi.mock('@/services/dataMode', () => ({ isApiMode: () => true }));

@@ -246,7 +246,9 @@ test('C2 真实 API 产品界面收尾验收', async ({ page }) => {
   });
   await expect(page.getByRole('columnheader', { name: '关系' })).toBeVisible();
   await capture(page, '06b-supplier-detail-default-qualified.png');
-  await page.getByRole('button', { name: '关闭' }).click();
+  // Ant Design exposes the drawer close control as "Close" even under the
+  // Chinese locale; accept both accessible names across supported versions.
+  await page.getByRole('button', { name: /关闭|Close/ }).click();
 
   await page.goto('/data/customer');
   await expectTotal(page, 120);
@@ -296,8 +298,11 @@ test('真实上传闭环、部分拒绝、重复签名与租户隔离', async ({
   await page.getByRole('tab', { name: '导入历史' }).click();
   const historyRow = page.locator('.ant-tabs-tabpane-active .ant-table-row').filter({ hasText: jobId! });
   await expect(historyRow).toBeVisible();
-  await historyRow.locator('.ant-table-row-expand-icon').click();
-  await expect(page.getByRole('table', { name: `${jobId} 逐表导入报告` })).toBeVisible();
+  const historyReport = page.getByRole('table', { name: `${jobId} 逐表导入报告` });
+  if (!await historyReport.isVisible()) {
+    await historyRow.locator('.ant-table-row-expand-icon:visible').click();
+  }
+  await expect(historyReport).toBeVisible();
 
   await page.goto('/data/material');
   await expect(page.getByText('MAT-E2E-001')).toBeVisible();

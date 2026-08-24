@@ -1,4 +1,4 @@
-import { history } from '@umijs/max';
+import { history } from '@/runtime';
 import { Alert, Button, Card, Descriptions, Drawer, Empty, Progress, Space, Spin, Table, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 // 直接引 RiskTag 而非从 '@/components' 桶文件引，避免 index.ts ↔ 本组件的循环依赖。

@@ -5,7 +5,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 // /tasks 返回 403 让 Promise.all 整体 reject，把已经 200 的影响范围一起拖垮。
 // 断言两件事：无任务权限时不请求 /tasks 且影响范围照常渲染；任务请求真的失败时同样不阻断。
 const accessMock = { canTask: false, canManageIncident: false };
-vi.mock('@umijs/max', () => ({
+vi.mock('@/runtime', () => ({
   useAccess: () => accessMock,
   useParams: () => ({ id: 'inc-a04' }),
   history: { push: vi.fn(), replace: vi.fn(), location: { pathname: '/incident/inc-a04' } },

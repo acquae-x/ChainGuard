@@ -1,4 +1,4 @@
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@/components/pro';
 import { App, Alert, Button, Drawer, Form, Input, InputNumber, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
 import { PlusOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useState } from 'react';

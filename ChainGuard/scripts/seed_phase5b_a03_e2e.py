@@ -37,6 +37,7 @@ ACCOUNT_B = "a03-real-b@chainguard.test"
 
 MANAGER_PERMISSIONS = [
     "dashboard:view", "risk:view", "incident:view", "risk:manage", "risk:event:create",
+    "data:inventory:manage",
     "decision:view", "field:cost:view", "field:profit:view", "field:customerLevel:view",
     "field:supplierPrice:view",
 ]

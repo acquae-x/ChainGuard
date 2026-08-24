@@ -1,6 +1,6 @@
-import { history, useAccess } from '@umijs/max';
-import { LightFilter, ProFormDateRangePicker, ProFormSelect, ProTable } from '@ant-design/pro-components';
-import type { ProColumns } from '@ant-design/pro-components';
+import { history, useAccess } from '@/runtime';
+import { LightFilter, ProFormDateRangePicker, ProFormSelect, ProTable } from '@/components/pro';
+import type { ProColumns } from '@/components/pro';
 import { Button, Drawer, Form, Input, Modal, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -125,7 +125,7 @@ export default function RiskListPage() {
         <Space><Button onClick={() => setDrawer(undefined)}>取消</Button><Button type="primary" onClick={async () => { const created = await createIncidentFromRisks([drawer!.id]); history.push(`/incident/${created.id}`); }}>生成事件并查看详情</Button></Space>
       </Form>
     </Drawer>
-    <Modal title="忽略风险" open={!!ignoreTarget} onCancel={() => setIgnoreTarget(undefined)} onOk={async () => {
+    <Modal title="忽略风险" okText="确定" cancelText="取消" open={!!ignoreTarget} onCancel={() => setIgnoreTarget(undefined)} onOk={async () => {
       const values = await ignoreForm.validateFields();
       await ignoreRisk(ignoreTarget!.id, values.reason);
       setIgnoreTarget(undefined); ignoreForm.resetFields(); actionRef.current?.reload();

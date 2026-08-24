@@ -1,8 +1,8 @@
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer, ProTable } from '@/components/pro';
 import { Card, Col, Empty, Row, Select, Spin, Statistic } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useEffect, useState } from 'react';
-import { useModel } from '@umijs/max';
+import { useModel } from '@/runtime';
 import { ROLE_LABELS } from '@/constants/status';
 import { getOperationReport, type OperationReport } from '@/services/report';
 

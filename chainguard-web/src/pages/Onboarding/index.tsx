@@ -1,4 +1,4 @@
-import { history, useAccess } from '@umijs/max';
+import { history, useAccess } from '@/runtime';
 import { Alert, App, Button, Card, Descriptions, Result, Space, Spin, Steps, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { ImportWizard } from '@/components';

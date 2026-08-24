@@ -1,4 +1,4 @@
-import { PageContainer } from '@ant-design/pro-components';
+import { PageContainer } from '@/components/pro';
 import { Alert, App, Button, Card, Col, Descriptions, Form, Input, InputNumber, Row, Space, Table, Tag } from 'antd';
 import { ApiOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';

@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolve } from 'node:path';
 
+const __dirname = import.meta.dirname;
+
 // Phase 5B「账户完善」的独立验收配置：把原先 scripts/run_phase5b_account_acceptance.sh
 // 手工编排的后端 + mock IdP + API 模式前端收进单一配置，使其能进统一发布门禁。
 //
