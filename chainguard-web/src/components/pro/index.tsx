@@ -1,5 +1,5 @@
 import type { MutableRefObject, ReactNode } from 'react';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Card, DatePicker, Form, Select, Space, Statistic, Table, Typography } from 'antd';
 import type { TableColumnsType, TablePaginationConfig, TableProps } from 'antd';
 
@@ -47,6 +47,11 @@ function LocalProTable<T extends object>(props: ProTableProps<T>, ref: React.For
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [total, setTotal] = useState(controlledData?.length || 0);
   const paramsKey = JSON.stringify(params);
+  // Callers commonly pass an inline request adapter. Its identity changes on
+  // every render, but that must not turn loading/data state updates into a
+  // request loop that also resets Ant Table expansion state.
+  const requestRef = useRef(request);
+  requestRef.current = request;
   const tableColumns = useMemo(() => columns.map((column) => {
     const compatible = column as ProColumns<T> & { renderText?: (value: unknown, row: T, index: number) => ReactNode };
     if (!compatible.render && compatible.renderText) {
@@ -56,16 +61,17 @@ function LocalProTable<T extends object>(props: ProTableProps<T>, ref: React.For
   }) as TableColumnsType<T>, [columns]);
 
   const load = useCallback(async () => {
-    if (!request) return;
+    const activeRequest = requestRef.current;
+    if (!activeRequest) return;
     setLoading(true);
     try {
-      const result = await request({ current, pageSize, ...params });
+      const result = await activeRequest({ current, pageSize, ...params });
       setData(result.data || []);
       setTotal(result.total ?? result.data?.length ?? 0);
     } finally {
       setLoading(false);
     }
-  }, [request, current, pageSize, paramsKey]);
+  }, [current, pageSize, paramsKey]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
