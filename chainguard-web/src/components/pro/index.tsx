@@ -52,6 +52,8 @@ function LocalProTable<T extends object>(props: ProTableProps<T>, ref: React.For
   // request loop that also resets Ant Table expansion state.
   const requestRef = useRef(request);
   requestRef.current = request;
+  const autoLoadKey = `${current}\u0000${pageSize}\u0000${paramsKey}`;
+  const lastAutoLoadKey = useRef<string>();
   const tableColumns = useMemo(() => columns.map((column) => {
     const compatible = column as ProColumns<T> & { renderText?: (value: unknown, row: T, index: number) => ReactNode };
     if (!compatible.render && compatible.renderText) {
@@ -73,7 +75,14 @@ function LocalProTable<T extends object>(props: ProTableProps<T>, ref: React.For
     }
   }, [current, pageSize, paramsKey]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!requestRef.current || lastAutoLoadKey.current === autoLoadKey) return;
+    // React Strict Mode deliberately runs mount effects twice in development.
+    // Deduplicate that replay so a slower second response cannot replace table
+    // data after the user has already expanded a row.
+    lastAutoLoadKey.current = autoLoadKey;
+    void load();
+  }, [load, autoLoadKey, Boolean(request)]);
   useEffect(() => {
     if (controlledData) {
       setData(controlledData);

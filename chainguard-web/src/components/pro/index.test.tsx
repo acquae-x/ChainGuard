@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ProTable } from './index';
@@ -21,11 +22,11 @@ describe('ProTable', () => {
       </div>;
     }
 
-    const view = render(<Harness label="first" />);
+    const view = render(<StrictMode><Harness label="first" /></StrictMode>);
     await screen.findByText('succeeded');
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
 
-    view.rerender(<Harness label="second" />);
+    view.rerender(<StrictMode><Harness label="second" /></StrictMode>);
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
   });
 });

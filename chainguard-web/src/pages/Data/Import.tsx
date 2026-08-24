@@ -5,6 +5,7 @@ import { DownloadOutlined, RollbackOutlined } from '@ant-design/icons';
 import { ImportWizard } from '@/components';
 import { getImportHistory, rollback } from '@/services/data';
 import type { ImportTableReport, NormalizedImportHistoryJob } from '@/services/importHistory';
+import { useState } from 'react';
 
 const reportColumns = [
   { title: '资料表', key: 'table', render: (_: unknown, row: ImportTableReport) => row.label !== '-' ? row.label : row.table },
@@ -18,6 +19,7 @@ const reportColumns = [
 export default function DataImport() {
   const access = useAccess();
   const screens = Grid.useBreakpoint();
+  const [expandedHistoryRows, setExpandedHistoryRows] = useState<string[]>([]);
   const { search } = useLocation();
   const requestedTab = new URLSearchParams(search).get('tab');
   const tab = requestedTab === 'history' ? 'history' : 'wizard';
@@ -31,6 +33,10 @@ export default function DataImport() {
           search={false}
           request={async () => ({ ...(await getImportHistory()), success: true })}
           expandable={{
+            expandedRowKeys: expandedHistoryRows,
+            onExpand: (expanded, row) => setExpandedHistoryRows((current) => expanded
+              ? [...new Set([...current, row.id])]
+              : current.filter((id) => id !== row.id)),
             rowExpandable: (row) => row.reports.length > 0,
             expandedRowRender: (row) => <Table<ImportTableReport>
               aria-label={`${row.id} 逐表导入报告`}
