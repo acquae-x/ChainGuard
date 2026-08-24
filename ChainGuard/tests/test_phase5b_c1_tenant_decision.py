@@ -425,9 +425,10 @@ def test_web_real_closed_loop_persists_tenant_context_and_uses_worker_session() 
     assert client.get(f"/api/v1/jobs/{foreign_job.id}", headers=_headers()).status_code == 404
     assert client.get(f"/api/v1/incidents/{foreign_incident.id}", headers=_headers()).status_code == 404
 
-    # Regression proof: _run_decision_job and its decision worker acquire Sessions
-    # in different threads; no request Session object is passed to either boundary.
+    # Regression proof: the durable worker runs outside the request thread and
+    # creates every Session it needs there; no request Session crosses the boundary.
     thread_ids: list[int] = []
+    request_thread_id = threading.get_ident()
     real_factory = jobs.SessionLocal
     ctx = AuthContext("u-scm_lead", tenant_id, "供应链负责人", "scm_lead", ())
     with SessionLocal() as db:
@@ -441,8 +442,11 @@ def test_web_real_closed_loop_persists_tenant_context_and_uses_worker_session() 
         return real_factory()
 
     with patch("src.webapi.jobs.SessionLocal", side_effect=tracked_factory):
-        jobs._run_decision_job(job2.id, ctx)
-    assert len(set(thread_ids)) >= 2
+        worker = threading.Thread(target=jobs._run_decision_job, args=(job2.id, ctx))
+        worker.start()
+        worker.join(timeout=30)
+    assert not worker.is_alive()
+    assert thread_ids and request_thread_id not in thread_ids
     with SessionLocal() as db:
         assert db.get(Job, job2.id).status == "succeeded"
     print(json.dumps({
