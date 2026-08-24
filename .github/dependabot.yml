@@ -4,13 +4,15 @@ updates:
     directory: /chainguard-web
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    # 保留依赖清单与安全告警能力；导师评审版不自动创建版本升级分支。
+    open-pull-requests-limit: 0
   - package-ecosystem: pip
     directory: /ChainGuard
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0

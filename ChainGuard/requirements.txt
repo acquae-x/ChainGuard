@@ -3,6 +3,8 @@ scikit-learn>=1.0
 # sentence-transformers>=2.2
 fastapi>=0.110
 uvicorn>=0.27
+# FastAPI 的 UploadFile/Form 路由在应用启动时直接需要该包，不能依赖开发机的传递安装。
+python-multipart==0.0.31
 httpx>=0.27
 SQLAlchemy>=2.0,<3
 alembic>=1.13,<2

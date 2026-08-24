@@ -1,5 +1,6 @@
 pytest
-ruff>=0.6,<1
+# 0.16 起默认规则集发生变化；固定到导师评审版实际验证过的版本，避免 CI 漂移。
+ruff==0.15.21
 # 演示数据生成脚本（scripts/generate_enterprise_demo_data.py）写 xlsx 账套与 PDF 单据所需
 openpyxl>=3.1
 reportlab>=4.0
